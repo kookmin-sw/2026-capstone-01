@@ -15,6 +15,14 @@ from app.domain.chat.worker.reconcile import (
     start_reconcile_scheduler,
     stop_reconcile_scheduler,
 )
+from app.domain.chat.worker.node_registry import (
+    start_node_registry,
+    stop_node_registry,
+)
+from app.domain.chat.worker.fanout_dispatcher import (
+    start_fanout_dispatcher,
+    stop_fanout_dispatcher,
+)
 from app.domain.auth.worker.withdraw_purge import (
     start_withdraw_purge_scheduler,
     stop_withdraw_purge_scheduler,
@@ -59,6 +67,15 @@ def create_app() -> FastAPI:
         # (ws.py 의 recover_unread 경로도 같은 session_factory 공유)
         start_reconcile_scheduler(app.container.session_factory())
 
+        # 채팅 멀티 노드 fan-out 인프라 — FANOUT_MODE=in_process 면 둘 다 no-op.
+        # 순서 중요 (race window 차단):
+        #   1) dispatcher 가 먼저 `node:{NODE_ID}` 채널 SUBSCRIBE 까지 await
+        #   2) 그 다음 node_registry 가 ZSET 에 자기 노드 등록 → 다른 노드의 publisher 가
+        #      list_active_nodes 로 우리를 인지한 시점엔 이미 채널 활성. 반대 순서면 ZSET
+        #      등록 ~ SUBSCRIBE 사이 publish 가 누락됨.
+        await start_fanout_dispatcher(app.container.fanout_service())
+        await start_node_registry()
+
         # 탈퇴 영구 삭제 워커 — 매일 KST 04:00 발화. RDB / Mongo / S3 / Redis 모두 사용하므로
         # init_mongodb / Redis pre-warm 이후에 시작.
         start_withdraw_purge_scheduler(app.container.session_factory())
@@ -69,9 +86,14 @@ def create_app() -> FastAPI:
 
         yield
 
-        # shutdown — 워커들이 Mongo/Redis 를 쓰므로 이 둘을 닫기 전에 먼저 멈춘다
+        # shutdown — 워커들이 Mongo/Redis 를 쓰므로 이 둘을 닫기 전에 먼저 멈춘다.
+        # 순서 중요 (startup 의 거울): node_registry 를 먼저 정리해 다른 노드의 publisher
+        # 가 다음 list_active_nodes 호출부터 우리를 즉시 제외하게 한 뒤, 디스패처가 안전히
+        # unsubscribe. 반대 순서면 디스패처 정지 ~ ZSET deregister 사이 publish 가 drop.
         await stop_withdraw_purge_scheduler()
         await stop_reconcile_scheduler()
+        await stop_node_registry()
+        await stop_fanout_dispatcher()
         close_fcm()
         await close_mongodb()
         await close_redis()

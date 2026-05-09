@@ -85,6 +85,10 @@ def make_fanout_mock() -> MagicMock:
     fanout.fan_out_to_session = AsyncMock()
     fanout.fan_out_to_user = AsyncMock()
     fanout.fan_out_to_room = AsyncMock()
+    # Phase 4 (node_channel) 진입 후 subscribe/unsubscribe 도 async — RoomService 가
+    # await 로 호출하므로 AsyncMock 으로 매칭.
+    fanout.subscribe_user_to_room = AsyncMock()
+    fanout.unsubscribe_user_from_room = AsyncMock()
     return fanout
 
 
