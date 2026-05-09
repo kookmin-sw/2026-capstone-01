@@ -114,8 +114,9 @@ class RoomService:
         # 구독을 fan-out 보다 먼저 — fan_out_to_user 의 await 사이 event loop 가
         # 양보해 한쪽 유저가 room_joined 직후 send_message 를 던질 경우, 아직 _room_subs
         # 에 안 들어간 상대방이 첫 메시지를 누락하는 race 를 차단.
+        # node_channel 모드에서도 동일 publisher 가 같은 채널로 publish 하므로 순서 보존.
         for uid in (user_a, user_b):
-            self._fanout.subscribe_user_to_room(uid, room_id)
+            await self._fanout.subscribe_user_to_room(uid, room_id)
 
         # 본인 포함 양쪽에 발행 — 같은 유저의 다른 세션 (폰→PC) 도 자동 구독되도록 (C3)
         for uid in (user_a, user_b):
@@ -198,7 +199,7 @@ class RoomService:
         # 구독을 fan-out 보다 먼저 — race 차단 (room_joined await 사이 누군가 송신 시
         # 아직 미구독 멤버 누락 방지). 시스템 메시지 fan_out_to_room 도 안전하게 도달.
         for uid in all_member_ids:
-            self._fanout.subscribe_user_to_room(uid, room_id)
+            await self._fanout.subscribe_user_to_room(uid, room_id)
 
         for uid in all_member_ids:
             await self._fanout.fan_out_to_user(
@@ -308,7 +309,7 @@ class RoomService:
         # 구독을 fan-out 보다 먼저 — race 차단 (room_joined await 사이 invitee 가 송신 시
         # 아직 미구독 다른 invitee 누락 방지)
         for uid in invited:
-            self._fanout.subscribe_user_to_room(uid, room_id)
+            await self._fanout.subscribe_user_to_room(uid, room_id)
 
         for uid in invited:
             await self._fanout.fan_out_to_user(
@@ -369,7 +370,7 @@ class RoomService:
         #   1) leak 차단 보장 — send_system_message 가 실패해도 이미 구독 해제됨
         #   2) UX — leaver 가 자기 "방 나감" 시스템 메시지를 받지 않음 (room_left 이벤트로
         #      이미 별도 알림). 카톡/슬랙/디스코드 표준 동작과 일관.
-        self._fanout.unsubscribe_user_from_room(me_id, room_id)
+        await self._fanout.unsubscribe_user_from_room(me_id, room_id)
 
         # 타임라인 시스템 메시지 — "A 님이 방을 나갔습니다" (다른 방 멤버용)
         await self._message_service.send_system_message(
@@ -426,7 +427,7 @@ class RoomService:
         )
 
         # leave_room 과 동일 — 시스템 메시지 이전에 구독 해제 (leak 차단 + 표준 UX)
-        self._fanout.unsubscribe_user_from_room(target_user_id, room_id)
+        await self._fanout.unsubscribe_user_from_room(target_user_id, room_id)
 
         # 타임라인 시스템 메시지 — "A 님이 B 를 내보냈습니다" (다른 방 멤버용)
         await self._message_service.send_system_message(
