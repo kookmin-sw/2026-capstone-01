@@ -32,6 +32,7 @@ import app.database.model # Relation Lazy Load 문제 해결하기 위한 import
 from app.core.ai.tour_planner.load import TourPlanner
 from app.core.logger import setup_logging, get_logger
 from app.core.ai.menu_ocr.load import MenuOcr
+from app.core.ai.papago_translator.load import PapagoTranslator
 from app.core.redis import get_redis_client, get_redis_dedupe_client, close_redis
 from app.core.fcm import init_fcm, close_fcm
 from app.core.chat.lua_script import lua_scripts
@@ -81,6 +82,7 @@ def create_app() -> FastAPI:
         start_withdraw_purge_scheduler(app.container.session_factory())
 
         MenuOcr().load()
+        PapagoTranslator().load()
         await TourPlanner().load()
         logger.info("Starting application in {} mode", settings.ENVIRONMENT)
 
@@ -94,6 +96,7 @@ def create_app() -> FastAPI:
         await stop_reconcile_scheduler()
         await stop_node_registry()
         await stop_fanout_dispatcher()
+        await PapagoTranslator().close()
         close_fcm()
         await close_mongodb()
         await close_redis()
@@ -110,6 +113,7 @@ def create_app() -> FastAPI:
         "app.domain.tripmate.router.tripmate_search_history",
         "app.domain.tripmate.router.tripmate_image",
         "app.domain.menu_ai.router.menu_ocr",
+        "app.domain.translation.router.translation",
         "app.domain.tour.router.place",
         "app.domain.tour.router.recommend",
         "app.domain.tour.router.tour_search_history",
