@@ -11,6 +11,7 @@ from app.domain.tripmate.service.tripmate_post_draft import TripmatePostDraftSer
 from app.domain.tripmate.service.tripmate_search_history import TripmateSearchHistoryService
 from app.domain.tripmate.service.tripmate_image import TripmateImageService
 from app.domain.menu_ai.service.menu_ocr import MenuOcrService
+from app.domain.translation.service.translation import TranslationService
 from app.domain.tour.service.place import PlaceService
 from app.domain.tour.service.favorite_place import FavoritePlaceService
 from app.domain.tour.service.tour_search_history import TourSearchHistoryService
@@ -86,6 +87,9 @@ class Container(containers.DeclarativeContainer):
 
     # 메뉴 AI
     menu_ocr_service = providers.Factory(MenuOcrService)
+
+    # 번역 (자유 문장 ko ↔ en — 현재 구현체: Papago)
+    translation_service = providers.Factory(TranslationService)
 
     # 관광
     place_service = providers.Factory(PlaceService, uow=uow)

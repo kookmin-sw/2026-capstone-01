@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     # LLM
     GOOGLE_GEMINI_API_KEY: str = Field(..., description="구글 제미나이 API 키")
 
+    # Papago (Naver Developers — 번역/언어 감지)
+    PAPAGO_CLIENT_ID: str = Field(..., description="Papago Client ID")
+    PAPAGO_CLIENT_SECRET: str = Field(..., description="Papago Client Secret")
+
     # FCM (Firebase Cloud Messaging)
     FCM_CREDENTIALS_PATH: str = Field(
         "secrets/krip-firebase-secret-key.json",
