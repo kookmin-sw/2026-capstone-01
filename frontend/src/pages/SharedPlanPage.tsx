@@ -127,8 +127,8 @@ export default function PublicSharedPlanPage() {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
-    padding: "22px 16px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(22px + var(--app-safe-top)) 16px 22px",
     background: "linear-gradient(180deg, #f7ffff 0%, #fefdf7 100%)",
     fontFamily: '"Nunito", "Apple SD Gothic Neo", sans-serif',
   },

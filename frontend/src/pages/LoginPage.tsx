@@ -81,8 +81,9 @@ function GoogleIcon() {
 const styles: Record<string, CSSProperties> = {
   wrapper: {
     position: "relative",
-    width: "100vw",
-    minHeight: "100dvh",
+    width: "100%",
+    minWidth: "var(--app-design-width)",
+    minHeight: "var(--app-viewport-height)",
     background:
       "linear-gradient(180deg, #18bcc1 0%, #18bcc1 68%, #14b4ba 100%)",
     display: "flex",
@@ -99,7 +100,7 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    padding: "20px 20px 0",
+    padding: "calc(20px + var(--app-safe-top)) 20px 0",
   },
   heroFrame: {
     position: "relative",
@@ -107,7 +108,7 @@ const styles: Record<string, CSSProperties> = {
   },
   heroImage: {
     width: "100%",
-    maxHeight: "74dvh",
+    maxHeight: "min(74dvh, 592px)",
     objectFit: "contain",
     display: "block",
   },

@@ -1970,8 +1970,8 @@ function toFriendlyValidationMessage(errorItem: {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
-    padding: "24px 16px 40px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(24px + var(--app-safe-top)) 16px 40px",
     background: "transparent",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
@@ -2860,7 +2860,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "flex-end",
     justifyContent: "center",
-    padding: "16px 16px 0",
+    padding: "calc(16px + var(--app-safe-top)) 16px 0",
     background: "rgba(24,26,32,0.42)",
     animation: "fadeInOverlay 220ms ease-out",
   },
@@ -2882,7 +2882,7 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: "30px 30px 0 0",
     background: "var(--surface-panel)",
     boxShadow: "0 28px 72px rgba(24,26,32,0.18)",
-    padding: 20,
+    padding: "20px 20px calc(20px + var(--app-safe-bottom))",
     display: "flex",
     flexDirection: "column",
     gap: 18,
@@ -3048,7 +3048,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: 18,
+    padding: "calc(18px + var(--app-safe-top)) 18px calc(18px + var(--app-safe-bottom))",
     background: "rgba(8,12,16,0.82)",
     cursor: "zoom-out",
   },
@@ -3061,8 +3061,8 @@ const styles: Record<string, CSSProperties> = {
   },
   lightboxClose: {
     position: "fixed",
-    top: 18,
-    right: 18,
+    top: "calc(18px + var(--app-safe-top))",
+    right: "calc(18px + var(--app-safe-right))",
     width: 42,
     height: 42,
     border: "1px solid rgba(255,255,255,0.32)",

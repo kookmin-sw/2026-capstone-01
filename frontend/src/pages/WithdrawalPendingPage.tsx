@@ -89,8 +89,8 @@ function toErrorMessage(error: unknown, fallback: string): string {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
-    padding: "24px 16px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(24px + var(--app-safe-top)) 16px 24px",
     display: "grid",
     placeItems: "center",
     background:
