@@ -288,7 +288,9 @@ export default function MyPage() {
     }
   }
 
-  function handleFeedFileSelect(event: React.ChangeEvent<HTMLInputElement>): void {
+  async function handleFeedFileSelect(
+    event: React.ChangeEvent<HTMLInputElement>
+  ): Promise<void> {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -300,6 +302,12 @@ export default function MyPage() {
 
     if (file.size > 10 * 1024 * 1024) {
       window.alert("Please choose an image smaller than 10MB.");
+      event.target.value = "";
+      return;
+    }
+
+    if (await isAnimatedFeedImage(file)) {
+      window.alert("Animated WEBP/APNG images are not supported.");
       event.target.value = "";
       return;
     }
@@ -829,97 +837,6 @@ export default function MyPage() {
         ) : null}
       </section>
 
-      <section style={styles.section}>
-        <div style={styles.planPanel}>
-          <div style={styles.planHeader}>
-            <div>
-              <h2 style={styles.sectionTitle}>Saved Plans</h2>
-              <p style={styles.planCopy}>
-                AI and manual plans saved to the backend appear here.
-              </p>
-            </div>
-            <button
-              type="button"
-              style={styles.planRefreshButton}
-              onClick={refreshPlans}
-              disabled={isLoadingPlans}
-            >
-              {isLoadingPlans ? "Loading" : "Refresh"}
-            </button>
-          </div>
-
-          {planMessage ? <p style={styles.planMessage}>{planMessage}</p> : null}
-          {shareInfo ? (
-            <div style={styles.shareReadyRow}>
-              <span>
-                Public link expires {new Date(shareInfo.expires_at).toLocaleString()}.
-              </span>
-              <button
-                type="button"
-                style={styles.planPrimaryButton}
-                onClick={() => void handleCopyShareLink()}
-              >
-                Copy Link
-              </button>
-            </div>
-          ) : null}
-
-          {isLoadingPlans ? (
-            <div style={styles.emptyPanel}>Loading saved plans...</div>
-          ) : savedPlans.length === 0 ? (
-            <div style={styles.emptyPanel}>No saved plans yet.</div>
-          ) : (
-            <div style={styles.planList}>
-              {savedPlans.map((plan) => (
-                <article key={plan.plan_id} style={styles.planCard}>
-                  <div style={styles.planCardBody}>
-                    <strong style={styles.planTitle}>
-                      {plan.title || "Untitled plan"}
-                    </strong>
-                    <span style={styles.planMeta}>
-                      {plan.travel_days} day max - Updated{" "}
-                      {new Date(plan.updated_at).toLocaleString()}
-                    </span>
-                  </div>
-                  <div style={styles.planActions}>
-                    <button
-                      type="button"
-                      style={styles.planPrimaryButton}
-                      onClick={() =>
-                        navigate(`/plan/manual?planId=${encodeURIComponent(plan.plan_id)}`)
-                      }
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      style={styles.planGhostButton}
-                      onClick={() => void handleRenamePlan(plan)}
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      style={styles.planGhostButton}
-                      onClick={() => void handleSharePlan(plan)}
-                    >
-                      Share
-                    </button>
-                    <button
-                      type="button"
-                      style={styles.planDangerButton}
-                      onClick={() => void handleDeletePlan(plan)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
       {isSettingsOpen ? (
         <div style={styles.settingsBackdrop} onClick={() => setIsSettingsOpen(false)}>
           <div style={styles.settingsPanel} onClick={(event) => event.stopPropagation()}>
@@ -971,6 +888,20 @@ export default function MyPage() {
                 onSave={() => void handlePreferenceSave()}
               />
             ) : null}
+            <SavedPlansPanel
+              plans={savedPlans}
+              isLoading={isLoadingPlans}
+              message={planMessage}
+              shareInfo={shareInfo}
+              onRefresh={refreshPlans}
+              onCopyShareLink={() => void handleCopyShareLink()}
+              onEdit={(plan) =>
+                navigate(`/plan/manual?planId=${encodeURIComponent(plan.plan_id)}`)
+              }
+              onRename={(plan) => void handleRenamePlan(plan)}
+              onShare={(plan) => void handleSharePlan(plan)}
+              onDelete={(plan) => void handleDeletePlan(plan)}
+            />
             <div style={styles.settingsInfoBlock}>
               <strong style={styles.settingsInfoTitle}>My Information</strong>
               <div style={styles.infoList}>
@@ -1037,6 +968,7 @@ export default function MyPage() {
           post={selectedFeedPost}
           profileImageUrl={profileImageUrl}
           userName={nameText || "Unknown"}
+          currentUserId={profile?.user_id ?? ""}
           likes={selectedFeedLikes}
           comments={selectedFeedComments}
           captionDraft={selectedCaptionDraft}
@@ -1216,6 +1148,109 @@ function PreferenceGroup({
   );
 }
 
+function SavedPlansPanel({
+  plans,
+  isLoading,
+  message,
+  shareInfo,
+  onRefresh,
+  onCopyShareLink,
+  onEdit,
+  onRename,
+  onShare,
+  onDelete,
+}: {
+  plans: PlanSummaryResponse[];
+  isLoading: boolean;
+  message: string;
+  shareInfo: SharePlanResponse | null;
+  onRefresh: () => void;
+  onCopyShareLink: () => void;
+  onEdit: (plan: PlanSummaryResponse) => void;
+  onRename: (plan: PlanSummaryResponse) => void;
+  onShare: (plan: PlanSummaryResponse) => void;
+  onDelete: (plan: PlanSummaryResponse) => void;
+}) {
+  return (
+    <div style={styles.planPanel}>
+      <div style={styles.planHeader}>
+        <div>
+          <h2 style={styles.sectionTitle}>Saved Plans</h2>
+          <p style={styles.planCopy}>AI and manual plans saved to the backend.</p>
+        </div>
+        <button
+          type="button"
+          style={styles.planRefreshButton}
+          onClick={onRefresh}
+          disabled={isLoading}
+        >
+          {isLoading ? "Loading" : "Refresh"}
+        </button>
+      </div>
+
+      {message ? <p style={styles.planMessage}>{message}</p> : null}
+      {shareInfo ? (
+        <div style={styles.shareReadyRow}>
+          <span>Public link expires {new Date(shareInfo.expires_at).toLocaleString()}.</span>
+          <button type="button" style={styles.planPrimaryButton} onClick={onCopyShareLink}>
+            Copy Link
+          </button>
+        </div>
+      ) : null}
+
+      {isLoading ? (
+        <div style={styles.emptyPanel}>Loading saved plans...</div>
+      ) : plans.length === 0 ? (
+        <div style={styles.emptyPanel}>No saved plans yet.</div>
+      ) : (
+        <div style={styles.planList}>
+          {plans.map((plan) => (
+            <article key={plan.plan_id} style={styles.planCard}>
+              <div style={styles.planCardBody}>
+                <strong style={styles.planTitle}>{plan.title || "Untitled plan"}</strong>
+                <span style={styles.planMeta}>
+                  {plan.travel_days} day max - Updated{" "}
+                  {new Date(plan.updated_at).toLocaleString()}
+                </span>
+              </div>
+              <div style={styles.planActions}>
+                <button
+                  type="button"
+                  style={styles.planPrimaryButton}
+                  onClick={() => onEdit(plan)}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  style={styles.planGhostButton}
+                  onClick={() => onRename(plan)}
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  style={styles.planGhostButton}
+                  onClick={() => onShare(plan)}
+                >
+                  Share
+                </button>
+                <button
+                  type="button"
+                  style={styles.planDangerButton}
+                  onClick={() => onDelete(plan)}
+                >
+                  Delete
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AccountConfirmDialog({
   action,
   busy,
@@ -1357,6 +1392,7 @@ function FeedPostModal({
   post,
   profileImageUrl,
   userName,
+  currentUserId,
   likes,
   comments,
   captionDraft,
@@ -1379,6 +1415,7 @@ function FeedPostModal({
   post: FeedPost;
   profileImageUrl: string;
   userName: string;
+  currentUserId: string;
   likes: FeedLikeUser[];
   comments: FeedComment[];
   captionDraft: string;
@@ -1491,14 +1528,16 @@ function FeedPostModal({
                   <strong style={styles.commentAuthor}>{comment.user_name || "Unknown"}</strong>
                   <p style={styles.commentText}>{comment.content}</p>
                 </div>
-                <button
-                  type="button"
-                  style={styles.commentDeleteButton}
-                  disabled={isBusy}
-                  onClick={() => onCommentDelete(comment)}
-                >
-                  Delete
-                </button>
+                {comment.user_id === currentUserId ? (
+                  <button
+                    type="button"
+                    style={styles.commentDeleteButton}
+                    disabled={isBusy}
+                    onClick={() => onCommentDelete(comment)}
+                  >
+                    Delete
+                  </button>
+                ) : null}
               </article>
             ))}
           </div>
@@ -1507,27 +1546,19 @@ function FeedPostModal({
             <div style={styles.feedPostActionButtons}>
               <button
                 type="button"
-                style={styles.feedIconAction}
+                style={styles.feedLikeIconButton}
                 disabled={isBusy}
                 onClick={onLike}
                 aria-label="Like"
               >
-                Like
+                <span style={styles.feedActionCount}>{post.like_count}</span>
+                <HeartIcon />
               </button>
+              <span style={styles.feedCommentSummary}>
+                <span style={styles.feedActionCount}>{post.comment_count}</span>
+                <CommentIcon />
+              </span>
             </div>
-            <strong style={styles.feedLikeSummary}>{post.like_count} likes</strong>
-            {likes.length ? (
-              <div style={styles.likesList}>
-                {likes.slice(0, 4).map((user) => (
-                  <span key={user.user_id} style={styles.likeUser}>
-                    {user.profile_image_url ? (
-                      <img src={user.profile_image_url} alt="" style={styles.likeAvatar} />
-                    ) : null}
-                    {user.user_name || "Unknown"}
-                  </span>
-                ))}
-              </div>
-            ) : null}
             <form
               style={styles.commentForm}
               onSubmit={(event) => {
@@ -1555,6 +1586,31 @@ function FeedPostModal({
         </aside>
       </div>
     </div>
+  );
+}
+
+function HeartIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 20.2s-7.4-4.6-9.2-9.4C1.6 7.5 3.6 4.5 6.8 4.5c1.8 0 3.2.9 4.1 2.2.9-1.3 2.3-2.2 4.1-2.2 3.2 0 5.2 3 4 6.3-1.7 4.8-9 9.4-9 9.4Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+function CommentIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M5.2 18.4c-1.7-1.4-2.7-3.4-2.7-5.7 0-4.6 4.1-8.2 9.5-8.2s9.5 3.6 9.5 8.2-4.1 8.2-9.5 8.2c-1.2 0-2.3-.2-3.4-.5L4.5 21.5c-.7.2-1.2-.5-.9-1.1l1.6-2Z"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -2278,7 +2334,7 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 60,
     display: "grid",
     placeItems: "center",
-    padding: 18,
+    padding: 10,
     background: "rgba(16,34,35,0.42)",
   },
   accountConfirmBackdrop: {
@@ -2321,19 +2377,19 @@ const styles: Record<string, CSSProperties> = {
   },
   feedModal: {
     position: "relative",
-    width: "min(1160px, 100%)",
-    height: "min(88dvh, 760px)",
+    width: "min(430px, calc(100% - 8px))",
+    maxHeight: "94dvh",
     display: "grid",
-    gridTemplateColumns: "minmax(520px, 1fr) 430px",
-    overflow: "hidden",
-    borderRadius: 6,
+    gridTemplateColumns: "1fr",
+    overflowY: "auto",
+    borderRadius: 18,
     background: "#ffffff",
     boxShadow: "0 24px 70px rgba(15,23,42,0.28)",
   },
   modalCloseButton: {
     position: "absolute",
-    top: -46,
-    right: 0,
+    top: 12,
+    right: 12,
     zIndex: 2,
     width: 36,
     height: 36,
@@ -2346,7 +2402,7 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   feedModalImagePane: {
-    minHeight: 0,
+    minHeight: "min(58dvh, 520px)",
     display: "grid",
     placeItems: "center",
     background: "#050608",
@@ -2354,16 +2410,17 @@ const styles: Record<string, CSSProperties> = {
   feedModalImage: {
     width: "100%",
     height: "100%",
+    maxHeight: "58dvh",
     objectFit: "contain",
     background: "#050608",
   },
   feedModalSidePane: {
-    minHeight: 0,
+    minHeight: 260,
     display: "flex",
     flexDirection: "column",
     background: "#ffffff",
     color: "var(--text-primary)",
-    borderLeft: "1px solid var(--neutral-200)",
+    borderTop: "1px solid var(--neutral-200)",
   },
   feedPostHeader: {
     display: "flex",
@@ -2494,32 +2551,45 @@ const styles: Record<string, CSSProperties> = {
   feedDiscussion: {
     flex: 1,
     minHeight: 0,
+    maxHeight: "42dvh",
     overflowY: "auto",
     padding: "8px 16px",
   },
   feedPostFooter: {
     borderTop: "1px solid var(--neutral-200)",
-    padding: "12px 16px 14px",
+    padding: "10px 16px 12px",
     display: "flex",
     flexDirection: "column",
-    gap: 8,
+    gap: 6,
   },
   feedPostActionButtons: {
     display: "flex",
     alignItems: "center",
-    gap: 14,
+    gap: 18,
   },
-  feedIconAction: {
+  feedLikeIconButton: {
     border: "none",
-    background: "transparent",
-    color: "var(--text-primary)",
-    fontWeight: 900,
     padding: 0,
+    background: "transparent",
+    color: "#ef4444",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    fontWeight: 900,
     cursor: "pointer",
   },
-  feedLikeSummary: {
+  feedCommentSummary: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
     color: "var(--text-primary)",
-    fontSize: "0.9rem",
+    fontWeight: 900,
+  },
+  feedActionCount: {
+    minWidth: 10,
+    color: "var(--text-primary)",
+    fontSize: "0.94rem",
+    fontWeight: 900,
   },
   likesList: {
     display: "flex",
@@ -2622,6 +2692,60 @@ function getProfileImageUrl(profile: UserProfile | null): string {
 
 function getFeedImageUrl(post: FeedPost): string {
   return post.thumbnail_medium_url || post.thumbnail_small_url || post.original_url;
+}
+
+async function isAnimatedFeedImage(file: File): Promise<boolean> {
+  if (file.type === "image/png") {
+    return isAnimatedPng(new Uint8Array(await file.arrayBuffer()));
+  }
+
+  if (file.type === "image/webp") {
+    return isAnimatedWebp(new Uint8Array(await file.arrayBuffer()));
+  }
+
+  return false;
+}
+
+function isAnimatedPng(bytes: Uint8Array): boolean {
+  const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (!pngSignature.every((value, index) => bytes[index] === value)) return false;
+
+  let offset = 8;
+  while (offset + 12 <= bytes.length) {
+    const chunkLength =
+      (bytes[offset] << 24) |
+      (bytes[offset + 1] << 16) |
+      (bytes[offset + 2] << 8) |
+      bytes[offset + 3];
+    const chunkType = bytesToAscii(bytes, offset + 4, offset + 8);
+    if (chunkType === "acTL") return true;
+    if (chunkType === "IDAT" || chunkType === "IEND") return false;
+    offset += 12 + chunkLength;
+  }
+
+  return false;
+}
+
+function isAnimatedWebp(bytes: Uint8Array): boolean {
+  if (
+    bytesToAscii(bytes, 0, 4) !== "RIFF" ||
+    bytesToAscii(bytes, 8, 12) !== "WEBP"
+  ) {
+    return false;
+  }
+
+  const header = bytesToAscii(bytes, 12, 16);
+  if (header === "VP8X" && bytes.length > 20 && (bytes[20] & 0b00000010) !== 0) {
+    return true;
+  }
+
+  return bytesToAscii(bytes, 12, bytes.length).includes("ANIM");
+}
+
+function bytesToAscii(bytes: Uint8Array, start: number, end: number): string {
+  return Array.from(bytes.slice(start, end))
+    .map((byte) => String.fromCharCode(byte))
+    .join("");
 }
 
 function getPreferenceTags(profile: UserProfile | null): string[] {

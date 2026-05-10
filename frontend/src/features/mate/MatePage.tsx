@@ -504,6 +504,7 @@ export default function MatePage() {
 
     try {
       await toggleLike(post.post_id, post.is_liked);
+      window.dispatchEvent(new Event("krip:notification-inbox-updated"));
     } catch {
       setPosts((current) =>
         current.map((item) => (item.post_id === post.post_id ? post : item))

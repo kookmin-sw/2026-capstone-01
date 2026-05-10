@@ -90,6 +90,7 @@ export default function AppShell() {
           <NavLink
             key={item.to}
             to={item.to}
+            aria-label={item.label}
             style={({ isActive }) => ({
               ...styles.navItem,
               ...(isActive ? styles.navItemActive : {}),
@@ -103,7 +104,6 @@ export default function AppShell() {
                 </span>
               ) : null}
             </span>
-            <span>{item.label}</span>
           </NavLink>
         ))}
       </nav>
@@ -182,37 +182,43 @@ function isWithdrawalPendingError(error: unknown): boolean {
 }
 
 function readStoredChatUnreadCount(): number {
-  const directKeys = ["krip-chat-unread-count", "krip:chat-unread-count"];
-  const mapKeys = ["krip-chat-unread", "krip:chat-unread", "krip-chat-unread-by-room"];
+  const canonicalMapCount = readUnreadMapCount("krip-chat-unread-by-room");
+  if (canonicalMapCount > 0) {
+    return canonicalMapCount;
+  }
 
+  const legacyMapCount =
+    readUnreadMapCount("krip-chat-unread") + readUnreadMapCount("krip:chat-unread");
+  if (legacyMapCount > 0) {
+    return legacyMapCount;
+  }
+
+  const directKeys = ["krip-chat-unread-count", "krip:chat-unread-count"];
   const directCount = directKeys.reduce((sum, key) => {
     const value = Number(window.localStorage.getItem(key) || 0);
     return sum + (Number.isFinite(value) ? value : 0);
   }, 0);
 
-  const mapCount = mapKeys.reduce((sum, key) => {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return sum;
+  return Math.max(0, directCount);
+}
 
-    try {
-      const value = JSON.parse(raw) as unknown;
-      if (typeof value === "number") return sum + value;
-      if (!value || typeof value !== "object") return sum;
+function readUnreadMapCount(key: string): number {
+  const raw = window.localStorage.getItem(key);
+  if (!raw) return 0;
 
-      return (
-        sum +
-        Object.values(value as Record<string, unknown>).reduce<number>((roomSum, roomValue) => {
-          const count = Number(roomValue || 0);
-          return roomSum + (Number.isFinite(count) ? count : 0);
-        }, 0)
-      );
-    } catch {
-      const value = Number(raw);
-      return sum + (Number.isFinite(value) ? value : 0);
-    }
-  }, 0);
+  try {
+    const value = JSON.parse(raw) as unknown;
+    if (typeof value === "number") return Math.max(0, value);
+    if (!value || typeof value !== "object") return 0;
 
-  return Math.max(0, directCount + mapCount);
+    return Object.values(value as Record<string, unknown>).reduce<number>((sum, roomValue) => {
+      const count = Number(roomValue || 0);
+      return sum + (Number.isFinite(count) ? count : 0);
+    }, 0);
+  } catch {
+    const value = Number(raw);
+    return Number.isFinite(value) ? Math.max(0, value) : 0;
+  }
 }
 
 const styles: Record<string, CSSProperties> = {

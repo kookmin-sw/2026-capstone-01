@@ -1,27 +1,43 @@
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
-import { getFeedPopup, type FeedPost, type FeedPopupResponse } from "../api/feed";
+import { useNavigate } from "react-router-dom";
+import {
+  getFeedPopup,
+  getUserFeedPosts,
+  type FeedPost,
+  type FeedPopupResponse,
+} from "../api/feed";
 
 const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
 export default function FeedPopup({
   userId,
   onClose,
+  side = "right",
 }: {
   userId: string;
   onClose: () => void;
+  side?: "left" | "right";
 }) {
+  const navigate = useNavigate();
   const [popup, setPopup] = useState<FeedPopupResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedPost, setSelectedPost] = useState<FeedPost | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMoreFeed, setHasMoreFeed] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
 
     getFeedPopup(userId)
       .then((response) => {
-        if (isMounted) setPopup(response);
+        if (isMounted) {
+          setPopup(response);
+          setNextCursor(response.feed.items.at(-1)?.post_id ?? null);
+          setHasMoreFeed(response.feed.items.length >= 9);
+        }
       })
       .catch((loadError) => {
         if (isMounted) {
@@ -38,10 +54,56 @@ export default function FeedPopup({
   }, [userId]);
 
   const statusText = popup?.status_message || popup?.message || "";
+  const profileMeta = [popup?.nationality, ...(popup?.travel_styles ?? [])]
+    .filter((value): value is string => Boolean(value))
+    .map(formatProfileMeta)
+    .join(" · ");
+
+  async function handleLoadMore(): Promise<void> {
+    if (!popup || loadingMore || !hasMoreFeed) return;
+
+    const cursor = nextCursor || popup.feed.items.at(-1)?.post_id;
+    if (!cursor) return;
+
+    setLoadingMore(true);
+    setError("");
+    try {
+      const response = await getUserFeedPosts(userId, cursor);
+      setPopup((current) => {
+        if (!current) return current;
+        const existingIds = new Set(current.feed.items.map((post) => post.post_id));
+        const nextItems = response.posts.filter((post) => !existingIds.has(post.post_id));
+        return {
+          ...current,
+          feed: {
+            items: [...current.feed.items, ...nextItems],
+          },
+        };
+      });
+      setNextCursor(response.next_cursor);
+      setHasMoreFeed(Boolean(response.next_cursor));
+    } catch (loadError) {
+      setError(toErrorMessage(loadError, "More feed photos could not be loaded."));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   return (
-    <div style={styles.backdrop} onClick={onClose}>
-      <div style={styles.sheet} onClick={(event) => event.stopPropagation()}>
+    <div
+      style={{
+        ...styles.backdrop,
+        justifyContent: side === "left" ? "flex-start" : "flex-end",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          ...styles.sheet,
+          ...(side === "left" ? styles.sheetLeft : {}),
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
         <button type="button" style={styles.closeButton} onClick={onClose}>
           x
         </button>
@@ -60,9 +122,20 @@ export default function FeedPopup({
               />
               <div style={styles.headerText}>
                 <h2 style={styles.name}>{popup.user_name || "Unknown"}</h2>
+                {profileMeta ? <p style={styles.profileMeta}>{profileMeta}</p> : null}
                 <p style={styles.status}>{statusText || "No status message."}</p>
               </div>
             </header>
+            <button
+              type="button"
+              style={styles.openFeedButton}
+              onClick={() => {
+                onClose();
+                navigate(`/profile/${encodeURIComponent(userId)}`);
+              }}
+            >
+              View Full Feed
+            </button>
 
             {popup.feed.items.length ? (
               <div style={styles.grid}>
@@ -80,6 +153,16 @@ export default function FeedPopup({
             ) : (
               <div style={styles.statePanel}>No visible feed photos.</div>
             )}
+            {hasMoreFeed ? (
+              <button
+                type="button"
+                style={styles.loadMoreButton}
+                onClick={() => void handleLoadMore()}
+                disabled={loadingMore}
+              >
+                {loadingMore ? "Loading..." : "More"}
+              </button>
+            ) : null}
           </>
         ) : null}
 
@@ -112,6 +195,14 @@ function getFeedImageUrl(post: FeedPost): string {
   return post.thumbnail_medium_url || post.thumbnail_small_url || post.original_url;
 }
 
+function formatProfileMeta(value: string): string {
+  return value
+    .trim()
+    .replace(/[\s-]+/g, "_")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function toErrorMessage(error: unknown, fallback: string): string {
   const apiError = error as {
     response?: { data?: { detail?: string; message?: string } };
@@ -138,6 +229,10 @@ const styles: Record<string, CSSProperties> = {
     background: "var(--surface-panel)",
     boxShadow: "-24px 0 60px rgba(24,26,32,0.18)",
     animation: "slideInFromRight 240ms ease-out",
+  },
+  sheetLeft: {
+    boxShadow: "24px 0 60px rgba(24,26,32,0.18)",
+    animation: "none",
   },
   closeButton: {
     position: "absolute",
@@ -184,6 +279,14 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.45,
     overflowWrap: "anywhere",
   },
+  profileMeta: {
+    margin: "5px 0 0",
+    color: "var(--brand-primary-deep)",
+    fontSize: "0.78rem",
+    fontWeight: 900,
+    lineHeight: 1.35,
+    overflowWrap: "anywhere",
+  },
   grid: {
     display: "grid",
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
@@ -213,6 +316,28 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid var(--border-soft)",
     color: "var(--neutral-700)",
     fontWeight: 800,
+  },
+  loadMoreButton: {
+    width: "100%",
+    minHeight: 44,
+    marginTop: 14,
+    border: "none",
+    borderRadius: 14,
+    background: "var(--brand-primary)",
+    color: "#ffffff",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  openFeedButton: {
+    width: "100%",
+    minHeight: 42,
+    marginBottom: 14,
+    border: "1px solid rgba(5,181,187,0.18)",
+    borderRadius: 14,
+    background: "#ffffff",
+    color: "var(--brand-primary-deep)",
+    fontWeight: 900,
+    cursor: "pointer",
   },
   detailBackdrop: {
     position: "fixed",
