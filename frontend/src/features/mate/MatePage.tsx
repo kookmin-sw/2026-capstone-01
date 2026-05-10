@@ -1972,7 +1972,8 @@ function toFriendlyValidationMessage(errorItem: {
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
-    padding: "calc(24px + var(--app-safe-top)) 16px 40px",
+    padding:
+      "calc(24px + var(--app-safe-top)) 16px calc(40px + var(--app-bottom-nav-reserved))",
     background: "transparent",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },

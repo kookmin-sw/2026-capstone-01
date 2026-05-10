@@ -1626,7 +1626,7 @@ const styles: Record<string, CSSProperties> = {
     margin: "0 auto",
     display: "grid",
     gridTemplateColumns: "104px minmax(0, 1fr)",
-    gap: 16,
+    gap: 60,
     alignItems: "center",
     padding: "8px 0 24px",
     borderBottom: "1px solid var(--neutral-200)",
