@@ -11,7 +11,6 @@ const TAB_ITEMS = [
   { to: "/menu", label: "Menu", icon: "M" },
   { to: "/mate", label: "Mate", icon: "T" },
   { to: "/chat", label: "Friend/Chat", icon: "C" },
-  { to: "/my", label: "My", icon: "Y" },
 ] as const;
 
 export default function AppShell() {
@@ -166,25 +165,27 @@ function readStoredChatUnreadCount(): number {
 
 const styles: Record<string, CSSProperties> = {
   shell: {
-    minHeight: "100dvh",
+    minHeight: "var(--app-viewport-height)",
+    width: "100%",
+    minWidth: "var(--app-design-width)",
     background: "transparent",
   },
   content: {
-    minHeight: "100dvh",
-    paddingBottom: 96,
+    minHeight: "var(--app-viewport-height)",
+    paddingBottom: "calc(96px + var(--app-safe-bottom))",
   },
   nav: {
     position: "fixed",
-    left: 16,
-    right: 16,
-    bottom: 14,
+    left: 0,
+    right: 0,
+    bottom: 0,
     display: "grid",
-    gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
-    gap: 8,
-    padding: 10,
-    borderRadius: 24,
+    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+    gap: 12,
+    paddingLeft: "var(--app-safe-left)",
+    paddingRight: "var(--app-safe-right)",
+    paddingBottom: "calc(10px + var(--app-safe-bottom))",
     background: "rgba(255,255,255,0.94)",
-    boxShadow: "var(--shadow-soft)",
     border: "1px solid var(--border-soft)",
     backdropFilter: "blur(16px)",
     zIndex: 15,

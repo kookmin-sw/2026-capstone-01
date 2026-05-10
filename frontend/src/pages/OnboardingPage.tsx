@@ -327,13 +327,13 @@ function Progress({ current, total }: { current: number; total: number }) {
 
 const s: Record<string, CSSProperties> = {
   wrapper: {
-    minHeight: "100dvh",
+    minHeight: "var(--app-viewport-height)",
     background:
       "radial-gradient(circle at top left, rgba(5,181,187,0.16), transparent 32%), radial-gradient(circle at top right, rgba(5,181,187,0.1), transparent 34%), linear-gradient(180deg, rgba(228,247,247,0.68), transparent 28%), var(--surface-base)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: "24px 16px",
+    padding: "calc(24px + var(--app-safe-top)) 16px 24px",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   card: {

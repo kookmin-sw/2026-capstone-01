@@ -8,7 +8,6 @@ import {
   getTourSearchHistory,
   getMyProfile,
   getTourPlaces,
-  logoutUser,
   removeTourPlaceFavorite,
   type FavoritePlaceApiItem,
   type SearchHistoryItem,
@@ -818,14 +817,6 @@ export default function HomePage() {
     return () => observer.disconnect();
   }, [hasMore, isFetchingMore, nextCursor, currentLocation.lat, currentLocation.lng, searchInput]);
 
-  async function handleLogout(): Promise<void> {
-    try {
-      await logoutUser();
-    } finally {
-      navigate("/login");
-    }
-  }
-
   function syncPlaceFavoriteState(placeId: string, isFavorite: boolean): void {
     setPlacesSource((current) =>
       current.map((item) =>
@@ -934,14 +925,16 @@ export default function HomePage() {
           <div>
             <p style={styles.eyebrow}>Trip Finder</p>
             <h1 style={styles.headerTitle}>Explore Nearby Places</h1>
-            <p style={styles.headerCopy}>
-              Nearby places curated for {user.user_name}.
-            </p>
           </div>
           <div style={styles.headerActions}>
-            <NotificationBell />
-            <button style={styles.logoutButton} onClick={handleLogout}>
-              Log Out
+            <NotificationBell></NotificationBell>
+            <button
+              type="button"
+              style={styles.myPageButton}
+              aria-label="Open My Page"
+              onClick={() => navigate("/my")}
+            >
+              Y
             </button>
           </div>
         </header>
@@ -1425,7 +1418,7 @@ function DetailChipSection({
 
 const styles: Record<string, CSSProperties> = {
   loading: {
-    minHeight: "100dvh",
+    minHeight: "var(--app-viewport-height)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1454,8 +1447,8 @@ const styles: Record<string, CSSProperties> = {
     animation: "spin 0.8s linear infinite",
   },
   page: {
-    minHeight: "100dvh",
-    padding: "24px 16px 40px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(20px + var(--app-safe-top)) 0 40px",
     background: "transparent",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
@@ -1467,12 +1460,14 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     gap: 18,
   },
+
+  /* ── Header ─────────────────────────────── */
   header: {
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 16,
-    paddingTop: 8,
+    padding: "16px 16px 12px",
   },
   eyebrow: {
     margin: 0,
@@ -1483,17 +1478,11 @@ const styles: Record<string, CSSProperties> = {
     textTransform: "uppercase",
   },
   headerTitle: {
-    margin: "6px 0 8px",
-    fontSize: "clamp(1.9rem, 5vw, 2.4rem)",
-    lineHeight: 1.05,
+    margin: "2px 0 0",
+    fontSize: "clamp(1.35rem, 3.7vw, 2rem)",
+    fontWeight: 800,
+    lineHeight: 1.1,
     color: "var(--text-primary)",
-  },
-  headerCopy: {
-    maxWidth: 440,
-    margin: 0,
-    fontSize: "0.95rem",
-    lineHeight: 1.5,
-    color: "var(--neutral-700)",
   },
   headerActions: {
     display: "flex",
@@ -1531,15 +1520,19 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 900,
     lineHeight: 1,
   },
-  logoutButton: {
-    border: "1px solid rgba(248,180,0,0.22)",
-    borderRadius: 999,
-    padding: "12px 16px",
-    background: "linear-gradient(135deg, rgba(248,180,0,0.18), rgba(255,255,255,0.96))",
-    color: "var(--text-primary)",
-    fontWeight: 700,
-    cursor: "pointer",
+  myPageButton: {
+    position: "relative",
+    width: 48,
+    height: 48,
+    border: "1px solid rgba(5,181,187,0.18)",
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(255,255,255,0.94)",
+    color: "var(--brand-primary-deep)",
     boxShadow: "var(--shadow-soft)",
+    cursor: "pointer",
+    fontWeight: 900,
   },
   searchPanel: {
     padding: 20,
@@ -1804,7 +1797,7 @@ const styles: Record<string, CSSProperties> = {
   modalOverlay: {
     position: "fixed",
     inset: 0,
-    padding: "16px 16px 0",
+    padding: "calc(16px + var(--app-safe-top)) 16px 0",
     background: "rgba(24, 26, 32, 0.42)",
     display: "flex",
     alignItems: "flex-end",
@@ -1993,8 +1986,8 @@ const styles: Record<string, CSSProperties> = {
   },
   notificationPanel: {
     width: "min(390px, 92vw)",
-    height: "100dvh",
-    padding: "22px 18px 28px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(22px + var(--app-safe-top)) 18px calc(28px + var(--app-safe-bottom))",
     background: "rgba(255,255,255,0.98)",
     boxShadow: "-24px 0 54px rgba(24,26,32,0.18)",
     borderLeft: "1px solid var(--border-soft)",

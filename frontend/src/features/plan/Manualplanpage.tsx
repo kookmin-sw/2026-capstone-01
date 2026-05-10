@@ -1091,8 +1091,8 @@ export default function ManualPlanPage({ onBack }: ManualPlanPageProps) {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
-    padding: "20px 16px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(20px + var(--app-safe-top)) 16px 20px",
     background: "linear-gradient(180deg, #f7ffff 0%, #fefdf7 100%)",
     fontFamily: '"Nunito", "Apple SD Gothic Neo", sans-serif',
   },
@@ -1513,7 +1513,7 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   sheet: {
-    padding: "18px 18px 28px",
+    padding: "18px 18px calc(28px + var(--app-safe-bottom))",
     borderRadius: "28px 28px 0 0",
     background: "#ffffff",
     boxShadow: "0 -16px 36px rgba(16, 34, 35, 0.12)",

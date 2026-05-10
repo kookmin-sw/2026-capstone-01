@@ -303,7 +303,7 @@ function toErrorMessage(error: unknown, fallback: string): string {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
+    minHeight: "var(--app-viewport-height)",
     display: "flex",
     flexDirection: "column",
     background: "transparent",
@@ -316,7 +316,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     gap: 12,
-    padding: "14px 16px",
+    padding: "calc(14px + var(--app-safe-top)) 16px 14px",
     background: "rgba(255,255,255,0.94)",
     borderBottom: "1px solid var(--border-soft)",
     backdropFilter: "blur(14px)",
@@ -361,7 +361,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 12,
-    padding: "18px 16px 110px",
+    padding: "18px 16px calc(110px + var(--app-safe-bottom))",
   },
   error: {
     padding: "12px 14px",
@@ -427,14 +427,14 @@ const styles: Record<string, CSSProperties> = {
   },
   composer: {
     position: "fixed",
-    left: 0,
-    right: 0,
+    left: "var(--app-safe-left)",
+    right: "var(--app-safe-right)",
     bottom: 0,
     zIndex: 20,
     display: "grid",
     gridTemplateColumns: "1fr auto",
     gap: 10,
-    padding: "12px 16px",
+    padding: "12px 16px calc(12px + var(--app-safe-bottom))",
     background: "rgba(255,255,255,0.96)",
     borderTop: "1px solid var(--border-soft)",
   },

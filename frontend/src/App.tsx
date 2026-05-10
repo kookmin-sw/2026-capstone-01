@@ -12,7 +12,6 @@ import MatePage from "./features/mate/MatePage";
 import ChatPage from "./features/friend-chat/ChatPage";
 import ChatRoomPage from "./features/friend-chat/ChatRoomPage";
 import { ChatProvider } from "./features/friend-chat/ChatProvider";
-import MyPage from "./pages/MyPage";
 import SharedPlanPage from "./pages/SharedPlanPage";
 import PlaceholderPage from "./pages/PlaceholderPage";
 import PlanSelectionPage from "./features/plan/PlanSelectionPage";
@@ -210,29 +209,30 @@ export default function App() {
   return (
     <BrowserRouter>
       <ChatProvider>
-        <Routes>
-          <Route path="/" element={<LoginPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/register/onboarding" element={<OnboardingPage />} />
-          <Route path="/withdrawal-pending" element={<WithdrawalPendingPage />} />
-          <Route element={<AppShell />}>
-            <Route path="/home" element={<HomePage />} />
-            <Route path="/plan" element={<PlanSelectionPage />} />
-            <Route path="/plan/ai" element={<AiPlanDesignRoute />} />
-            <Route path="/plan/ai/result" element={<AiPlanResultRoute />} />
-            <Route path="/plan/manual" element={<ManualPlanRoute />} />
-            <Route path="/menu" element={<MenuPage />} />
-            <Route path="/mate" element={<MatePage />} />
-            <Route path="/chat" element={<ChatPage />} />
-            <Route path="/my" element={<MyPage />} />
-          </Route>
-          <Route path="/share/plan/:shareToken" element={<SharedPlanPage />} />
-          <Route path="/chat/:id" element={<ChatRoomPage />} />
-          <Route path="/spots/:id" element={<PlaceholderPage />} />
-          <Route path="/profile/:id" element={<PlaceholderPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <div style={appLayoutStyles.safeAreaRoot}>
+          <Routes>
+            <Route path="/" element={<LoginPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/register/onboarding" element={<OnboardingPage />} />
+            <Route path="/withdrawal-pending" element={<WithdrawalPendingPage />} />
+            <Route element={<AppShell />}>
+              <Route path="/home" element={<HomePage />} />
+              <Route path="/plan" element={<PlanSelectionPage />} />
+              <Route path="/plan/ai" element={<AiPlanDesignRoute />} />
+              <Route path="/plan/ai/result" element={<AiPlanResultRoute />} />
+              <Route path="/plan/manual" element={<ManualPlanRoute />} />
+              <Route path="/menu" element={<MenuPage />} />
+              <Route path="/mate" element={<MatePage />} />
+              <Route path="/chat" element={<ChatPage />} />
+            </Route>
+            <Route path="/share/plan/:shareToken" element={<SharedPlanPage />} />
+            <Route path="/chat/:id" element={<ChatRoomPage />} />
+            <Route path="/spots/:id" element={<PlaceholderPage />} />
+            <Route path="/profile/:id" element={<PlaceholderPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
         <WithdrawalPendingRedirect />
         <ChatMessageToast />
       </ChatProvider>
@@ -240,10 +240,20 @@ export default function App() {
   );
 }
 
+const appLayoutStyles: Record<string, CSSProperties> = {
+  safeAreaRoot: {
+    minHeight: "var(--app-viewport-height)",
+    width: "100%",
+    minWidth: "var(--app-design-width)",
+    paddingLeft: "var(--app-safe-left)",
+    paddingRight: "var(--app-safe-right)",
+  },
+};
+
 const chatToastStyles: Record<string, CSSProperties> = {
   toast: {
     position: "fixed",
-    top: 16,
+    top: "calc(var(--app-safe-top) + 16px)",
     left: "50%",
     transform: "translateX(-50%)",
     animation: "slideDownToast 650ms cubic-bezier(0.22, 1, 0.36, 1)",
