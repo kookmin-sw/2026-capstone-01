@@ -17,6 +17,7 @@ import {
   type UserProfile,
 } from "../../api/auth/auth";
 import NotificationBell from "../../components/NotificationBell";
+import { showAppToast } from "../../utils/appToast";
 
 const DEFAULT_LOCATION = { lat: 37.5665, lng: 126.978 };
 const DEFAULT_LOCATION_LABEL = "Central Seoul";
@@ -821,7 +822,10 @@ export default function HomePage() {
   async function handleLogout(): Promise<void> {
     try {
       await logoutUser();
+    } catch {
+      // The session may already be invalid locally; still leave the app shell.
     } finally {
+      showAppToast({ title: "Logged out", variant: "success" });
       navigate("/login");
     }
   }

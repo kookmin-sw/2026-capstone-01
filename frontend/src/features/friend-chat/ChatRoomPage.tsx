@@ -1,11 +1,18 @@
 import type { CSSProperties } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import type { ChatMessage, ChatRoom } from "../../api/chat";
+import {
+  getChatRoomMembers,
+  getInvitableChatRoomFriends,
+  inviteChatRoomMembers,
+  type ChatMessage,
+  type ChatRoom,
+  type ChatUserProfile,
+} from "../../api/chat";
 import { useChat } from "./ChatProvider";
 
 const BOTTOM_THRESHOLD_PX = 160;
-const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.svg";
+const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
 export default function ChatRoomPage() {
   const { id } = useParams();
@@ -30,6 +37,13 @@ export default function ChatRoomPage() {
   const [room, setRoom] = useState<ChatRoom | null>(null);
   const [input, setInput] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [members, setMembers] = useState<ChatUserProfile[]>([]);
+  const [invitableFriends, setInvitableFriends] = useState<ChatUserProfile[]>([]);
+  const [selectedInviteIds, setSelectedInviteIds] = useState<string[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
 
   const roomId = room?.chat_room_id ?? "";
   const messages = useMemo(
@@ -46,6 +60,19 @@ export default function ChatRoomPage() {
   }, [room]);
   const roomProfileImageUrl =
     room?.type === "direct" ? room.peer?.profile_image_url || DEFAULT_PROFILE_IMAGE_URL : DEFAULT_PROFILE_IMAGE_URL;
+  const memberProfilesById = useMemo(() => {
+    const profiles = new Map<string, ChatUserProfile>();
+    members.forEach((member) => profiles.set(member.user_id, member));
+    return profiles;
+  }, [members]);
+  const memberSummary =
+    room?.type === "group"
+      ? members.length > 0
+        ? `${members.length} members`
+        : membersLoading
+          ? "Loading members"
+          : "Group chat"
+      : connectionState;
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +116,39 @@ export default function ChatRoomPage() {
       setActiveRoomId("");
     };
   }, [loadInitialMessages, roomId, setActiveRoomId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMembers(): Promise<void> {
+      if (!roomId || room?.type !== "group") {
+        setMembers([]);
+        return;
+      }
+
+      setMembersLoading(true);
+      try {
+        const response = await getChatRoomMembers(roomId);
+        if (!cancelled) {
+          setMembers(response.items);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(toErrorMessage(error, "Failed to load members."));
+        }
+      } finally {
+        if (!cancelled) {
+          setMembersLoading(false);
+        }
+      }
+    }
+
+    void loadMembers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [room?.type, roomId]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -155,6 +215,64 @@ export default function ChatRoomPage() {
     setInput("");
   }
 
+  async function openInvitePanel(): Promise<void> {
+    if (!roomId || room?.type !== "group") return;
+
+    setInviteOpen(true);
+    setInviteLoading(true);
+    setActionMessage("");
+    setErrorMessage("");
+    try {
+      const response = await getInvitableChatRoomFriends(roomId);
+      setInvitableFriends(response.items);
+      setSelectedInviteIds([]);
+    } catch (error) {
+      setErrorMessage(toErrorMessage(error, "Failed to load invitable friends."));
+    } finally {
+      setInviteLoading(false);
+    }
+  }
+
+  function toggleInviteSelection(userId: string): void {
+    setSelectedInviteIds((current) =>
+      current.includes(userId)
+        ? current.filter((item) => item !== userId)
+        : [...current, userId]
+    );
+  }
+
+  async function handleInviteMembers(): Promise<void> {
+    if (!roomId || selectedInviteIds.length === 0) return;
+
+    setInviteLoading(true);
+    setActionMessage("");
+    setErrorMessage("");
+    try {
+      const result = await inviteChatRoomMembers(roomId, selectedInviteIds);
+      setActionMessage(`${result.invited_user_ids.length} friend(s) invited.`);
+      setInvitableFriends((current) =>
+        current.filter((friend) => !result.invited_user_ids.includes(friend.user_id))
+      );
+      setSelectedInviteIds([]);
+      const response = await getChatRoomMembers(roomId);
+      setMembers(response.items);
+    } catch (error) {
+      setErrorMessage(toErrorMessage(error, "Failed to invite friends."));
+    } finally {
+      setInviteLoading(false);
+    }
+  }
+
+  function getMessageAvatarUrl(message: ChatMessage): string {
+    if (room?.type !== "group" || !message.sender_id) return roomProfileImageUrl;
+    return memberProfilesById.get(message.sender_id)?.profile_image_url || DEFAULT_PROFILE_IMAGE_URL;
+  }
+
+  function getMessageSenderName(message: ChatMessage): string {
+    if (room?.type !== "group" || !message.sender_id) return roomName;
+    return memberProfilesById.get(message.sender_id)?.user_name || roomName;
+  }
+
   return (
     <div style={styles.page}>
       <header style={styles.header}>
@@ -166,12 +284,97 @@ export default function ChatRoomPage() {
         </div>
         <span style={styles.headerText}>
           <strong style={styles.roomName}>{roomName}</strong>
-          <span style={styles.connectionText}>{connectionState}</span>
+          <span style={styles.connectionText}>{memberSummary}</span>
         </span>
+        {room?.type === "group" ? (
+          <button
+            type="button"
+            style={styles.inviteButton}
+            onClick={() => void openInvitePanel()}
+          >
+            Invite
+          </button>
+        ) : null}
       </header>
+
+      {room?.type === "group" ? (
+        <section style={styles.memberStrip}>
+          {membersLoading && members.length === 0 ? (
+            <span style={styles.mutedText}>Loading members...</span>
+          ) : (
+            members.map((member) => (
+              <span key={member.user_id} style={styles.memberPill}>
+                <img
+                  src={member.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
+                  alt={member.user_name}
+                  style={styles.memberAvatar}
+                />
+                <span style={styles.memberName}>{member.user_name}</span>
+              </span>
+            ))
+          )}
+        </section>
+      ) : null}
 
       <main style={styles.messageList}>
         {errorMessage ? <div style={styles.error}>{errorMessage}</div> : null}
+        {actionMessage ? <div style={styles.notice}>{actionMessage}</div> : null}
+        {inviteOpen ? (
+          <section style={styles.invitePanel}>
+            <div style={styles.invitePanelHeader}>
+              <strong style={styles.inviteTitle}>Invite Friends</strong>
+              <button
+                type="button"
+                style={styles.closeButton}
+                onClick={() => setInviteOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            {inviteLoading && invitableFriends.length === 0 ? (
+              <p style={styles.mutedText}>Loading friends...</p>
+            ) : invitableFriends.length > 0 ? (
+              <div style={styles.inviteList}>
+                {invitableFriends.map((friend) => {
+                  const checked = selectedInviteIds.includes(friend.user_id);
+                  return (
+                    <label key={friend.user_id} style={styles.inviteFriend}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleInviteSelection(friend.user_id)}
+                      />
+                      <img
+                        src={friend.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
+                        alt={friend.user_name}
+                        style={styles.memberAvatar}
+                      />
+                      <span style={styles.rowMain}>
+                        <strong style={styles.inviteFriendName}>{friend.user_name}</strong>
+                        <span style={styles.userId}>{friend.user_id}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <p style={styles.mutedText}>No friends available to invite.</p>
+            )}
+            <button
+              type="button"
+              style={{
+                ...styles.inviteSubmitButton,
+                ...(selectedInviteIds.length === 0 || inviteLoading
+                  ? styles.sendButtonDisabled
+                  : {}),
+              }}
+              onClick={() => void handleInviteMembers()}
+              disabled={selectedInviteIds.length === 0 || inviteLoading}
+            >
+              {inviteLoading ? "Inviting..." : `Invite ${selectedInviteIds.length || ""}`.trim()}
+            </button>
+          </section>
+        ) : null}
         {roomPageState?.isLoadingInitialMessages ? (
           <p style={styles.mutedText}>Loading messages...</p>
         ) : null}
@@ -197,8 +400,8 @@ export default function ChatRoomPage() {
             >
               {!mine ? (
                 <img
-                  src={roomProfileImageUrl}
-                  alt={roomName}
+                  src={getMessageAvatarUrl(message)}
+                  alt={getMessageSenderName(message)}
                   style={styles.messageAvatar}
                 />
               ) : null}
@@ -348,6 +551,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 2,
+    flex: 1,
   },
   roomName: {
     color: "var(--text-primary)",
@@ -355,6 +559,53 @@ const styles: Record<string, CSSProperties> = {
   connectionText: {
     color: "var(--neutral-700)",
     fontSize: "0.72rem",
+  },
+  inviteButton: {
+    border: "1px solid rgba(5,181,187,0.2)",
+    borderRadius: 14,
+    padding: "9px 12px",
+    background: "var(--brand-primary)",
+    color: "#ffffff",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  memberStrip: {
+    position: "sticky",
+    top: 65,
+    zIndex: 4,
+    display: "flex",
+    gap: 8,
+    overflowX: "auto",
+    padding: "10px 16px",
+    background: "rgba(255,255,255,0.88)",
+    borderBottom: "1px solid var(--border-soft)",
+  },
+  memberPill: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    flexShrink: 0,
+    maxWidth: 180,
+    padding: "6px 10px 6px 6px",
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.95)",
+    border: "1px solid rgba(5,181,187,0.14)",
+  },
+  memberAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: "50%",
+    objectFit: "cover",
+    flexShrink: 0,
+  },
+  memberName: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: "var(--text-secondary)",
+    fontSize: "0.78rem",
+    fontWeight: 800,
   },
   messageList: {
     flex: 1,
@@ -369,6 +620,83 @@ const styles: Record<string, CSSProperties> = {
     background: "rgba(220,38,38,0.1)",
     color: "#b91c1c",
     fontWeight: 800,
+  },
+  notice: {
+    padding: "12px 14px",
+    borderRadius: 16,
+    background: "var(--brand-primary-soft)",
+    color: "var(--brand-primary-deep)",
+    fontWeight: 800,
+  },
+  invitePanel: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.94)",
+    border: "1px solid var(--border-soft)",
+    boxShadow: "var(--shadow-soft)",
+  },
+  invitePanelHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  inviteTitle: {
+    color: "var(--text-primary)",
+  },
+  closeButton: {
+    border: "none",
+    background: "transparent",
+    color: "var(--brand-primary-deep)",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  inviteList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    maxHeight: 260,
+    overflowY: "auto",
+  },
+  inviteFriend: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    borderRadius: 14,
+    background: "rgba(255,255,255,0.86)",
+    border: "1px solid rgba(5,181,187,0.12)",
+    cursor: "pointer",
+  },
+  inviteFriendName: {
+    color: "var(--text-primary)",
+    fontSize: "0.9rem",
+  },
+  rowMain: {
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+    flex: 1,
+  },
+  userId: {
+    color: "var(--neutral-500)",
+    fontSize: "0.7rem",
+    overflowWrap: "anywhere",
+  },
+  inviteSubmitButton: {
+    alignSelf: "flex-end",
+    border: "none",
+    borderRadius: 999,
+    minHeight: 40,
+    padding: "0 16px",
+    background: "var(--brand-primary)",
+    color: "#ffffff",
+    fontWeight: 900,
+    cursor: "pointer",
   },
   mutedText: {
     margin: 0,
