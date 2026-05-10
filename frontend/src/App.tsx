@@ -13,6 +13,8 @@ import MatePage from "./features/mate/MatePage";
 import ChatPage from "./features/friend-chat/ChatPage";
 import ChatRoomPage from "./features/friend-chat/ChatRoomPage";
 import { ChatProvider } from "./features/friend-chat/ChatProvider";
+import MyPage from "./pages/MyPage";
+import UserFeedPage from "./pages/UserFeedPage";
 import SharedPlanPage from "./pages/SharedPlanPage";
 import PlaceholderPage from "./pages/PlaceholderPage";
 import PlanSelectionPage from "./features/plan/PlanSelectionPage";
@@ -209,6 +211,7 @@ type AppToastState = AppToastDetail & {
 };
 
 function AppToast() {
+  const navigate = useNavigate();
   const [toast, setToast] = useState<AppToastState | null>(null);
   const toastSequenceRef = useRef(0);
 
@@ -242,30 +245,43 @@ function AppToast() {
   }, []);
 
   if (!toast) return null;
+  const ToastElement = toast.path ? "button" : "div";
 
   return createPortal(
     <div style={toastLayerStyles.appSlot}>
-      <div
+      <ToastElement
         key={toast.toastId}
+        type={toast.path ? "button" : undefined}
         role="status"
         style={{
           ...appToastStyles.toast,
+          ...(toast.path ? appToastStyles.toastClickable : {}),
           ...(toast.variant === "error" ? appToastStyles.toastError : {}),
           ...(toast.variant === "success" ? appToastStyles.toastSuccess : {}),
         }}
+        onClick={() => {
+          if (!toast.path) return;
+          navigate(toast.path);
+          setToast(null);
+        }}
       >
-        <span
-          style={{
-            ...appToastStyles.indicator,
-            ...(toast.variant === "error" ? appToastStyles.indicatorError : {}),
-            ...(toast.variant === "success" ? appToastStyles.indicatorSuccess : {}),
-          }}
-        />
+        {toast.imageUrl ? (
+          <img src={toast.imageUrl} alt="" style={appToastStyles.avatar} />
+        ) : (
+          <span
+            style={{
+              ...appToastStyles.indicator,
+              ...(toast.variant === "error" ? appToastStyles.indicatorError : {}),
+              ...(toast.variant === "success" ? appToastStyles.indicatorSuccess : {}),
+            }}
+          />
+        )}
         <span style={appToastStyles.text}>
           <strong style={appToastStyles.title}>{toast.title}</strong>
           {toast.message ? <span style={appToastStyles.body}>{toast.message}</span> : null}
         </span>
-      </div>
+        {toast.path ? <span style={appToastStyles.action}>Open</span> : null}
+      </ToastElement>
     </div>,
     getToastRoot()
   );
@@ -300,30 +316,29 @@ export default function App() {
   return (
     <BrowserRouter>
       <ChatProvider>
-        <div style={appLayoutStyles.safeAreaRoot}>
-          <Routes>
-            <Route path="/" element={<LoginPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/register/onboarding" element={<OnboardingPage />} />
-            <Route path="/withdrawal-pending" element={<WithdrawalPendingPage />} />
-            <Route element={<AppShell />}>
-              <Route path="/home" element={<HomePage />} />
-              <Route path="/plan" element={<PlanSelectionPage />} />
-              <Route path="/plan/ai" element={<AiPlanDesignRoute />} />
-              <Route path="/plan/ai/result" element={<AiPlanResultRoute />} />
-              <Route path="/plan/manual" element={<ManualPlanRoute />} />
-              <Route path="/menu" element={<MenuPage />} />
-              <Route path="/mate" element={<MatePage />} />
-              <Route path="/chat" element={<ChatPage />} />
-            </Route>
-            <Route path="/share/plan/:shareToken" element={<SharedPlanPage />} />
-            <Route path="/chat/:id" element={<ChatRoomPage />} />
-            <Route path="/spots/:id" element={<PlaceholderPage />} />
-            <Route path="/profile/:id" element={<PlaceholderPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </div>
+        <Routes>
+          <Route path="/" element={<LoginPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/register/onboarding" element={<OnboardingPage />} />
+          <Route path="/withdrawal-pending" element={<WithdrawalPendingPage />} />
+          <Route element={<AppShell />}>
+            <Route path="/home" element={<HomePage />} />
+            <Route path="/plan" element={<PlanSelectionPage />} />
+            <Route path="/plan/ai" element={<AiPlanDesignRoute />} />
+            <Route path="/plan/ai/result" element={<AiPlanResultRoute />} />
+            <Route path="/plan/manual" element={<ManualPlanRoute />} />
+            <Route path="/menu" element={<MenuPage />} />
+            <Route path="/mate" element={<MatePage />} />
+            <Route path="/chat" element={<ChatPage />} />
+            <Route path="/my" element={<MyPage />} />
+            <Route path="/profile/:id" element={<UserFeedPage />} />
+          </Route>
+          <Route path="/share/plan/:shareToken" element={<SharedPlanPage />} />
+          <Route path="/chat/:id" element={<ChatRoomPage />} />
+          <Route path="/spots/:id" element={<PlaceholderPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
         <WithdrawalPendingRedirect />
         <AppToast />
         <ChatMessageToast />
@@ -439,6 +454,10 @@ const appToastStyles: Record<string, CSSProperties> = {
     boxShadow: "0 18px 42px rgba(24,26,32,0.16)",
     backdropFilter: "blur(16px)",
     pointerEvents: "auto",
+    textAlign: "left",
+  },
+  toastClickable: {
+    cursor: "pointer",
   },
   toastSuccess: {
     borderColor: "rgba(5,181,187,0.26)",
@@ -459,8 +478,16 @@ const appToastStyles: Record<string, CSSProperties> = {
   indicatorError: {
     background: "#dc2626",
   },
+  avatar: {
+    width: 34,
+    height: 34,
+    borderRadius: "50%",
+    objectFit: "cover",
+    flexShrink: 0,
+  },
   text: {
     minWidth: 0,
+    flex: 1,
     display: "flex",
     flexDirection: "column",
     gap: 3,
@@ -473,5 +500,14 @@ const appToastStyles: Record<string, CSSProperties> = {
     color: "var(--neutral-700)",
     fontSize: "0.8rem",
     fontWeight: 700,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  action: {
+    color: "var(--brand-primary-deep)",
+    fontSize: "0.76rem",
+    fontWeight: 900,
+    flexShrink: 0,
   },
 };

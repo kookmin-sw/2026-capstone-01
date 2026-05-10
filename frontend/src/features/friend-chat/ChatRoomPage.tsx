@@ -9,6 +9,7 @@ import {
   type ChatRoom,
   type ChatUserProfile,
 } from "../../api/chat";
+import FeedPopup from "../../components/FeedPopup";
 import { useChat } from "./ChatProvider";
 
 const BOTTOM_THRESHOLD_PX = 160;
@@ -44,6 +45,7 @@ export default function ChatRoomPage() {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
+  const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
 
   const roomId = room?.chat_room_id ?? "";
   const messages = useMemo(
@@ -60,6 +62,7 @@ export default function ChatRoomPage() {
   }, [room]);
   const roomProfileImageUrl =
     room?.type === "direct" ? room.peer?.profile_image_url || DEFAULT_PROFILE_IMAGE_URL : DEFAULT_PROFILE_IMAGE_URL;
+  const roomProfileUserId = room?.type === "direct" ? room.peer?.user_id || "" : "";
   const memberProfilesById = useMemo(() => {
     const profiles = new Map<string, ChatUserProfile>();
     members.forEach((member) => profiles.set(member.user_id, member));
@@ -273,15 +276,31 @@ export default function ChatRoomPage() {
     return memberProfilesById.get(message.sender_id)?.user_name || roomName;
   }
 
+  function openFeedPopup(userId?: string | null): void {
+    if (userId) {
+      setFeedPopupUserId(userId);
+    }
+  }
+
   return (
     <div style={styles.page}>
       <header style={styles.header}>
         <button type="button" style={styles.backButton} onClick={() => navigate("/chat")}>
           Back
         </button>
-        <div style={styles.avatar}>
+        <button
+          type="button"
+          style={{
+            ...styles.avatar,
+            ...styles.avatarButton,
+            ...(!roomProfileUserId ? styles.disabledAvatarButton : {}),
+          }}
+          onClick={() => openFeedPopup(roomProfileUserId)}
+          disabled={!roomProfileUserId}
+          aria-label={`${roomName} feed`}
+        >
           <img src={roomProfileImageUrl} alt={roomName} style={styles.avatarImage} />
-        </div>
+        </button>
         <span style={styles.headerText}>
           <strong style={styles.roomName}>{roomName}</strong>
           <span style={styles.connectionText}>{memberSummary}</span>
@@ -303,14 +322,19 @@ export default function ChatRoomPage() {
             <span style={styles.mutedText}>Loading members...</span>
           ) : (
             members.map((member) => (
-              <span key={member.user_id} style={styles.memberPill}>
+              <button
+                key={member.user_id}
+                type="button"
+                style={{ ...styles.memberPill, ...styles.memberPillButton }}
+                onClick={() => openFeedPopup(member.user_id)}
+              >
                 <img
                   src={member.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
                   alt={member.user_name}
                   style={styles.memberAvatar}
                 />
                 <span style={styles.memberName}>{member.user_name}</span>
-              </span>
+              </button>
             ))
           )}
         </section>
@@ -399,11 +423,19 @@ export default function ChatRoomPage() {
               }}
             >
               {!mine ? (
-                <img
-                  src={getMessageAvatarUrl(message)}
-                  alt={getMessageSenderName(message)}
-                  style={styles.messageAvatar}
-                />
+                <button
+                  type="button"
+                  style={styles.messageAvatarButton}
+                  onClick={() => openFeedPopup(message.sender_id)}
+                  disabled={!message.sender_id}
+                  aria-label={`${getMessageSenderName(message)} feed`}
+                >
+                  <img
+                    src={getMessageAvatarUrl(message)}
+                    alt={getMessageSenderName(message)}
+                    style={styles.messageAvatar}
+                  />
+                </button>
               ) : null}
               <div
                 style={{
@@ -450,6 +482,14 @@ export default function ChatRoomPage() {
           {connectionState === "ready" ? "Send" : connectionState === "closed" ? "Offline" : "Queue"}
         </button>
       </footer>
+
+      {feedPopupUserId ? (
+        <FeedPopup
+          userId={feedPopupUserId}
+          side="left"
+          onClose={() => setFeedPopupUserId(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -541,6 +581,14 @@ const styles: Record<string, CSSProperties> = {
     background: "var(--brand-primary-soft)",
     flexShrink: 0,
   },
+  avatarButton: {
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+  },
+  disabledAvatarButton: {
+    cursor: "default",
+  },
   avatarImage: {
     width: "100%",
     height: "100%",
@@ -590,6 +638,10 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 999,
     background: "rgba(255,255,255,0.95)",
     border: "1px solid rgba(5,181,187,0.14)",
+  },
+  memberPillButton: {
+    cursor: "pointer",
+    font: "inherit",
   },
   memberAvatar: {
     width: 28,
@@ -728,6 +780,16 @@ const styles: Record<string, CSSProperties> = {
     objectFit: "cover",
     flexShrink: 0,
     boxShadow: "0 6px 14px rgba(24,26,32,0.08)",
+  },
+  messageAvatarButton: {
+    width: 30,
+    height: 30,
+    border: "none",
+    borderRadius: "50%",
+    padding: 0,
+    background: "transparent",
+    cursor: "pointer",
+    flexShrink: 0,
   },
   bubble: {
     maxWidth: "min(72%, 420px)",

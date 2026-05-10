@@ -1,52 +1,158 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { getReceivedFriendRequests, type Friendship } from "../api/friend";
 import {
-  readStoredLikeNotifications,
-  type LikeNotification,
-} from "../lib/notifications";
+  getNotificationInbox,
+  getNotificationUnreadCount,
+  hideNotification,
+  type InboxNotification,
+} from "../api/notification";
 
-type NotificationTab = "likes" | "friends";
+type NotificationTab = "activity" | "friends";
 
 export default function NotificationBell() {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
-  const [tab, setTab] = useState<NotificationTab>("likes");
-  const [likeNotifications, setLikeNotifications] = useState<LikeNotification[]>([]);
+  const [tab, setTab] = useState<NotificationTab>("activity");
+  const [notifications, setNotifications] = useState<InboxNotification[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [friendNotifications, setFriendNotifications] = useState<Friendship[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [actionId, setActionId] = useState("");
+  const previousUnreadCountRef = useRef<number | null>(null);
 
-  async function fetchNotifications(): Promise<void> {
+  async function refreshUnreadAndFriends(showToast = false): Promise<void> {
+    const [count, friendRequests] = await Promise.all([
+      getNotificationUnreadCount().catch(() => 0),
+      getReceivedFriendRequests().catch(() => ({ items: [] as Friendship[] })),
+    ]);
+    const previousCount = previousUnreadCountRef.current;
+    if (showToast && previousCount !== null && count > previousCount) {
+      const newCount = count - previousCount;
+      window.dispatchEvent(
+        new CustomEvent("krip:app-toast", {
+          detail: {
+            title: "New activity",
+            message: `${newCount} new feed notification${
+              newCount > 1 ? "s" : ""
+            }. Open the bell to see details.`,
+            variant: "info",
+          },
+        })
+      );
+    }
+    previousUnreadCountRef.current = count;
+    setUnreadCount(count);
+    setFriendNotifications(friendRequests.items);
+  }
+
+  async function showLatestNotificationToast(): Promise<void> {
+    return;
+    try {
+      const inbox = await getNotificationInbox();
+      const latest = inbox.notifications[0];
+      if (!latest) return;
+
+      setNotifications(inbox.notifications);
+      setNextCursor(inbox.next_cursor);
+      setUnreadCount(0);
+      previousUnreadCountRef.current = 0;
+
+      window.dispatchEvent(
+        new CustomEvent("krip:app-toast", {
+          detail: {
+            title: getNotificationTitle(latest),
+            message: latest.comment_preview || getNotificationSubtitle(latest),
+            variant: "info",
+            path: getNotificationPath(latest),
+            imageUrl: latest.actor_profile_image_url || latest.target_preview,
+          },
+        })
+      );
+    } catch {
+      window.dispatchEvent(
+        new CustomEvent("krip:app-toast", {
+          detail: {
+            title: "New activity",
+            message: "알림함에서 새 게시글 알림을 확인해 주세요.",
+            variant: "info",
+            path: "/my",
+          },
+        })
+      );
+    }
+  }
+
+  async function fetchFirstPage(): Promise<void> {
     setIsLoading(true);
     try {
-      const friendRequests = await getReceivedFriendRequests();
+      const [inbox, friendRequests] = await Promise.all([
+        getNotificationInbox(),
+        getReceivedFriendRequests().catch(() => ({ items: [] as Friendship[] })),
+      ]);
+      setNotifications(inbox.notifications);
+      setNextCursor(inbox.next_cursor);
       setFriendNotifications(friendRequests.items);
-      setLikeNotifications(readStoredLikeNotifications());
+      setUnreadCount(0);
+      previousUnreadCountRef.current = 0;
     } finally {
       setIsLoading(false);
     }
   }
 
+  async function loadMore(): Promise<void> {
+    if (!nextCursor || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    try {
+      const inbox = await getNotificationInbox(nextCursor);
+      setNotifications((current) => {
+        const existing = new Set(current.map((item) => item.notification_id));
+        return [
+          ...current,
+          ...inbox.notifications.filter((item) => !existing.has(item.notification_id)),
+        ];
+      });
+      setNextCursor(inbox.next_cursor);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
+
+  async function handleHideNotification(notificationId: string): Promise<void> {
+    setActionId(notificationId);
+    try {
+      await hideNotification(notificationId);
+      setNotifications((current) =>
+        current.filter((item) => item.notification_id !== notificationId)
+      );
+      await refreshUnreadAndFriends();
+    } finally {
+      setActionId("");
+    }
+  }
+
   useEffect(() => {
-    void fetchNotifications().catch(() => {
-      setFriendNotifications([]);
-      setLikeNotifications(readStoredLikeNotifications());
-      setIsLoading(false);
-    });
+    void refreshUnreadAndFriends();
 
     const intervalId = window.setInterval(() => {
-      void fetchNotifications().catch(() => setIsLoading(false));
+      void refreshUnreadAndFriends(true);
     }, 30000);
 
-    const handleRefresh = () => {
-      setLikeNotifications(readStoredLikeNotifications());
-      void fetchNotifications().catch(() => setIsLoading(false));
+    const handleRefresh = () => void refreshUnreadAndFriends(false);
+    const handleRealtimeRefresh = (event: Event) => {
+      const toastHandled = Boolean(
+        (event as CustomEvent<{ toastHandled?: boolean }>).detail?.toastHandled
+      );
+      void refreshUnreadAndFriends(!toastHandled);
     };
-
     window.addEventListener("focus", handleRefresh);
     window.addEventListener("storage", handleRefresh);
     window.addEventListener("krip:friend-chat-notifications-updated", handleRefresh);
     window.addEventListener("krip:like-notifications-updated", handleRefresh);
+    window.addEventListener("krip:notification-inbox-updated", handleRealtimeRefresh);
 
     return () => {
       window.clearInterval(intervalId);
@@ -54,10 +160,11 @@ export default function NotificationBell() {
       window.removeEventListener("storage", handleRefresh);
       window.removeEventListener("krip:friend-chat-notifications-updated", handleRefresh);
       window.removeEventListener("krip:like-notifications-updated", handleRefresh);
+      window.removeEventListener("krip:notification-inbox-updated", handleRealtimeRefresh);
     };
   }, []);
 
-  const notificationCount = likeNotifications.length + friendNotifications.length;
+  const notificationCount = unreadCount + friendNotifications.length;
 
   return (
     <>
@@ -66,14 +173,15 @@ export default function NotificationBell() {
         style={styles.notificationButton}
         onClick={() => {
           setIsOpen(true);
-          void fetchNotifications().catch(() => setIsLoading(false));
+          setTab("activity");
+          void fetchFirstPage();
         }}
         aria-label="Open notifications"
       >
         <BellIcon />
         {notificationCount > 0 ? (
           <span style={styles.notificationBadge}>
-            {notificationCount > 99 ? "99+" : notificationCount}
+            {notificationCount >= 999 ? "999+" : notificationCount}
           </span>
         ) : null}
       </button>
@@ -101,13 +209,15 @@ export default function NotificationBell() {
                 type="button"
                 style={{
                   ...styles.notificationTab,
-                  ...(tab === "likes" ? styles.notificationTabActive : {}),
+                  ...(tab === "activity" ? styles.notificationTabActive : {}),
                 }}
-                onClick={() => setTab("likes")}
+                onClick={() => setTab("activity")}
               >
-                Likes
-                {likeNotifications.length > 0 ? (
-                  <span style={styles.notificationTabBadge}>{likeNotifications.length}</span>
+                Activity
+                {unreadCount > 0 ? (
+                  <span style={styles.notificationTabBadge}>
+                    {unreadCount >= 999 ? "999+" : unreadCount}
+                  </span>
                 ) : null}
               </button>
               <button
@@ -131,38 +241,40 @@ export default function NotificationBell() {
                   <span style={styles.spinner} />
                   <p style={styles.emptyCopy}>Loading notifications...</p>
                 </div>
-              ) : tab === "likes" ? (
-                likeNotifications.length > 0 ? (
-                  likeNotifications.map((item) => (
+              ) : tab === "activity" ? (
+                <>
+                  {notifications.length > 0 ? (
+                    notifications.map((item) => (
+                      <NotificationItem
+                        key={item.notification_id}
+                        item={item}
+                        hiding={actionId === item.notification_id}
+                        onHide={() => void handleHideNotification(item.notification_id)}
+                        onOpen={() => {
+                          setIsOpen(false);
+                          navigate(getNotificationPath(item));
+                        }}
+                      />
+                    ))
+                  ) : (
+                    <div style={styles.notificationEmpty}>
+                      <p style={styles.emptyTitle}>No activity notifications yet.</p>
+                      <p style={styles.emptyCopy}>
+                        Likes and comments from other users will appear here.
+                      </p>
+                    </div>
+                  )}
+                  {nextCursor ? (
                     <button
-                      key={item.id}
                       type="button"
-                      style={styles.notificationItem}
-                      onClick={() => {
-                        setIsOpen(false);
-                        if (item.path) navigate(item.path);
-                      }}
+                      style={styles.loadMoreButton}
+                      onClick={() => void loadMore()}
+                      disabled={isLoadingMore}
                     >
-                      {item.imageUrl ? (
-                        <img src={item.imageUrl} alt="" style={styles.notificationAvatar} />
-                      ) : (
-                        <span style={styles.notificationItemIcon}>L</span>
-                      )}
-                      <span style={styles.notificationItemText}>
-                        <strong>{item.actorName} liked your post.</strong>
-                        <span>{item.targetTitle || item.body}</span>
-                        <small>{formatNotificationDate(item.createdAt)}</small>
-                      </span>
+                      {isLoadingMore ? "Loading..." : "More"}
                     </button>
-                  ))
-                ) : (
-                  <div style={styles.notificationEmpty}>
-                    <p style={styles.emptyTitle}>No like notifications yet.</p>
-                    <p style={styles.emptyCopy}>
-                      Tripmate and feed likes will appear here when push data arrives.
-                    </p>
-                  </div>
-                )
+                  ) : null}
+                </>
               ) : friendNotifications.length > 0 ? (
                 friendNotifications.map((request) => (
                   <button
@@ -181,7 +293,9 @@ export default function NotificationBell() {
                     />
                     <span style={styles.notificationItemText}>
                       <strong>{request.peer.user_name} sent you a friend request.</strong>
-                      <span>{request.peer.nationality} / {formatGenderLabel(request.peer.gender)}</span>
+                      <span>
+                        {request.peer.nationality} / {formatGenderLabel(request.peer.gender)}
+                      </span>
                       <small>{formatNotificationDate(request.created_at)}</small>
                     </span>
                   </button>
@@ -197,6 +311,64 @@ export default function NotificationBell() {
         </div>
       ) : null}
     </>
+  );
+}
+
+function NotificationItem({
+  item,
+  hiding,
+  onHide,
+  onOpen,
+}: {
+  item: InboxNotification;
+  hiding: boolean;
+  onHide: () => void;
+  onOpen: () => void;
+}) {
+  const isUnread = !item.is_read;
+
+  return (
+    <div
+      style={{
+        ...styles.notificationItem,
+        ...(isUnread ? styles.unreadItem : styles.readItem),
+      }}
+    >
+      <button type="button" style={styles.notificationMain} onClick={onOpen}>
+        <img
+          src={item.actor_profile_image_url || "/default-profile.png"}
+          alt=""
+          style={styles.notificationAvatar}
+        />
+        <span
+          style={{
+            ...styles.notificationItemText,
+            ...(isUnread ? styles.unreadItemText : styles.readItemText),
+          }}
+        >
+          <strong style={styles.notificationItemTitle}>
+            {isUnread ? <span style={styles.unreadDot} /> : null}
+            {getNotificationTitle(item)}
+          </strong>
+          <span style={styles.notificationItemBody}>
+            {item.comment_preview || getNotificationSubtitle(item)}
+          </span>
+          <small>{formatNotificationDate(item.created_at)}</small>
+        </span>
+        {item.target_preview ? (
+          <img src={item.target_preview} alt="" style={styles.targetPreview} />
+        ) : null}
+      </button>
+      <button
+        type="button"
+        style={styles.hideButton}
+        onClick={onHide}
+        disabled={hiding}
+        aria-label="Hide notification"
+      >
+        x
+      </button>
+    </div>
   );
 }
 
@@ -218,6 +390,26 @@ function BellIcon() {
       />
     </svg>
   );
+}
+
+function getNotificationTitle(item: InboxNotification): string {
+  const actor = item.actor_name || "Someone";
+  if (item.type === "feed_like") return `${actor} liked your feed post.`;
+  if (item.type === "feed_comment") return `${actor} commented on your feed post.`;
+  if (item.type === "tripmate_like") return `${actor} liked your tripmate post.`;
+  return `${actor} sent a notification.`;
+}
+
+function getNotificationSubtitle(item: InboxNotification): string {
+  if (item.target_type === "feed_post") return "Feed post";
+  if (item.target_type === "tripmate_post") return "Tripmate post";
+  return "";
+}
+
+function getNotificationPath(item: InboxNotification): string {
+  if (item.target_type === "tripmate_post") return "/mate";
+  if (item.target_type === "feed_post") return "/my";
+  return "/home";
 }
 
 function formatNotificationDate(value: string): string {
@@ -366,25 +558,36 @@ const styles: Record<string, CSSProperties> = {
     width: "100%",
     display: "flex",
     alignItems: "center",
-    gap: 12,
-    padding: 12,
+    gap: 8,
+    padding: 10,
     border: "1px solid var(--border-soft)",
     borderRadius: 18,
     background: "rgba(255,255,255,0.9)",
     color: "var(--text-primary)",
     textAlign: "left",
-    cursor: "pointer",
   },
-  notificationItemIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: "50%",
-    display: "grid",
-    placeItems: "center",
-    flexShrink: 0,
-    background: "rgba(248,180,0,0.18)",
-    color: "var(--text-primary)",
-    fontWeight: 900,
+  unreadItem: {
+    borderColor: "rgba(5,181,187,0.38)",
+    background: "#ffffff",
+    boxShadow: "0 12px 28px rgba(5,181,187,0.11)",
+  },
+  readItem: {
+    borderColor: "rgba(15,23,42,0.08)",
+    background: "rgba(24,26,32,0.055)",
+    opacity: 0.72,
+  },
+  notificationMain: {
+    minWidth: 0,
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    border: "none",
+    background: "transparent",
+    padding: 0,
+    color: "inherit",
+    textAlign: "left",
+    cursor: "pointer",
   },
   notificationAvatar: {
     width: 42,
@@ -395,11 +598,65 @@ const styles: Record<string, CSSProperties> = {
   },
   notificationItemText: {
     minWidth: 0,
+    flex: 1,
     display: "flex",
     flexDirection: "column",
     gap: 3,
-    color: "var(--neutral-700)",
     fontSize: "0.82rem",
+  },
+  unreadItemText: {
+    color: "var(--text-primary)",
+  },
+  readItemText: {
+    color: "var(--neutral-700)",
+  },
+  notificationItemTitle: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    color: "inherit",
+    fontSize: "0.88rem",
+    lineHeight: 1.25,
+  },
+  notificationItemBody: {
+    color: "inherit",
+    lineHeight: 1.35,
+    overflowWrap: "anywhere",
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: "50%",
+    background: "var(--brand-primary)",
+    flexShrink: 0,
+  },
+  targetPreview: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    objectFit: "cover",
+    background: "var(--surface-muted)",
+    flexShrink: 0,
+  },
+  hideButton: {
+    width: 28,
+    height: 28,
+    border: "none",
+    borderRadius: "50%",
+    background: "var(--surface-muted)",
+    color: "var(--neutral-700)",
+    fontWeight: 900,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  loadMoreButton: {
+    minHeight: 42,
+    border: "none",
+    borderRadius: 14,
+    background: "var(--brand-primary)",
+    color: "#ffffff",
+    fontWeight: 900,
+    cursor: "pointer",
   },
   notificationEmpty: {
     minHeight: 180,
