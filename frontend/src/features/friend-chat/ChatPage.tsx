@@ -877,8 +877,8 @@ function getErrorStatus(error: unknown): number | undefined {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
-    padding: "20px 0 34px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(20px + var(--app-safe-top)) 0 34px",
     background: "#ffffff",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },

@@ -437,7 +437,7 @@ const chatToastStyles: Record<string, CSSProperties> = {
 const appToastStyles: Record<string, CSSProperties> = {
   toast: {
     position: "fixed",
-    top: 16,
+    top: "calc(16px + var(--app-safe-top))",
     left: "50%",
     transform: "translateX(-50%)",
     animation: "slideDownToast 650ms cubic-bezier(0.22, 1, 0.36, 1)",

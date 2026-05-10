@@ -441,8 +441,8 @@ function CommentIcon() {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
-    padding: "18px 0 112px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(18px + var(--app-safe-top)) 0 calc(78px + var(--app-bottom-nav-reserved))",
     background: "#ffffff",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },

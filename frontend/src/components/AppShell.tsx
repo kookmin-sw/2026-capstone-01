@@ -1,24 +1,21 @@
 import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { getMyProfile } from "../api/auth/auth";
-import { getReceivedFriendRequests } from "../api/friend";
 import { registerFcmToken } from "../lib/fcm";
 
 const TAB_ITEMS = [
-  { to: "/home", label: "Home", icon: "H" },
-  { to: "/plan", label: "Plan", icon: "P" },
-  { to: "/menu", label: "Menu", icon: "M" },
-  { to: "/mate", label: "Mate", icon: "T" },
-  { to: "/chat", label: "Friend/Chat", icon: "C" },
+  { to: "/home", label: "Home", icon: "home" },
+  { to: "/plan", label: "Plan", icon: "calendar" },
+  { to: "/menu", label: "Menu", icon: "grid" },
+  { to: "/mate", label: "Mate", icon: "mate" },
+  { to: "/my", label: "My Page", icon: "my" },
 ] as const;
 
 export default function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
-  const isFriendChatRoute =
-    location.pathname === "/chat" || location.pathname.startsWith("/chat/");
-  const [friendChatNotificationCount, setFriendChatNotificationCount] = useState(0);
+  const currentPath = location.pathname;
 
   useEffect(() => {
     getMyProfile()
@@ -38,46 +35,6 @@ export default function AppShell() {
       });
   }, [navigate]);
 
-  useEffect(() => {
-    if (isFriendChatRoute) {
-      return undefined;
-    }
-
-    let isMounted = true;
-
-    async function refreshFriendChatNotifications(): Promise<void> {
-      const chatUnreadCount = readStoredChatUnreadCount();
-
-      try {
-        const receivedRequests = await getReceivedFriendRequests();
-        if (!isMounted) return;
-        setFriendChatNotificationCount(receivedRequests.items.length + chatUnreadCount);
-      } catch {
-        if (!isMounted) return;
-        setFriendChatNotificationCount(chatUnreadCount);
-      }
-    }
-
-    void refreshFriendChatNotifications();
-
-    const intervalId = window.setInterval(() => {
-      void refreshFriendChatNotifications();
-    }, 30000);
-
-    const handleRefresh = () => void refreshFriendChatNotifications();
-    window.addEventListener("focus", handleRefresh);
-    window.addEventListener("storage", handleRefresh);
-    window.addEventListener("krip:friend-chat-notifications-updated", handleRefresh);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleRefresh);
-      window.removeEventListener("storage", handleRefresh);
-      window.removeEventListener("krip:friend-chat-notifications-updated", handleRefresh);
-    };
-  }, [isFriendChatRoute]);
-
   return (
     <div style={styles.shell}>
       <div style={styles.content}>
@@ -92,16 +49,13 @@ export default function AppShell() {
             aria-label={item.label}
             style={({ isActive }) => ({
               ...styles.navItem,
-              ...(isActive ? styles.navItemActive : {}),
+              ...(isActive || (item.to === "/my" && currentPath.startsWith("/profile/"))
+                ? styles.navItemActive
+                : {}),
             })}
           >
             <span style={styles.navIconWrap}>
               <NavIcon name={item.icon} />
-              {item.to === "/chat" && friendChatNotificationCount > 0 ? (
-                <span style={styles.notificationBadge}>
-                  {friendChatNotificationCount > 99 ? "99+" : friendChatNotificationCount}
-                </span>
-              ) : null}
             </span>
           </NavLink>
         ))}
@@ -148,9 +102,6 @@ function NavIcon({ name }: { name: (typeof TAB_ITEMS)[number]["icon"] }) {
           <path d="M37 39c8 1 15 6 15 13 0 4-8 6-17 5 5-3 7-9 2-18Z" opacity="0.75" />
         </>
       ) : null}
-      {name === "chat" ? (
-        <path d="M32 10c16 0 28 10 28 24S48 58 32 58c-4.2 0-8.1-.7-11.6-2.1L8 60l4-11.2C6.9 44.9 4 39.8 4 34 4 20 16 10 32 10Zm-11 27a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm11 0a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm11 0a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
-      ) : null}
       {name === "my" ? (
         <>
           <circle cx="32" cy="22" r="13" />
@@ -180,68 +131,29 @@ function isWithdrawalPendingError(error: unknown): boolean {
   );
 }
 
-function readStoredChatUnreadCount(): number {
-  const canonicalMapCount = readUnreadMapCount("krip-chat-unread-by-room");
-  if (canonicalMapCount > 0) {
-    return canonicalMapCount;
-  }
-
-  const legacyMapCount =
-    readUnreadMapCount("krip-chat-unread") + readUnreadMapCount("krip:chat-unread");
-  if (legacyMapCount > 0) {
-    return legacyMapCount;
-  }
-
-  const directKeys = ["krip-chat-unread-count", "krip:chat-unread-count"];
-  const directCount = directKeys.reduce((sum, key) => {
-    const value = Number(window.localStorage.getItem(key) || 0);
-    return sum + (Number.isFinite(value) ? value : 0);
-  }, 0);
-
-  return Math.max(0, directCount);
-}
-
-function readUnreadMapCount(key: string): number {
-  const raw = window.localStorage.getItem(key);
-  if (!raw) return 0;
-
-  try {
-    const value = JSON.parse(raw) as unknown;
-    if (typeof value === "number") return Math.max(0, value);
-    if (!value || typeof value !== "object") return 0;
-
-    return Object.values(value as Record<string, unknown>).reduce<number>((sum, roomValue) => {
-      const count = Number(roomValue || 0);
-      return sum + (Number.isFinite(count) ? count : 0);
-    }, 0);
-  } catch {
-    const value = Number(raw);
-    return Number.isFinite(value) ? Math.max(0, value) : 0;
-  }
-}
-
 const styles: Record<string, CSSProperties> = {
   shell: {
     minHeight: "var(--app-viewport-height)",
     width: "100%",
-    minWidth: "var(--app-design-width)",
     background: "transparent",
+    overflowX: "hidden",
   },
   content: {
     minHeight: "var(--app-viewport-height)",
-    paddingBottom: "calc(96px + var(--app-safe-bottom))",
+    paddingBottom: "var(--app-bottom-nav-reserved)",
   },
   nav: {
     position: "fixed",
     left: 0,
     right: 0,
     bottom: 0,
+    width: "auto",
     display: "grid",
     gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-    gap: 12,
+    gap: 8,
     paddingLeft: "var(--app-safe-left)",
     paddingRight: "var(--app-safe-right)",
-    paddingBottom: "calc(10px + var(--app-safe-bottom))",
+    paddingBottom: "var(--app-safe-bottom)",
     background: "rgba(255,255,255,0.94)",
     border: "1px solid var(--border-soft)",
     backdropFilter: "blur(16px)",
@@ -253,10 +165,10 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 56,
+    minHeight: "var(--app-bottom-nav-height)",
   },
   navItemActive: {
-    color: "#008f8f",
+    color: "#01C0C0",
   },
   navIconWrap: {
     position: "relative",
