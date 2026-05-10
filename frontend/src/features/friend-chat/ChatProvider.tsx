@@ -694,12 +694,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           if (event.message.sender_id !== currentUserIdRef.current) {
             if (event.message.chat_room_id !== activeRoomIdRef.current) {
               incrementStoredChatUnreadCount(event.message.chat_room_id);
+              dispatchChatToast(
+                event.message,
+                getRoomTitle(roomsRef.current, event.message.chat_room_id),
+                getRoomProfileImageUrl(roomsRef.current, event.message.chat_room_id)
+              );
             }
-            dispatchChatToast(
-              event.message,
-              getRoomTitle(roomsRef.current, event.message.chat_room_id),
-              getRoomProfileImageUrl(roomsRef.current, event.message.chat_room_id)
-            );
           }
           if (event.message.chat_room_id === activeRoomIdRef.current) {
             sendRead(event.message.chat_room_id, event.message.server_seq);
