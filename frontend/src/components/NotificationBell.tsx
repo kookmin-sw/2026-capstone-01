@@ -472,8 +472,8 @@ const styles: Record<string, CSSProperties> = {
   },
   notificationPanel: {
     width: "min(390px, 92vw)",
-    height: "100dvh",
-    padding: "22px 18px 28px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(22px + var(--app-safe-top)) 18px calc(28px + var(--app-safe-bottom))",
     background: "rgba(255,255,255,0.98)",
     boxShadow: "-24px 0 54px rgba(24,26,32,0.18)",
     borderLeft: "1px solid var(--border-soft)",

@@ -20,11 +20,11 @@ export default function PlaceholderPage() {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
+    minHeight: "var(--app-viewport-height)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
+    padding: "calc(24px + var(--app-safe-top)) 16px 24px",
     background: "#ffffff",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },

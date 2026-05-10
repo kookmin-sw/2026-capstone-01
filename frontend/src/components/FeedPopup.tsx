@@ -224,7 +224,7 @@ const styles: Record<string, CSSProperties> = {
     position: "relative",
     width: "min(430px, 100%)",
     height: "100%",
-    padding: "22px 18px",
+    padding: "calc(22px + var(--app-safe-top)) 18px calc(22px + var(--app-safe-bottom))",
     overflowY: "auto",
     background: "var(--surface-panel)",
     boxShadow: "-24px 0 60px rgba(24,26,32,0.18)",
@@ -236,7 +236,7 @@ const styles: Record<string, CSSProperties> = {
   },
   closeButton: {
     position: "absolute",
-    top: 14,
+    top: "calc(14px + var(--app-safe-top))",
     right: 14,
     width: 34,
     height: 34,
@@ -345,7 +345,7 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 72,
     display: "grid",
     placeItems: "center",
-    padding: 18,
+    padding: "calc(18px + var(--app-safe-top)) 18px calc(18px + var(--app-safe-bottom))",
     background: "rgba(8,12,16,0.74)",
   },
   detailCard: {

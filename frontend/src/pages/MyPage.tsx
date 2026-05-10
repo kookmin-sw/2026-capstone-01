@@ -1616,8 +1616,8 @@ function CommentIcon() {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
-    padding: "28px 16px 110px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(28px + var(--app-safe-top)) 16px calc(110px + var(--app-safe-bottom))",
     background: "transparent",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
@@ -1625,8 +1625,8 @@ const styles: Record<string, CSSProperties> = {
     maxWidth: 880,
     margin: "0 auto",
     display: "grid",
-    gridTemplateColumns: "136px minmax(0, 1fr)",
-    gap: 28,
+    gridTemplateColumns: "104px minmax(0, 1fr)",
+    gap: 16,
     alignItems: "center",
     padding: "8px 0 24px",
     borderBottom: "1px solid var(--neutral-200)",
@@ -2028,7 +2028,7 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 88,
     display: "grid",
     placeItems: "center",
-    padding: 18,
+    padding: "calc(18px + var(--app-safe-top)) 18px calc(18px + var(--app-safe-bottom))",
     background: "rgba(16,34,35,0.42)",
   },
   settingsPanel: {
@@ -2176,7 +2176,7 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 80,
     display: "grid",
     placeItems: "center",
-    padding: 20,
+    padding: "calc(20px + var(--app-safe-top)) 20px calc(20px + var(--app-safe-bottom))",
     background: "rgba(8,12,16,0.74)",
   },
   createPostModal: {
@@ -2193,7 +2193,7 @@ const styles: Record<string, CSSProperties> = {
   createPostTopBar: {
     height: 52,
     display: "grid",
-    gridTemplateColumns: "72px 1fr 100px",
+    gridTemplateColumns: "56px minmax(0, 1fr) 82px",
     alignItems: "center",
     borderBottom: "1px solid rgba(255,255,255,0.1)",
   },
@@ -2227,10 +2227,10 @@ const styles: Record<string, CSSProperties> = {
   createPostFrame: {
     minHeight: 0,
     display: "grid",
-    gridTemplateColumns: "minmax(520px, 1fr) 390px",
+    gridTemplateColumns: "minmax(0, 1fr)",
   },
   createPostImagePane: {
-    minHeight: 680,
+    minHeight: "min(42dvh, 336px)",
     display: "grid",
     placeItems: "center",
     background: "#050608",

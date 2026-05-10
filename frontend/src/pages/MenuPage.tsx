@@ -34,8 +34,8 @@ export default function MenuPage() {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
-    padding: "24px 16px 0",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(24px + var(--app-safe-top)) 16px 0",
     background: "transparent",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
