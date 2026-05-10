@@ -347,6 +347,16 @@ export default function App() {
   );
 }
 
+const appLayoutStyles: Record<string, CSSProperties> = {
+  safeAreaRoot: {
+    minHeight: "var(--app-viewport-height)",
+    width: "100%",
+    minWidth: "var(--app-design-width)",
+    paddingLeft: "var(--app-safe-left)",
+    paddingRight: "var(--app-safe-right)",
+  },
+};
+
 const toastLayerStyles: Record<string, CSSProperties> = {
   appSlot: {
     position: "relative",
@@ -361,7 +371,7 @@ const toastLayerStyles: Record<string, CSSProperties> = {
 const chatToastStyles: Record<string, CSSProperties> = {
   toast: {
     position: "fixed",
-    top: 16,
+    top: "calc(var(--app-safe-top) + 16px)",
     left: "50%",
     transform: "translateX(-50%)",
     animation: "slideDownToast 650ms cubic-bezier(0.22, 1, 0.36, 1)",

@@ -6,12 +6,11 @@ import { getReceivedFriendRequests } from "../api/friend";
 import { registerFcmToken } from "../lib/fcm";
 
 const TAB_ITEMS = [
-  { to: "/home", label: "Home", icon: "home" },
-  { to: "/menu", label: "Menu", icon: "grid" },
-  { to: "/plan", label: "Plan", icon: "calendar" },
-  { to: "/mate", label: "Mate", icon: "mate" },
-  { to: "/chat", label: "Chat", icon: "chat" },
-  { to: "/my", label: "My", icon: "my" },
+  { to: "/home", label: "Home", icon: "H" },
+  { to: "/plan", label: "Plan", icon: "P" },
+  { to: "/menu", label: "Menu", icon: "M" },
+  { to: "/mate", label: "Mate", icon: "T" },
+  { to: "/chat", label: "Friend/Chat", icon: "C" },
 ] as const;
 
 export default function AppShell() {
@@ -223,12 +222,14 @@ function readUnreadMapCount(key: string): number {
 
 const styles: Record<string, CSSProperties> = {
   shell: {
-    minHeight: "100dvh",
+    minHeight: "var(--app-viewport-height)",
+    width: "100%",
+    minWidth: "var(--app-design-width)",
     background: "transparent",
   },
   content: {
-    minHeight: "100dvh",
-    paddingBottom: 106,
+    minHeight: "var(--app-viewport-height)",
+    paddingBottom: "calc(96px + var(--app-safe-bottom))",
   },
   nav: {
     position: "fixed",
@@ -236,13 +237,14 @@ const styles: Record<string, CSSProperties> = {
     right: 0,
     bottom: 0,
     display: "grid",
-    gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
-    gap: 0,
-    minHeight: 88,
-    padding: "14px 16px 18px",
-    background: "#ffffff",
-    boxShadow: "0 -8px 24px rgba(15,23,42,0.06)",
-    borderTop: "1px solid rgba(15,23,42,0.06)",
+    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+    gap: 12,
+    paddingLeft: "var(--app-safe-left)",
+    paddingRight: "var(--app-safe-right)",
+    paddingBottom: "calc(10px + var(--app-safe-bottom))",
+    background: "rgba(255,255,255,0.94)",
+    border: "1px solid var(--border-soft)",
+    backdropFilter: "blur(16px)",
     zIndex: 15,
   },
   navItem: {

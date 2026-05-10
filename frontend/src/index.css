@@ -30,6 +30,13 @@
   --surface-accent: #e4f7f7;
   --border-soft: #e0e0e0;
   --shadow-soft: 0 14px 30px rgba(33, 33, 33, 0.08);
+  --app-design-width: 360px;
+  --app-design-height: 800px;
+  --app-viewport-height: max(100dvh, var(--app-design-height));
+  --app-safe-top: max(env(safe-area-inset-top, 0px), 24px);
+  --app-safe-bottom: max(env(safe-area-inset-bottom, 0px), 34px);
+  --app-safe-left: env(safe-area-inset-left, 0px);
+  --app-safe-right: env(safe-area-inset-right, 0px);
 }
 
 * {
@@ -40,10 +47,18 @@ html,
 body,
 #root {
   min-height: 100%;
+  width: 100%;
+  min-width: var(--app-design-width);
+}
+
+html {
+  background: var(--surface-base);
 }
 
 body {
   margin: 0;
+  min-height: var(--app-viewport-height);
+  overflow-x: auto;
   background:
     radial-gradient(circle at top left, rgba(5, 181, 187, 0.16), transparent 26%),
     radial-gradient(circle at top right, rgba(5, 181, 187, 0.1), transparent 28%),
