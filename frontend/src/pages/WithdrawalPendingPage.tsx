@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cancelWithdrawUser, logoutUser } from "../api/auth/auth";
+import { showAppToast } from "../utils/appToast";
 
 export default function WithdrawalPendingPage() {
   const navigate = useNavigate();
@@ -35,6 +36,7 @@ export default function WithdrawalPendingPage() {
     } catch {
       // Even if logout fails, leave the protected session screen.
     } finally {
+      showAppToast({ title: "Logged out", variant: "success" });
       navigate("/login", { replace: true });
     }
   }

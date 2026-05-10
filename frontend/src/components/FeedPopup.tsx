@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { getFeedPopup, type FeedPost, type FeedPopupResponse } from "../api/feed";
 
-const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.svg";
+const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
 export default function FeedPopup({
   userId,
@@ -196,14 +196,15 @@ const styles: Record<string, CSSProperties> = {
     border: "none",
     borderRadius: 8,
     overflow: "hidden",
-    background: "var(--neutral-100)",
+    background: "#050608",
     cursor: "pointer",
   },
   tileImage: {
     width: "100%",
     height: "100%",
-    objectFit: "cover",
+    objectFit: "contain",
     display: "block",
+    background: "#050608",
   },
   statePanel: {
     padding: 22,
@@ -249,7 +250,7 @@ const styles: Record<string, CSSProperties> = {
     maxHeight: "70dvh",
     objectFit: "contain",
     display: "block",
-    background: "var(--neutral-100)",
+    background: "#050608",
   },
   caption: {
     margin: "14px 16px 0",

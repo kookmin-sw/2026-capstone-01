@@ -95,7 +95,7 @@ export default function AppShell() {
             })}
           >
             <span style={styles.navIconWrap}>
-              <span style={styles.navIcon}>{item.icon}</span>
+              <NavIcon name={item.icon} />
               {item.to === "/chat" && friendChatNotificationCount > 0 ? (
                 <span style={styles.notificationBadge}>
                   {friendChatNotificationCount > 99 ? "99+" : friendChatNotificationCount}
@@ -107,6 +107,57 @@ export default function AppShell() {
         ))}
       </nav>
     </div>
+  );
+}
+
+function NavIcon({ name }: { name: (typeof TAB_ITEMS)[number]["icon"] }) {
+  return (
+    <svg
+      viewBox="0 0 64 64"
+      aria-hidden="true"
+      focusable="false"
+      style={styles.navIcon}
+    >
+      {name === "home" ? (
+        <path d="M10 30.5 32 11l22 19.5V55a4 4 0 0 1-4 4H39V43a4 4 0 0 0-4-4h-6a4 4 0 0 0-4 4v16H14a4 4 0 0 1-4-4V30.5Z" />
+      ) : null}
+      {name === "grid" ? (
+        <>
+          <rect x="10" y="10" width="18" height="18" rx="5" />
+          <rect x="36" y="10" width="18" height="18" rx="5" />
+          <rect x="10" y="36" width="18" height="18" rx="5" />
+          <rect x="36" y="36" width="18" height="18" rx="5" />
+        </>
+      ) : null}
+      {name === "calendar" ? (
+        <>
+          <rect x="11" y="14" width="42" height="42" rx="8" />
+          <rect x="11" y="22" width="42" height="5" />
+          <rect x="20" y="8" width="5" height="13" rx="2.5" />
+          <rect x="39" y="8" width="5" height="13" rx="2.5" />
+          {[20, 32, 44].map((x) =>
+            [34, 45].map((y) => <circle key={`${x}-${y}`} cx={x} cy={y} r="2.6" fill="#ffffff" />)
+          )}
+        </>
+      ) : null}
+      {name === "mate" ? (
+        <>
+          <circle cx="26" cy="25" r="11" />
+          <circle cx="42" cy="24" r="9" opacity="0.75" />
+          <path d="M10 51c0-10 8-17 20-17s20 7 20 17c0 6-40 6-40 0Z" />
+          <path d="M37 39c8 1 15 6 15 13 0 4-8 6-17 5 5-3 7-9 2-18Z" opacity="0.75" />
+        </>
+      ) : null}
+      {name === "chat" ? (
+        <path d="M32 10c16 0 28 10 28 24S48 58 32 58c-4.2 0-8.1-.7-11.6-2.1L8 60l4-11.2C6.9 44.9 4 39.8 4 34 4 20 16 10 32 10Zm-11 27a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm11 0a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm11 0a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+      ) : null}
+      {name === "my" ? (
+        <>
+          <circle cx="32" cy="22" r="13" />
+          <path d="M10 56c0-13 9.8-22 22-22s22 9 22 22c0 5-44 5-44 0Z" />
+        </>
+      ) : null}
+    </svg>
   );
 }
 
@@ -192,22 +243,14 @@ const styles: Record<string, CSSProperties> = {
   },
   navItem: {
     textDecoration: "none",
-    color: "var(--neutral-700)",
+    color: "#a9a9a9",
     display: "flex",
-    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    minHeight: 58,
-    borderRadius: 18,
-    fontSize: "0.7rem",
-    fontWeight: 800,
-    lineHeight: 1.1,
+    minHeight: 56,
   },
   navItemActive: {
-    background:
-      "linear-gradient(135deg, rgba(5, 181, 187, 0.16), rgba(248, 180, 0, 0.18))",
-    color: "var(--text-primary)",
+    color: "#008f8f",
   },
   navIconWrap: {
     position: "relative",
@@ -215,15 +258,10 @@ const styles: Record<string, CSSProperties> = {
     placeItems: "center",
   },
   navIcon: {
-    width: 20,
-    height: 20,
-    borderRadius: "50%",
-    background: "rgba(1,192,192,0.12)",
-    color: "var(--brand-primary-deep)",
-    display: "grid",
-    placeItems: "center",
-    fontSize: "0.72rem",
-    lineHeight: 1,
+    width: 40,
+    height: 40,
+    display: "block",
+    fill: "currentColor",
   },
   notificationBadge: {
     position: "absolute",

@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate,} from "react-router-dom";
 import AppShell from "./components/AppShell";
 import LoginPage from "./pages/LoginPage";
@@ -20,6 +21,7 @@ import AiPlanResultPage from "./features/plan/AiPlanResultPage";
 import ManualPlanPage from "./features/plan/Manualplanpage";
 import "./lib/firebase";
 import { listenForegroundMessages, requestPermission } from "./lib/fcm";
+import type { AppToastDetail } from "./utils/appToast";
 import {
   clearPreferences,
   clonePreferences,
@@ -100,6 +102,25 @@ function ManualPlanRoute() {
   return <ManualPlanPage onBack={() => navigate("/plan")} />;
 }
 
+function getToastRoot(): HTMLElement {
+  const existing = document.getElementById("krip-toast-root");
+  if (existing) return existing;
+
+  const root = document.createElement("div");
+  root.id = "krip-toast-root";
+  Object.assign(root.style, {
+    position: "fixed",
+    top: "0",
+    left: "0",
+    right: "0",
+    zIndex: "2147483647",
+    pointerEvents: "none",
+    isolation: "isolate",
+  });
+  document.body.appendChild(root);
+  return root;
+}
+
 type ChatToastState = {
   roomId?: string;
   path?: string;
@@ -154,29 +175,99 @@ function ChatMessageToast() {
 
   if (!toast) return null;
 
-  return (
-    <button
-      key={toast.toastId}
-      type="button"
-      style={chatToastStyles.toast}
-      onClick={() => {
-        navigate(toast.path || `/chat/${toast.roomId}`);
-        setToast(null);
-      }}
-    >
-      <span style={chatToastStyles.icon}>
-        <img
-          src={toast.imageUrl || "/default-profile.svg"}
-          alt=""
-          style={chatToastStyles.iconImage}
+  return createPortal(
+    <div style={toastLayerStyles.chatSlot}>
+      <button
+        key={toast.toastId}
+        type="button"
+        style={chatToastStyles.toast}
+        onClick={() => {
+          navigate(toast.path || `/chat/${toast.roomId}`);
+          setToast(null);
+        }}
+      >
+        <span style={chatToastStyles.icon}>
+          <img
+            src={toast.imageUrl || "/default-profile.png"}
+            alt=""
+            style={chatToastStyles.iconImage}
+          />
+        </span>
+        <span style={chatToastStyles.text}>
+          <strong style={chatToastStyles.title}>{toast.title}</strong>
+          <span style={chatToastStyles.body}>{toast.body}</span>
+        </span>
+        <span style={chatToastStyles.action}>Open</span>
+      </button>
+    </div>,
+    getToastRoot()
+  );
+}
+
+type AppToastState = AppToastDetail & {
+  toastId: number;
+};
+
+function AppToast() {
+  const [toast, setToast] = useState<AppToastState | null>(null);
+  const toastSequenceRef = useRef(0);
+
+  useEffect(() => {
+    let timeoutId: number | undefined;
+
+    function handleAppToast(event: Event): void {
+      const detail = (event as CustomEvent<AppToastDetail>).detail;
+      if (!detail?.title) return;
+
+      toastSequenceRef.current += 1;
+      setToast({
+        ...detail,
+        variant: detail.variant ?? "info",
+        toastId: toastSequenceRef.current,
+      });
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      timeoutId = window.setTimeout(() => setToast(null), 3600);
+    }
+
+    window.addEventListener("krip:app-toast", handleAppToast);
+
+    return () => {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      window.removeEventListener("krip:app-toast", handleAppToast);
+    };
+  }, []);
+
+  if (!toast) return null;
+
+  return createPortal(
+    <div style={toastLayerStyles.appSlot}>
+      <div
+        key={toast.toastId}
+        role="status"
+        style={{
+          ...appToastStyles.toast,
+          ...(toast.variant === "error" ? appToastStyles.toastError : {}),
+          ...(toast.variant === "success" ? appToastStyles.toastSuccess : {}),
+        }}
+      >
+        <span
+          style={{
+            ...appToastStyles.indicator,
+            ...(toast.variant === "error" ? appToastStyles.indicatorError : {}),
+            ...(toast.variant === "success" ? appToastStyles.indicatorSuccess : {}),
+          }}
         />
-      </span>
-      <span style={chatToastStyles.text}>
-        <strong style={chatToastStyles.title}>{toast.title}</strong>
-        <span style={chatToastStyles.body}>{toast.body}</span>
-      </span>
-      <span style={chatToastStyles.action}>Open</span>
-    </button>
+        <span style={appToastStyles.text}>
+          <strong style={appToastStyles.title}>{toast.title}</strong>
+          {toast.message ? <span style={appToastStyles.body}>{toast.message}</span> : null}
+        </span>
+      </div>
+    </div>,
+    getToastRoot()
   );
 }
 
@@ -234,6 +325,7 @@ export default function App() {
           </Routes>
         </div>
         <WithdrawalPendingRedirect />
+        <AppToast />
         <ChatMessageToast />
       </ChatProvider>
     </BrowserRouter>
@@ -250,6 +342,17 @@ const appLayoutStyles: Record<string, CSSProperties> = {
   },
 };
 
+const toastLayerStyles: Record<string, CSSProperties> = {
+  appSlot: {
+    position: "relative",
+    zIndex: 2,
+  },
+  chatSlot: {
+    position: "relative",
+    zIndex: 1,
+  },
+};
+
 const chatToastStyles: Record<string, CSSProperties> = {
   toast: {
     position: "fixed",
@@ -257,7 +360,7 @@ const chatToastStyles: Record<string, CSSProperties> = {
     left: "50%",
     transform: "translateX(-50%)",
     animation: "slideDownToast 650ms cubic-bezier(0.22, 1, 0.36, 1)",
-    zIndex: 80,
+    zIndex: 2147483646,
     width: "min(calc(100% - 32px), 420px)",
     minHeight: 68,
     display: "flex",
@@ -271,6 +374,7 @@ const chatToastStyles: Record<string, CSSProperties> = {
     backdropFilter: "blur(16px)",
     cursor: "pointer",
     textAlign: "left",
+    pointerEvents: "auto",
   },
   icon: {
     width: 40,
@@ -312,5 +416,62 @@ const chatToastStyles: Record<string, CSSProperties> = {
     fontSize: "0.78rem",
     fontWeight: 900,
     flexShrink: 0,
+  },
+};
+
+const appToastStyles: Record<string, CSSProperties> = {
+  toast: {
+    position: "fixed",
+    top: 16,
+    left: "50%",
+    transform: "translateX(-50%)",
+    animation: "slideDownToast 650ms cubic-bezier(0.22, 1, 0.36, 1)",
+    zIndex: 2147483647,
+    width: "min(calc(100% - 32px), 380px)",
+    minHeight: 58,
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "12px 14px",
+    border: "1px solid rgba(5,181,187,0.18)",
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.97)",
+    boxShadow: "0 18px 42px rgba(24,26,32,0.16)",
+    backdropFilter: "blur(16px)",
+    pointerEvents: "auto",
+  },
+  toastSuccess: {
+    borderColor: "rgba(5,181,187,0.26)",
+  },
+  toastError: {
+    borderColor: "rgba(220,38,38,0.24)",
+  },
+  indicator: {
+    width: 10,
+    height: 10,
+    borderRadius: "50%",
+    background: "var(--brand-primary)",
+    flexShrink: 0,
+  },
+  indicatorSuccess: {
+    background: "var(--brand-primary)",
+  },
+  indicatorError: {
+    background: "#dc2626",
+  },
+  text: {
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+  },
+  title: {
+    color: "var(--text-primary)",
+    fontSize: "0.92rem",
+  },
+  body: {
+    color: "var(--neutral-700)",
+    fontSize: "0.8rem",
+    fontWeight: 700,
   },
 };

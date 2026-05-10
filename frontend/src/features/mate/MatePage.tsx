@@ -36,6 +36,7 @@ import {
 import { getRecommendationCandidates } from "../../api/recommendation";
 import {
   recommendTravelers,
+  type MatePreferenceProfile,
   type RecommendationCandidate,
   type RecommendedTraveler,
 } from "../../utils/mateRecommendation";
@@ -60,7 +61,7 @@ const GENDER_LABELS: Record<PreferredGender, string> = {
   female: "Female",
 };
 
-const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.svg";
+const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
 const EMPTY_FORM = {
   title: "",
@@ -100,11 +101,8 @@ export default function MatePage() {
   const [userSearchLoading, setUserSearchLoading] = useState(false);
   const [userSearchError, setUserSearchError] = useState("");
   const [filter, setFilter] = useState<CompanionType | "all">("all");
-  const [currentRecommendationProfile, setCurrentRecommendationProfile] = useState<{
-    user_id?: string | null;
-    travel_styles?: string[];
-    nationality?: string;
-  }>({});
+  const [currentRecommendationProfile, setCurrentRecommendationProfile] =
+    useState<MatePreferenceProfile>({});
   const [recommendationCandidates, setRecommendationCandidates] = useState<
     RecommendationCandidate[]
   >([]);
@@ -295,6 +293,15 @@ export default function MatePage() {
         setCurrentRecommendationProfile({
           user_id: profile?.user_id ?? null,
           travel_styles: profile?.travel_styles ?? [],
+          food_preferences: profile?.food_preferences ?? [],
+          density_preference: profile?.density_preference,
+          budget_preference: profile?.budget_preference,
+          walking_preference: profile?.walking_preference,
+          transport_preferences: profile?.transport_preferences ?? [],
+          companion_preference: profile?.companion_preference,
+          time_preferences: profile?.time_preferences ?? [],
+          communication_preference: profile?.communication_preference,
+          planning_preference: profile?.planning_preference,
           nationality: profile?.nationality,
         });
       })
@@ -376,6 +383,10 @@ export default function MatePage() {
   const mateRecommendations = useMemo(
     () => recommendTravelers(currentRecommendationProfile, recommendationCandidates, 10),
     [currentRecommendationProfile, recommendationCandidates]
+  );
+  const recommendationSourceTags = useMemo(
+    () => getMatePreferenceTags(currentRecommendationProfile),
+    [currentRecommendationProfile]
   );
 
   function resetEditor(): void {
@@ -896,9 +907,9 @@ export default function MatePage() {
                   <h2 style={styles.recommendationTitle}>Travelers for you</h2>
                 </div>
                 <span style={styles.recommendationSource}>
-                  {currentRecommendationProfile.travel_styles?.length
-                    ? currentRecommendationProfile.travel_styles.join(" / ")
-                    : "No styles yet"}
+                  {recommendationSourceTags.length
+                    ? recommendationSourceTags.slice(0, 4).join(" / ")
+                    : "No preferences yet"}
                 </span>
               </div>
 
@@ -1750,6 +1761,88 @@ function formatProfileValue(value: unknown): string {
   if (Array.isArray(value)) return value.join(", ");
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+function getMatePreferenceTags(profile: {
+  travel_styles?: string[];
+  food_preferences?: string[];
+  density_preference?: string;
+  budget_preference?: string;
+  walking_preference?: string;
+  transport_preferences?: string[];
+  companion_preference?: string;
+  time_preferences?: string[];
+  communication_preference?: string;
+  planning_preference?: string;
+}): string[] {
+  const values = [
+    ...(profile.travel_styles ?? []),
+    ...(profile.food_preferences ?? []),
+    profile.density_preference,
+    profile.budget_preference,
+    profile.walking_preference,
+    ...(profile.transport_preferences ?? []),
+    profile.companion_preference,
+    ...(profile.time_preferences ?? []),
+    profile.communication_preference,
+    profile.planning_preference,
+  ];
+
+  return Array.from(
+    new Set(
+      values
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .map((value) => formatPreferenceLabel(value))
+    )
+  );
+}
+
+function formatPreferenceLabel(value: string): string {
+  const key = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const labelMap: Record<string, string> = {
+    activity: "Activity",
+    famous_attractions: "Famous Attractions",
+    healing: "Healing",
+    culture_history: "Culture & History",
+    shopping: "Shopping",
+    food_tour: "Food Tour",
+    photo_aesthetic: "Photo Aesthetic",
+    festival_event: "Festival & Event",
+    nature: "Nature",
+    traditional: "Traditional",
+    trekking: "Trekking",
+    hidden_gems: "Hidden Gems",
+    art_exhibition: "Art Exhibition",
+    theme_park: "Theme Park",
+    food_halal: "Halal",
+    food_vegetarian: "Vegetarian",
+    foodie: "Foodie",
+    cafe_lover: "Cafe Lover",
+    density_relaxed: "Relaxed",
+    density_packed: "Packed",
+    budget_saving: "Saving",
+    budget_moderate: "Moderate",
+    budget_premium: "Premium",
+    walking_low: "Low Walking",
+    walking_medium: "Medium Walking",
+    walking_high: "High Walking",
+    transport_public: "Public Transit",
+    transport_car: "Car",
+    transport_taxi: "Taxi",
+    companion_independent: "Independent",
+    companion_together: "Together",
+    companion_flexible: "Flexible",
+    daytime: "Daytime",
+    nightlife: "Nightlife",
+    night_view: "Night View",
+    communication_high: "High Communication",
+    communication_low: "Low Communication",
+    planner: "Planner",
+    spontaneous: "Spontaneous",
+    follower: "Follower",
+  };
+
+  return labelMap[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {

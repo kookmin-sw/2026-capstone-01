@@ -175,7 +175,7 @@ export default function NotificationBell() {
                     }}
                   >
                     <img
-                      src={request.peer.profile_image_url || "/default-profile.svg"}
+                      src={request.peer.profile_image_url || "/default-profile.png"}
                       alt=""
                       style={styles.notificationAvatar}
                     />

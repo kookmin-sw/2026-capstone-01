@@ -6,8 +6,10 @@ import {
   getMyProfile,
   logoutUser,
   replaceMyProfileImage,
+  updateMyProfilePreferences,
   uploadMyProfileImage,
   withdrawUser,
+  type ProfilePreferencesPayload,
   type UserProfile,
 } from "../api/auth/auth";
 import {
@@ -35,8 +37,97 @@ import {
   type FeedPost,
   type FeedVisibility,
 } from "../api/feed";
+import { showAppToast } from "../utils/appToast";
 
-const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.svg";
+const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
+
+type PreferenceOption = {
+  key: string;
+  label: string;
+};
+
+const TRAVEL_STYLE_OPTIONS: PreferenceOption[] = [
+  { key: "activity", label: "Activity" },
+  { key: "famous_attractions", label: "Famous Attractions" },
+  { key: "healing", label: "Healing" },
+  { key: "culture_history", label: "Culture & History" },
+  { key: "shopping", label: "Shopping" },
+  { key: "food_tour", label: "Food Tour" },
+  { key: "photo_aesthetic", label: "Photo Aesthetic" },
+  { key: "festival_event", label: "Festival & Event" },
+  { key: "nature", label: "Nature" },
+  { key: "traditional", label: "Traditional" },
+  { key: "trekking", label: "Trekking" },
+  { key: "hidden_gems", label: "Hidden Gems" },
+  { key: "art_exhibition", label: "Art Exhibition" },
+  { key: "theme_park", label: "Theme Park" },
+];
+
+const FOOD_OPTIONS: PreferenceOption[] = [
+  { key: "food_halal", label: "Halal" },
+  { key: "food_vegetarian", label: "Vegetarian" },
+  { key: "foodie", label: "Foodie" },
+  { key: "cafe_lover", label: "Cafe Lover" },
+];
+
+const DENSITY_OPTIONS: PreferenceOption[] = [
+  { key: "density_relaxed", label: "Relaxed" },
+  { key: "density_packed", label: "Packed" },
+];
+
+const BUDGET_OPTIONS: PreferenceOption[] = [
+  { key: "budget_saving", label: "Saving" },
+  { key: "budget_moderate", label: "Moderate" },
+  { key: "budget_premium", label: "Premium" },
+];
+
+const WALKING_OPTIONS: PreferenceOption[] = [
+  { key: "walking_low", label: "Low" },
+  { key: "walking_medium", label: "Medium" },
+  { key: "walking_high", label: "High" },
+];
+
+const TRANSPORT_OPTIONS: PreferenceOption[] = [
+  { key: "transport_public", label: "Public Transit" },
+  { key: "transport_car", label: "Car" },
+  { key: "transport_taxi", label: "Taxi" },
+];
+
+const COMPANION_OPTIONS: PreferenceOption[] = [
+  { key: "companion_independent", label: "Independent" },
+  { key: "companion_together", label: "Together" },
+  { key: "companion_flexible", label: "Flexible" },
+];
+
+const TIME_OPTIONS: PreferenceOption[] = [
+  { key: "daytime", label: "Daytime" },
+  { key: "nightlife", label: "Nightlife" },
+  { key: "night_view", label: "Night View" },
+];
+
+const COMMUNICATION_OPTIONS: PreferenceOption[] = [
+  { key: "communication_high", label: "High Communication" },
+  { key: "communication_low", label: "Low Communication" },
+];
+
+const PLANNING_OPTIONS: PreferenceOption[] = [
+  { key: "planner", label: "Planner" },
+  { key: "spontaneous", label: "Spontaneous" },
+  { key: "follower", label: "Follower" },
+];
+
+const EMPTY_PREFERENCES: ProfilePreferencesPayload = {
+  travel_styles: [],
+  food_preferences: [],
+  density_preference: "",
+  budget_preference: "",
+  walking_preference: "",
+  transport_preferences: [],
+  companion_preference: "",
+  time_preferences: [],
+  communication_preference: "",
+  planning_preference: "",
+};
 
 export default function MyPage() {
   const navigate = useNavigate();
@@ -53,6 +144,10 @@ export default function MyPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [statusDraft, setStatusDraft] = useState("");
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [preferenceDraft, setPreferenceDraft] =
+    useState<ProfilePreferencesPayload>(EMPTY_PREFERENCES);
+  const [isPreferenceEditing, setIsPreferenceEditing] = useState(false);
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
 
   const [feedPosts, setFeedPosts] = useState<FeedPost[]>([]);
   const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
@@ -72,6 +167,9 @@ export default function MyPage() {
   const [isFeedPostMenuOpen, setIsFeedPostMenuOpen] = useState(false);
   const [commentInput, setCommentInput] = useState("");
   const [isFeedActionRunning, setIsFeedActionRunning] = useState(false);
+  const [pendingAccountAction, setPendingAccountAction] = useState<
+    "logout" | "withdraw" | null
+  >(null);
   const [savedPlans, setSavedPlans] = useState<PlanSummaryResponse[]>([]);
   const [isLoadingPlans, setIsLoadingPlans] = useState(false);
   const [planMessage, setPlanMessage] = useState("");
@@ -86,6 +184,7 @@ export default function MyPage() {
           const nextStatus = getInitialStatusMessage(data);
           setStatusMessage(nextStatus);
           setStatusDraft(nextStatus);
+          setPreferenceDraft(toPreferencePayload(data));
         }
       })
       .catch(() => setProfile(null));
@@ -392,27 +491,41 @@ export default function MyPage() {
   }
 
   async function handleLogout(): Promise<void> {
-    if (!window.confirm("Log out of your account?")) return;
-
     try {
       await logoutUser();
+    } catch {
+      // The session may already be invalid locally; still leave the app shell.
     } finally {
+      showAppToast({ title: "Logged out", variant: "success" });
       navigate("/login");
     }
   }
 
   async function handleWithdraw(): Promise<void> {
-    if (!window.confirm("Delete your account permanently? All user data will be removed.")) {
-      return;
-    }
-
     setIsWithdrawing(true);
     try {
       await withdrawUser();
+      showAppToast({ title: "Account deleted", variant: "success" });
       navigate("/login", { replace: true });
     } catch (error) {
-      window.alert(toErrorMessage(error, "Account withdrawal failed. Please try again."));
+      showAppToast({
+        title: "Account withdrawal failed",
+        message: toErrorMessage(error, "Please try again."),
+        variant: "error",
+      });
       setIsWithdrawing(false);
+    }
+  }
+
+  function handleConfirmAccountAction(): void {
+    const action = pendingAccountAction;
+    setPendingAccountAction(null);
+
+    if (action === "logout") {
+      void handleLogout();
+    }
+    if (action === "withdraw") {
+      void handleWithdraw();
     }
   }
 
@@ -499,6 +612,69 @@ export default function MyPage() {
     }
   }
 
+  function togglePreferenceList(
+    key: "travel_styles" | "food_preferences" | "transport_preferences" | "time_preferences",
+    value: string
+  ): void {
+    setPreferenceDraft((current) => {
+      const selected = current[key] ?? [];
+      return {
+        ...current,
+        [key]: selected.includes(value)
+          ? selected.filter((item) => item !== value)
+          : [...selected, value],
+      };
+    });
+  }
+
+  function setPreferenceValue(
+    key:
+      | "density_preference"
+      | "budget_preference"
+      | "walking_preference"
+      | "companion_preference"
+      | "communication_preference"
+      | "planning_preference",
+    value: string
+  ): void {
+    setPreferenceDraft((current) => ({
+      ...current,
+      [key]: current[key] === value ? "" : value,
+    }));
+  }
+
+  async function handlePreferenceSave(): Promise<void> {
+    if (isSavingPreferences) return;
+    if (!profile) {
+      showAppToast({
+        title: "Profile is still loading",
+        message: "Please try again in a moment.",
+        variant: "info",
+      });
+      return;
+    }
+
+    setIsSavingPreferences(true);
+    try {
+      const updatedProfile = await updateMyProfilePreferences(preferenceDraft, profile);
+      setProfile((current) => ({
+        ...(current ?? {}),
+        ...(updatedProfile ?? {}),
+        ...preferenceDraft,
+      }) as UserProfile);
+      setIsPreferenceEditing(false);
+      showAppToast({ title: "Preferences saved", variant: "success" });
+    } catch (error) {
+      showAppToast({
+        title: "Failed to save preferences",
+        message: toErrorMessage(error, "Please try again."),
+        variant: "error",
+      });
+    } finally {
+      setIsSavingPreferences(false);
+    }
+  }
+
   const profileImageUrl =
     profileImagePreview || getProfileImageUrl(profile) || DEFAULT_PROFILE_IMAGE_URL;
   const canDeleteProfileImage =
@@ -511,6 +687,7 @@ export default function MyPage() {
     { label: "Gender", value: formatGender(profile?.gender) },
     { label: "Nationality", value: profile?.nationality ?? "" },
   ].filter((item) => item.value);
+  const preferenceTags = getPreferenceTags(profile);
 
   return (
     <div style={styles.page}>
@@ -593,6 +770,15 @@ export default function MyPage() {
           <p style={styles.statusMessage}>
             {statusMessage || "No status message yet."}
           </p>
+          {preferenceTags.length > 0 ? (
+            <div style={styles.preferenceTags} aria-label="Travel preferences">
+              {preferenceTags.map((tag) => (
+                <span key={tag} style={styles.preferenceTag}>
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          ) : null}
           <span style={styles.profileStat}>
             <strong>{feedPosts.length}</strong> posts
           </span>
@@ -768,6 +954,23 @@ export default function MyPage() {
                 </button>
               </div>
             ) : null}
+            <button
+              type="button"
+              style={styles.settingsActionButton}
+              onClick={() => setIsPreferenceEditing((current) => !current)}
+            >
+              Edit Travel Preferences
+            </button>
+            {isPreferenceEditing ? (
+              <PreferenceEditor
+                value={preferenceDraft}
+                isSaving={isSavingPreferences}
+                onToggleList={togglePreferenceList}
+                onSetValue={setPreferenceValue}
+                onReset={() => setPreferenceDraft(toPreferencePayload(profile))}
+                onSave={() => void handlePreferenceSave()}
+              />
+            ) : null}
             <div style={styles.settingsInfoBlock}>
               <strong style={styles.settingsInfoTitle}>My Information</strong>
               <div style={styles.infoList}>
@@ -785,13 +988,17 @@ export default function MyPage() {
                 ))}
               </div>
             </div>
-            <button type="button" style={styles.settingsActionButton} onClick={handleLogout}>
+            <button
+              type="button"
+              style={styles.settingsActionButton}
+              onClick={() => setPendingAccountAction("logout")}
+            >
               Log Out
             </button>
             <button
               type="button"
               style={{ ...styles.settingsActionButton, ...styles.settingsDangerButton }}
-              onClick={handleWithdraw}
+              onClick={() => setPendingAccountAction("withdraw")}
               disabled={isWithdrawing}
             >
               {isWithdrawing ? "Deleting Account..." : "Delete Account"}
@@ -813,6 +1020,15 @@ export default function MyPage() {
           onCaptionChange={setFeedCaption}
           onVisibilityChange={setFeedVisibility}
           onShare={() => void handleFeedUpload()}
+        />
+      ) : null}
+
+      {pendingAccountAction ? (
+        <AccountConfirmDialog
+          action={pendingAccountAction}
+          busy={isWithdrawing}
+          onCancel={() => setPendingAccountAction(null)}
+          onConfirm={handleConfirmAccountAction}
         />
       ) : null}
 
@@ -847,6 +1063,206 @@ export default function MyPage() {
           onCommentDelete={(comment) => void handleCommentDelete(comment)}
         />
       ) : null}
+    </div>
+  );
+}
+
+function PreferenceEditor({
+  value,
+  isSaving,
+  onToggleList,
+  onSetValue,
+  onReset,
+  onSave,
+}: {
+  value: ProfilePreferencesPayload;
+  isSaving: boolean;
+  onToggleList: (
+    key: "travel_styles" | "food_preferences" | "transport_preferences" | "time_preferences",
+    value: string
+  ) => void;
+  onSetValue: (
+    key:
+      | "density_preference"
+      | "budget_preference"
+      | "walking_preference"
+      | "companion_preference"
+      | "communication_preference"
+      | "planning_preference",
+    value: string
+  ) => void;
+  onReset: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div style={styles.preferenceEditor}>
+      <PreferenceGroup
+        title="Travel Styles"
+        options={TRAVEL_STYLE_OPTIONS}
+        selected={value.travel_styles}
+        onToggle={(key) => onToggleList("travel_styles", key)}
+      />
+      <PreferenceGroup
+        title="Food Preferences"
+        options={FOOD_OPTIONS}
+        selected={value.food_preferences ?? []}
+        onToggle={(key) => onToggleList("food_preferences", key)}
+      />
+      <PreferenceGroup
+        title="Schedule Density"
+        options={DENSITY_OPTIONS}
+        selected={[value.density_preference ?? ""]}
+        single
+        onToggle={(key) => onSetValue("density_preference", key)}
+      />
+      <PreferenceGroup
+        title="Budget"
+        options={BUDGET_OPTIONS}
+        selected={[value.budget_preference ?? ""]}
+        single
+        onToggle={(key) => onSetValue("budget_preference", key)}
+      />
+      <PreferenceGroup
+        title="Walking"
+        options={WALKING_OPTIONS}
+        selected={[value.walking_preference ?? ""]}
+        single
+        onToggle={(key) => onSetValue("walking_preference", key)}
+      />
+      <PreferenceGroup
+        title="Transportation"
+        options={TRANSPORT_OPTIONS}
+        selected={value.transport_preferences ?? []}
+        onToggle={(key) => onToggleList("transport_preferences", key)}
+      />
+      <PreferenceGroup
+        title="Companion"
+        options={COMPANION_OPTIONS}
+        selected={[value.companion_preference ?? ""]}
+        single
+        onToggle={(key) => onSetValue("companion_preference", key)}
+      />
+      <PreferenceGroup
+        title="Active Time"
+        options={TIME_OPTIONS}
+        selected={value.time_preferences ?? []}
+        onToggle={(key) => onToggleList("time_preferences", key)}
+      />
+      <PreferenceGroup
+        title="Communication"
+        options={COMMUNICATION_OPTIONS}
+        selected={[value.communication_preference ?? ""]}
+        single
+        onToggle={(key) => onSetValue("communication_preference", key)}
+      />
+      <PreferenceGroup
+        title="Planning"
+        options={PLANNING_OPTIONS}
+        selected={[value.planning_preference ?? ""]}
+        single
+        onToggle={(key) => onSetValue("planning_preference", key)}
+      />
+      <div style={styles.preferenceEditorActions}>
+        <button type="button" style={styles.secondaryButton} onClick={onReset} disabled={isSaving}>
+          Reset
+        </button>
+        <button
+          type="button"
+          style={{ ...styles.primaryButton, ...(isSaving ? styles.buttonDisabled : {}) }}
+          onClick={onSave}
+          disabled={isSaving}
+        >
+          {isSaving ? "Saving..." : "Save Preferences"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PreferenceGroup({
+  title,
+  options,
+  selected,
+  onToggle,
+}: {
+  title: string;
+  options: PreferenceOption[];
+  selected: string[];
+  single?: boolean;
+  onToggle: (key: string) => void;
+}) {
+  return (
+    <div style={styles.preferenceGroup}>
+      <strong style={styles.preferenceGroupTitle}>{title}</strong>
+      <div style={styles.preferenceChoiceList}>
+        {options.map((option) => {
+          const active = selected.includes(option.key);
+          return (
+            <button
+              key={option.key}
+              type="button"
+              style={{
+                ...styles.preferenceChoice,
+                ...(active ? styles.preferenceChoiceActive : {}),
+              }}
+              onClick={() => onToggle(option.key)}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AccountConfirmDialog({
+  action,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  action: "logout" | "withdraw";
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const isWithdraw = action === "withdraw";
+
+  return (
+    <div style={styles.accountConfirmBackdrop} onClick={onCancel}>
+      <div style={styles.accountConfirmCard} onClick={(event) => event.stopPropagation()}>
+        <h2 style={styles.accountConfirmTitle}>
+          {isWithdraw ? "Delete account?" : "Log out?"}
+        </h2>
+        <p style={styles.accountConfirmCopy}>
+          {isWithdraw
+            ? "Your account deletion request will start immediately."
+            : "You will return to the login screen."}
+        </p>
+        <div style={styles.accountConfirmActions}>
+          <button
+            type="button"
+            style={styles.secondaryButton}
+            onClick={onCancel}
+            disabled={busy}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            style={{
+              ...styles.primaryButton,
+              ...(isWithdraw ? styles.accountConfirmDanger : {}),
+              ...(busy ? styles.buttonDisabled : {}),
+            }}
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {isWithdraw ? (busy ? "Deleting..." : "Delete") : "Log Out"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1204,6 +1620,26 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--neutral-700)",
     fontWeight: 800,
   },
+  preferenceTags: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 10,
+    maxWidth: 520,
+  },
+  preferenceTag: {
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: 28,
+    borderRadius: 999,
+    padding: "0 10px",
+    background: "rgba(5,181,187,0.12)",
+    border: "1px solid rgba(5,181,187,0.18)",
+    color: "var(--brand-primary-deep)",
+    fontSize: "0.76rem",
+    fontWeight: 900,
+    lineHeight: 1,
+  },
   avatarWrap: {
     position: "relative",
   },
@@ -1361,15 +1797,16 @@ const styles: Record<string, CSSProperties> = {
     border: "none",
     borderRadius: 4,
     overflow: "hidden",
-    background: "var(--neutral-100)",
+    background: "#050608",
     aspectRatio: "1 / 1",
     cursor: "pointer",
   },
   feedTileImage: {
     width: "100%",
     height: "100%",
-    objectFit: "cover",
+    objectFit: "contain",
     display: "block",
+    background: "#050608",
   },
   feedTileMeta: {
     position: "absolute",
@@ -1597,6 +2034,51 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--text-primary)",
     fontFamily: "inherit",
   },
+  preferenceEditor: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+    padding: 14,
+    borderRadius: 16,
+    background: "rgba(5,181,187,0.06)",
+    border: "1px solid rgba(5,181,187,0.14)",
+  },
+  preferenceGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  preferenceGroupTitle: {
+    color: "var(--text-primary)",
+    fontSize: "0.86rem",
+  },
+  preferenceChoiceList: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  preferenceChoice: {
+    minHeight: 34,
+    border: "1px solid rgba(5,181,187,0.16)",
+    borderRadius: 999,
+    padding: "0 12px",
+    background: "#ffffff",
+    color: "var(--text-secondary)",
+    fontSize: "0.78rem",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  preferenceChoiceActive: {
+    background: "var(--brand-primary-soft)",
+    borderColor: "rgba(5,181,187,0.38)",
+    color: "var(--brand-primary-deep)",
+  },
+  preferenceEditorActions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+    paddingTop: 2,
+  },
   settingsInfoBlock: {
     display: "flex",
     flexDirection: "column",
@@ -1695,7 +2177,7 @@ const styles: Record<string, CSSProperties> = {
     minHeight: "min(42dvh, 336px)",
     display: "grid",
     placeItems: "center",
-    background: "#ffffff",
+    background: "#050608",
     overflow: "hidden",
   },
   createPostImage: {
@@ -1704,6 +2186,7 @@ const styles: Record<string, CSSProperties> = {
     maxHeight: "calc(92dvh - 52px)",
     objectFit: "contain",
     display: "block",
+    background: "#050608",
   },
   createPostSidePane: {
     minHeight: 0,
@@ -1797,6 +2280,44 @@ const styles: Record<string, CSSProperties> = {
     placeItems: "center",
     padding: "calc(18px + var(--app-safe-top)) 18px calc(18px + var(--app-safe-bottom))",
     background: "rgba(16,34,35,0.42)",
+  },
+  accountConfirmBackdrop: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 120,
+    display: "grid",
+    placeItems: "center",
+    padding: 18,
+    background: "rgba(16,34,35,0.42)",
+  },
+  accountConfirmCard: {
+    width: "min(360px, 100%)",
+    padding: 22,
+    borderRadius: 18,
+    background: "#ffffff",
+    border: "1px solid var(--border-soft)",
+    boxShadow: "0 24px 70px rgba(15,23,42,0.24)",
+  },
+  accountConfirmTitle: {
+    margin: 0,
+    color: "var(--text-primary)",
+    fontSize: "1.2rem",
+    lineHeight: 1.25,
+  },
+  accountConfirmCopy: {
+    margin: "10px 0 0",
+    color: "var(--neutral-700)",
+    lineHeight: 1.5,
+    fontSize: "0.92rem",
+  },
+  accountConfirmActions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 20,
+  },
+  accountConfirmDanger: {
+    background: "#dc2626",
   },
   feedModal: {
     position: "relative",
@@ -2102,6 +2623,96 @@ function getProfileImageUrl(profile: UserProfile | null): string {
 
 function getFeedImageUrl(post: FeedPost): string {
   return post.thumbnail_medium_url || post.thumbnail_small_url || post.original_url;
+}
+
+function getPreferenceTags(profile: UserProfile | null): string[] {
+  if (!profile) return [];
+
+  const values = [
+    ...(profile.travel_styles ?? []),
+    ...(profile.food_preferences ?? []),
+    profile.density_preference,
+    profile.budget_preference,
+    profile.walking_preference,
+    ...(profile.transport_preferences ?? []),
+    profile.companion_preference,
+    ...(profile.time_preferences ?? []),
+    profile.communication_preference,
+    profile.planning_preference,
+  ];
+
+  return Array.from(
+    new Set(
+      values
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .map(formatPreferenceTag)
+    )
+  );
+}
+
+function toPreferencePayload(profile: UserProfile | null): ProfilePreferencesPayload {
+  if (!profile) return EMPTY_PREFERENCES;
+
+  return {
+    travel_styles: profile.travel_styles ?? [],
+    food_preferences: profile.food_preferences ?? [],
+    density_preference: profile.density_preference ?? "",
+    budget_preference: profile.budget_preference ?? "",
+    walking_preference: profile.walking_preference ?? "",
+    transport_preferences: profile.transport_preferences ?? [],
+    companion_preference: profile.companion_preference ?? "",
+    time_preferences: profile.time_preferences ?? [],
+    communication_preference: profile.communication_preference ?? "",
+    planning_preference: profile.planning_preference ?? "",
+  };
+}
+
+function formatPreferenceTag(value: string): string {
+  const labelMap: Record<string, string> = {
+    activity: "Activity",
+    famous_attractions: "Famous Attractions",
+    healing: "Healing",
+    culture_history: "Culture & History",
+    shopping: "Shopping",
+    food_tour: "Food Tour",
+    photo_aesthetic: "Photo Aesthetic",
+    festival_event: "Festival & Event",
+    nature: "Nature",
+    traditional: "Traditional",
+    trekking: "Trekking",
+    hidden_gems: "Hidden Gems",
+    art_exhibition: "Art Exhibition",
+    theme_park: "Theme Park",
+    food_halal: "Halal",
+    food_vegetarian: "Vegetarian",
+    foodie: "Foodie",
+    cafe_lover: "Cafe Lover",
+    density_relaxed: "Relaxed",
+    density_packed: "Packed",
+    budget_saving: "Saving",
+    budget_moderate: "Moderate",
+    budget_premium: "Premium",
+    walking_low: "Low Walking",
+    walking_medium: "Medium Walking",
+    walking_high: "High Walking",
+    transport_public: "Public Transit",
+    transport_car: "Car",
+    transport_taxi: "Taxi",
+    companion_independent: "Independent",
+    companion_together: "Together",
+    companion_flexible: "Flexible",
+    daytime: "Daytime",
+    nightlife: "Nightlife",
+    night_view: "Night View",
+    communication_high: "High Communication",
+    communication_low: "Low Communication",
+    planner: "Planner",
+    spontaneous: "Spontaneous",
+    follower: "Follower",
+  };
+
+  const key = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return labelMap[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function getVisibilityLabel(visibility: FeedVisibility): string {
