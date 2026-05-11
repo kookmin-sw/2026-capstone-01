@@ -1,8 +1,10 @@
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from app.util.storage_prefix import profile_prefix
 from app.domain.auth.repository.user import UserRepository
 from app.domain.auth.repository.user_detail_inform import UserDetailInformRepository
+from app.domain.auth.repository.user_travel_style import UserTravelStyleRepository
+from app.domain.auth.model.user_travel_style import UserTravelStyle
 from app.domain.auth.dto.profile import ProfileData, ProfileImageData, OtherUserProfileData
 from app.domain.auth.service.exception import (
     ProfileNotRegisteredError,
@@ -68,6 +70,69 @@ class ProfileService:
             nationality=user.detail.nationality,
             travel_styles=[s.style for s in user.travel_styles],
             profile_image_url=user.detail.profile_image_url,
+            notification_muted=user.notification_muted is True,
+        )
+
+
+    # ──────────────────── 프로필 수정 ────────────────────
+
+    @transactional
+    async def update_profile(self, user_id: str, updates: dict[str, Any]) -> ProfileData:
+        """프로필 부분 수정.
+
+        `updates` 는 `ProfileUpdateRequest.model_dump(exclude_none=True)` 결과로,
+        클라가 실제로 보낸 non-null 필드만 포함한다.
+
+        - detail scalar 필드(email, user_name, ...): 포함된 것만 in-place mutate.
+        - travel_styles: 포함되어 있으면 기존 전체 삭제 후 새 set 으로 교체.
+            ([] 입력 시 전체 삭제만 수행.)
+        - 빈 dict (변경 없음) → DB write 스킵, 현재 프로필 그대로 반환.
+        """
+        user_repo = UserRepository(self._session)
+        detail_repo = UserDetailInformRepository(self._session)
+        style_repo = UserTravelStyleRepository(self._session)
+
+        user = await user_repo.find_by_id_with_profile(user_id)
+        if user is None:
+            raise ValueError("존재하지 않는 유저입니다.")
+        if user.detail is None:
+            raise ProfileNotRegisteredError("2차 회원가입이 완료되지 않은 유저입니다.")
+
+        detail = user.detail
+        scalar_fields = ("email", "user_name", "phone_number", "age", "gender", "nationality")
+        scalar_changed = False
+        for field in scalar_fields:
+            if field in updates:
+                setattr(detail, field, updates[field])
+                scalar_changed = True
+        if scalar_changed:
+            await detail_repo.update(detail)
+
+        if "travel_styles" in updates:
+            new_styles = updates["travel_styles"]
+            await style_repo.delete_by_user_id(user_id)
+            if new_styles:
+                await style_repo.save_all(
+                    [UserTravelStyle(user_id=user_id, style=s) for s in new_styles]
+                )
+            current_styles = list(new_styles)
+        else:
+            current_styles = [s.style for s in user.travel_styles]
+
+        logger.info("프로필 수정 완료 (user_id={}, fields={})", user_id, list(updates.keys()))
+
+        return ProfileData(
+            user_id=user.user_id,
+            auth_provider=user.auth_provider,
+            status=user.status,
+            email=detail.email,
+            user_name=detail.user_name,
+            phone_number=detail.phone_number,
+            age=detail.age,
+            gender=detail.gender,
+            nationality=detail.nationality,
+            travel_styles=current_styles,
+            profile_image_url=detail.profile_image_url,
             notification_muted=user.notification_muted is True,
         )
 
