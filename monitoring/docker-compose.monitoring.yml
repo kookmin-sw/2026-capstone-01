@@ -1,0 +1,241 @@
+# Krip 모니터링 스택
+#
+# 실행: 프로젝트 루트에서
+#   docker network create monitoring-network          # 사전 1회
+#   docker-compose -f docker-compose.yml -f monitoring/docker-compose.monitoring.yml up -d
+#
+# 가정:
+#   - 메인 docker-compose.yml 이 krip-network (driver: bridge) 와 monitoring-network (external: true) 를 선언
+#   - 본 파일은 networks: 블록을 재선언하지 않음 (-f -f deep-merge 충돌 방지)
+#   - 본 파일 단독 실행 불가 — 메인과 함께 -f -f 로 실행
+#
+# 이미지 태그 명시: latest 금지
+
+services:
+  # ──────────────────────────────────────────────────────────────────────
+  # Prometheus — 메트릭 수집 + 시계열 저장 + 알림 평가
+  # ──────────────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: krip-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"           # E-16 / K-3 — ~2-3GB
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"                      # config reload 가능
+      - "--enable-feature=expand-external-labels"     # G-1 — ${ENV} 치환 활성화
+    environment:
+      ENV: ${ENV:-DEV}                                # G-1 — Prometheus 가 external_labels 의 ${ENV} 치환에 사용
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Grafana — 대시보드 + 알림 시각화
+  # ──────────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: krip-grafana
+    ports:
+      - "3001:3000"                                   # 호스트 3001 → 컨테이너 3000
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      # D-10 — admin 비번 강제 (.env 에서 GRAFANA_ADMIN_PASSWORD 명시 필수)
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_INSTALL_PLUGINS: ""
+    networks:
+      - monitoring-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Blackbox exporter — /health, /health/deep, /ready + 외부 의존성 5종 probe
+  # ──────────────────────────────────────────────────────────────────────
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: krip-blackbox
+    command:
+      - "--config.file=/etc/blackbox/blackbox.yml"
+    volumes:
+      - ./monitoring/blackbox:/etc/blackbox:ro
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────────────────
+  # node-exporter — 호스트 CPU / 메모리 / 디스크 / 네트워크
+  #
+  # 운영 Linux 호스트 전용. macOS Docker Desktop 은 호스트 / 가 shared/slave
+  # mount 가 아니라 rslave propagation 을 지원하지 않는다.
+  # 또한 macOS 에서 떠도 Docker Desktop 가상 VM 내부 메트릭만 보여 의미 없다.
+  #
+  # 활성화: COMPOSE_PROFILES=linux-host docker-compose ... up -d
+  #         (Makefile 의 'make up-prod' 가 자동으로 호출)
+  # ──────────────────────────────────────────────────────────────────────
+  node-exporter:
+    profiles: ["linux-host"]
+    image: prom/node-exporter:v1.8.2
+    container_name: krip-node-exporter
+    command:
+      - "--path.rootfs=/host"
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - monitoring-network
+    pid: host
+    restart: unless-stopped
+
+  # cAdvisor 제거됨 — Azure VM (또는 docker storage driver 가 overlayfs 인 환경) 에서
+  # "failed to identify the read-write layer ID" 에러로 컨테이너 메트릭 전체 누락.
+  # v0.49.1 / v0.51.0 모두 같은 증상이라 호환성 근본 문제로 판단.
+  # 향후 storage driver 가 overlay2 인 환경 / K8s migration 시 재도입 검토.
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Postgres exporter — pg_stat_database / pg_stat_replication / pg_settings (III-9)
+  # krip-network + monitoring-network 양쪽 가입
+  # ──────────────────────────────────────────────────────────────────────
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: krip-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-cho}:${POSTGRES_PASSWORD:-hyeonsang}@postgres:5432/${POSTGRES_NAME:-chohyeonsang}?sslmode=disable"
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "true"
+      # III-9: pg_settings_max_connections 는 v0.16+ 에서 default 로 노출 — 별도 플래그 불필요.
+      # 운영 시 disable 하려면 PG_EXPORTER_DISABLE_DEFAULT_METRICS=true 사용.
+    networks:
+      - krip-network                                  # PG (메인 compose) 도달
+      - monitoring-network                            # Prometheus scrape
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────────────────
+  # MongoDB exporter — op_latencies / connections / opcounters
+  # ──────────────────────────────────────────────────────────────────────
+  mongodb-exporter:
+    image: percona/mongodb_exporter:0.43.1
+    container_name: krip-mongodb-exporter
+    command:
+      - "--mongodb.uri=mongodb://${MONGODB_USER:-cho}:${MONGODB_PASSWORD:-hyeonsang}@mongodb:27017/admin?authSource=admin"
+      - "--collect-all"                               # 운영에선 read-only role 권장 (clusterMonitor)
+      - "--compatible-mode"                           # 구 버전 시리즈명 호환
+    networks:
+      - krip-network
+      - monitoring-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Redis exporter — hot DB0
+  # ──────────────────────────────────────────────────────────────────────
+  redis-exporter-hot:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: krip-redis-exporter-hot
+    environment:
+      REDIS_ADDR: "redis://redis:6379/0"
+    networks:
+      - krip-network
+      - monitoring-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Redis exporter — dedupe DB1
+  # ──────────────────────────────────────────────────────────────────────
+  redis-exporter-dedupe:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: krip-redis-exporter-dedupe
+    environment:
+      REDIS_ADDR: "redis://redis:6379/1"
+    networks:
+      - krip-network
+      - monitoring-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Loki — 로그 색인 + 저장소
+  #
+  # 단일 인스턴스 monolithic. 멀티 테넌트 미도입
+  # 14일 retention
+  # ──────────────────────────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:3.3.1
+    container_name: krip-loki
+    command:
+      - "-config.file=/etc/loki/loki-config.yml"
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Promtail — backend logs tail → Loki push
+  #
+  # ../backend/logs 를 read-only 로 마운트해서 회전 + .gz 까지 추적.
+  # PII 마스킹 4종을 ingestion 단에서 강제.
+  # ──────────────────────────────────────────────────────────────────────
+  promtail:
+    image: grafana/promtail:3.3.1
+    container_name: krip-promtail
+    command:
+      - "-config.file=/etc/promtail/promtail-config.yml"
+      - "-config.expand-env=true"             # ${ENV}, ${NODE_ID} 치환
+    environment:
+      ENV: ${ENV:-DEV}
+      NODE_ID: ${NODE_ID:-krip-backend}
+    volumes:
+      - ./monitoring/loki/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - ./backend/logs:/backend/logs:ro                # project root 기준 (다른 monitoring path 들과 동일 규약)
+      - promtail-positions:/var/lib/promtail
+    networks:
+      - monitoring-network
+    depends_on:
+      loki:
+        condition: service_healthy
+    restart: unless-stopped
+
+# Alertmanager 추후
+
+volumes:
+  prometheus-data:
+    name: krip-prometheus-data
+  grafana-data:
+    name: krip-grafana-data
+  loki-data:
+    name: krip-loki-data
+  promtail-positions:
+    name: krip-promtail-positions

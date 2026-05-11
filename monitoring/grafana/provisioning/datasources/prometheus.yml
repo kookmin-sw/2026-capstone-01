@@ -1,0 +1,18 @@
+# Grafana datasource provisioning
+#
+# Loki datasource 는 (loki.yml) 추가.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus                  # 대시보드 JSON 의 datasource.uid 참조 키
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: "15s"            # Prometheus scrape_interval 과 일치
+      httpMethod: POST
+      manageAlerts: true             # 추후 알림 룰 통합

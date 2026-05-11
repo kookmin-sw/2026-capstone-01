@@ -1,0 +1,244 @@
+{
+  "title": "채팅 도메인 (Chat)",
+  "uid": "krip-chat-domain",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "time": {"from": "now-1h", "to": "now"},
+  "refresh": "30s",
+  "tags": ["krip", "chat"],
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "활성 WebSocket 연결",
+      "type": "stat",
+      "description": "현재 살아있는 WS 연결 수. 노드 합산.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "palette-classic"}}},
+      "options": {"colorMode": "value", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "sum(chat_ws_active_connections)", "legendFormat": "연결 수", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "title": "활성 노드 수",
+      "type": "stat",
+      "description": "node_registry 가 본 ZSET 의 활성 노드 수. FANOUT_MODE=in_process 면 0 (heartbeat 미동작).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "yellow", "value": null}, {"color": "green", "value": 1}]}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "chat_active_nodes", "legendFormat": "노드", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "title": "WS 연결 시도 (분당, 결과별)",
+      "type": "timeseries",
+      "description": "분당 연결 시도 추이. ok / origin_denied / auth_expired / session_failed / other 5 분기.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 12, "x": 12, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (result) (rate(chat_ws_connect_total[1m]))", "legendFormat": "{{result}}", "refId": "A"}]
+    },
+    {
+      "id": 10,
+      "title": "WS op 처리율 (op × result)",
+      "type": "timeseries",
+      "description": "send / refresh / read 별 처리율. error 분기는 permission_denied / validation / not_found / upstream / other.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 5},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (op, result) (rate(chat_ws_op_total[1m]))", "legendFormat": "{{op}} / {{result}}", "refId": "A"}]
+    },
+    {
+      "id": 11,
+      "title": "메시지 송신 시간 p95 (fan-out 경로별)",
+      "type": "timeseries",
+      "description": "send 진입에서 fan-out 완료까지의 latency. local 은 단일 노드 dict 직배송, cross_node 는 Redis Pub/Sub 경유.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 5},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le, fanout_path) (rate(chat_message_send_duration_seconds_bucket[5m])))", "legendFormat": "p95 {{fanout_path}}", "refId": "A"},
+        {"expr": "histogram_quantile(0.99, sum by (le, fanout_path) (rate(chat_message_send_duration_seconds_bucket[5m])))", "legendFormat": "p99 {{fanout_path}}", "refId": "B"}
+      ]
+    },
+    {
+      "id": 20,
+      "title": "Fan-out publish (op 별)",
+      "type": "timeseries",
+      "description": "Pub/Sub 으로 publish 한 envelope 수. room / user / session / subscribe / unsubscribe.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (op) (rate(chat_fanout_publish_total[1m]))", "legendFormat": "{{op}}", "refId": "A"}]
+    },
+    {
+      "id": 21,
+      "title": "Fan-out dispatch 처리 시간 p95 (op 별)",
+      "type": "timeseries",
+      "description": "디스패처가 envelope 1 건을 처리하는 시간. cross-node 송신 latency 의 핵심 지표.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, op) (rate(chat_fanout_dispatch_duration_seconds_bucket[5m])))", "legendFormat": "{{op}}", "refId": "A"}]
+    },
+    {
+      "id": 30,
+      "title": "노드 heartbeat 실패",
+      "type": "timeseries",
+      "description": "heartbeat 예외 카운트. 0 이 정상. 누적 증가하면 Redis 일시 장애 의심.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 23},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 20, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "rate(chat_node_heartbeat_failures_total[5m])", "legendFormat": "{{node_id}}", "refId": "A"}]
+    },
+    {
+      "id": 40,
+      "title": "Reconcile dirty SET 사이즈",
+      "type": "stat",
+      "description": "dirty:chat_room SET 의 현재 적체. 100 이상 주의, 1000 이상 위험 (ReconcileBacklog 알림 임계).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 30},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 1000}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "chat_reconcile_dirty_set_size", "legendFormat": "적체 방 수", "refId": "A"}]
+    },
+    {
+      "id": 41,
+      "title": "Reconcile tick 처리 시간 p95",
+      "type": "stat",
+      "description": "reconcile_last_message_once 단일 호출 처리 시간 p95. SPOP + Mongo aggregate + RDB UPDATE 합산.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 30},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1.0}, {"color": "red", "value": 2.5}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(chat_reconcile_tick_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "A"}]
+    },
+    {
+      "id": 42,
+      "title": "Reconcile batch 결과 분포",
+      "type": "timeseries",
+      "description": "분당 batch pop 결과. empty / ok / mongo_failed / rdb_failed / other. mongo_failed 또는 rdb_failed 가 0 이 아니면 재시도 적체 예상.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 30},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (result) (rate(chat_reconcile_batch_pop_total[1m]))", "legendFormat": "{{result}}", "refId": "A"}]
+    },
+    {
+      "id": 43,
+      "title": "Reconcile 방 처리 결과 (outcome)",
+      "type": "timeseries",
+      "description": "분당 방 단위 처리 결과. updated (정상) / skipped (Mongo hit 0) / failed (단일 방 UPDATE 실패).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 25, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (outcome) (rate(chat_reconcile_rooms_processed_total[1m]))", "legendFormat": "{{outcome}}", "refId": "A"}]
+    },
+    {
+      "id": 44,
+      "title": "Unread recover 종착점",
+      "type": "timeseries",
+      "description": "안 읽은 메시지 카운트 재계산의 최종 결과. ok (정상 또는 활성 방 없음) / redis_failed (Redis 일시 실패, 다음 연결에서 자동 재시도) / cleanup_failed (정리도 실패 — partial state 잔존으로 unread 영구 손실 위험, 즉시 Redis 일관성 점검) / other (catch-all).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (result) (rate(chat_unread_recover_total[1m]))", "legendFormat": "{{result}}", "refId": "A"}]
+    },
+    {
+      "id": 50,
+      "title": "FCM multicast 호출 시간 p95",
+      "type": "stat",
+      "description": "Firebase 라운드트립 + asyncio.to_thread 합산. 1s 이상이면 push UX 지연.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 44},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1.0}, {"color": "red", "value": 2.5}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, path) (rate(fcm_multicast_duration_seconds_bucket[5m])))", "legendFormat": "p95 {{path}}", "refId": "A"}]
+    },
+    {
+      "id": 51,
+      "title": "FCM 토큰 정리 누적",
+      "type": "stat",
+      "description": "UnregisteredError 로 bulk delete 된 토큰 누적. 급증하면 클라 재로그인 누락 의심.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 44},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "palette-classic"}}},
+      "options": {"colorMode": "value", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "fcm_token_purged_total", "legendFormat": "정리된 토큰", "refId": "A"}]
+    },
+    {
+      "id": 52,
+      "title": "FCM 디바이스 outcome 분포",
+      "type": "timeseries",
+      "description": "한 multicast 안의 디바이스 결과. success / failed_unregistered (토큰 무효) / failed_other (서버 / 네트워크 등).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 44},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (outcome) (rate(fcm_multicast_devices_total[1m]))", "legendFormat": "{{outcome}}", "refId": "A"}]
+    },
+    {
+      "id": 53,
+      "title": "FCM 호출 결과 (path × result)",
+      "type": "timeseries",
+      "description": "분당 multicast 호출 수. global_failed 가 0 이 아니면 Firebase 자체 장애 의심.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 50},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (path, result) (rate(fcm_send_total[1m]))", "legendFormat": "{{path}} / {{result}}", "refId": "A"}]
+    },
+    {
+      "id": 22,
+      "title": "Fan-out dispatch 결과 (op × result)",
+      "type": "timeseries",
+      "description": "디스패처가 처리한 envelope 결과. service/fanout.py 의 dispatch_envelope 안 chat_fanout_dispatch(op) 컨텍스트에서 발화. op (room/user/session/subscribe/unsubscribe) × result (ok/other) 분리. other 가 0 이 아니면 envelope 처리 실패 — 분기 실패 또는 envelope 필드 누락 신호.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 58},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (op, result) (rate(chat_fanout_dispatch_total[1m]))", "legendFormat": "{{op}} / {{result}}", "refId": "A"}]
+    }
+  ]
+}

@@ -1,0 +1,157 @@
+{
+  "title": "시스템 리소스 (Host)",
+  "uid": "krip-system-resources",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "time": {"from": "now-1h", "to": "now"},
+  "refresh": "30s",
+  "tags": ["krip", "system", "host"],
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "호스트 CPU 사용률",
+      "type": "stat",
+      "description": "전체 CPU 사용률 (1 - idle). 70% 이상 주의, 90% 이상 위험 (HostCpuHigh 알림 임계).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)", "legendFormat": "CPU", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "title": "호스트 메모리 사용률",
+      "type": "stat",
+      "description": "MemAvailable 기준 사용률. 75% 이상 주의, 90% 이상 위험 (HostMemHigh 알림 임계). 90% 도달 시 OOM 발생 가능.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 75}, {"color": "red", "value": 90}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100", "legendFormat": "Memory", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "title": "호스트 디스크 사용률 (/)",
+      "type": "stat",
+      "description": "루트 파일시스템 사용률. 70% 주의, 85% 위험 (DiskFull 알림 임계). 90% 넘으면 Postgres / Loki 적재 사고.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 70}, {"color": "red", "value": 85}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "100 * (1 - (node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"}))", "legendFormat": "/", "refId": "A"}]
+    },
+    {
+      "id": 12,
+      "title": "메모리 사용량 (used / total)",
+      "type": "stat",
+      "description": "절대값으로 used (MemAvailable 기준 회수 불가능한 메모리) 와 host 전체 RAM 을 표시. unit 은 bytes — Grafana 가 자동으로 GiB / MiB 변환. used 가 시간 따라 가파르게 증가하면 누수 의심 (Panel 11 메모리 분포로 drill-down).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 1,
+          "color": {"mode": "palette-classic"}
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "orientation": "auto"
+      },
+      "targets": [
+        {"expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes", "legendFormat": "used", "refId": "A"},
+        {"expr": "node_memory_MemTotal_bytes", "legendFormat": "total", "refId": "B"}
+      ]
+    },
+    {
+      "id": 10,
+      "title": "CPU 사용률 (mode 별)",
+      "type": "timeseries",
+      "description": "user (애플리케이션) / system (커널) / iowait (I/O 대기) / steal (가상화 hypervisor 박탈). iowait 가 높으면 디스크 / 네트워크 병목, system 이 높으면 컨텍스트 스위칭 / syscall 폭주.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 5},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "custom": {"drawStyle": "line", "fillOpacity": 30, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "avg by (mode) (rate(node_cpu_seconds_total{mode!=\"idle\"}[5m]))", "legendFormat": "{{mode}}", "refId": "A"}]
+    },
+    {
+      "id": 11,
+      "title": "메모리 사용 분포",
+      "type": "timeseries",
+      "description": "used = MemTotal - MemAvailable (실제 사용). cache / buffer 는 커널이 회수 가능한 영역이라 used 와 별도로 본다. used 가 가파르게 증가하면 누수 의심.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 5},
+      "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 20, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes", "legendFormat": "used", "refId": "A"},
+        {"expr": "node_memory_MemAvailable_bytes", "legendFormat": "available", "refId": "B"},
+        {"expr": "node_memory_Cached_bytes", "legendFormat": "cache", "refId": "C"},
+        {"expr": "node_memory_Buffers_bytes", "legendFormat": "buffers", "refId": "D"}
+      ]
+    },
+    {
+      "id": 20,
+      "title": "디스크 I/O (device 별)",
+      "type": "timeseries",
+      "description": "초당 read / write throughput. iowait 가 높을 때 어느 device 가 병목인지 식별.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "rate(node_disk_read_bytes_total{device!~\"loop.*|ram.*\"}[5m])", "legendFormat": "{{device}} read", "refId": "A"},
+        {"expr": "rate(node_disk_written_bytes_total{device!~\"loop.*|ram.*\"}[5m])", "legendFormat": "{{device}} write", "refId": "B"}
+      ]
+    },
+    {
+      "id": 21,
+      "title": "네트워크 throughput (interface 별)",
+      "type": "timeseries",
+      "description": "송수신 bits/sec. lo / docker / veth 등 가상 인터페이스 제외. 갑자기 튀면 트래픽 spike 또는 외부 사고.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "bps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "rate(node_network_receive_bytes_total{device!~\"lo|docker.*|veth.*|br-.*\"}[5m]) * 8", "legendFormat": "{{device}} rx", "refId": "A"},
+        {"expr": "rate(node_network_transmit_bytes_total{device!~\"lo|docker.*|veth.*|br-.*\"}[5m]) * 8", "legendFormat": "{{device}} tx", "refId": "B"}
+      ]
+    }
+  ]
+}

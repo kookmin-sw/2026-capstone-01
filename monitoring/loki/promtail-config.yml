@@ -1,0 +1,84 @@
+# Promtail 설정
+#
+# backend 의 /backend/logs/app.log 와 회전된 .gz 파일을 tail 해서 Loki 로 push 한다.
+# loguru serialize=True 출력의 JSON 스키마를 그대로 파싱한다.
+#
+# 라벨 정책:
+#   - 라벨: app, env, node_id, level (저카디널리티)
+#   - 본문 필드: logger_name, request_id, user_id (LogQL `| json` 으로 검색)
+#   - 고유 ID 라벨화 절대 금지.
+#
+# 회전 추적:
+#   loguru 가 LOG_ROTATION 으로 app.log -> app.log.YYYY-MM-DD_HH-MM-SS_NNNNNN 회전 후
+#   LOG_COMPRESSION=gz 로 .gz 압축. Promtail 3.x 의 decompression 은 pipeline_stage 가
+#   아닌 scrape_config 레벨 옵션이라 잡을 두 개로 분리한다 (현재 파일 / 회전 .gz).
+#   stages 는 YAML anchor 로 동일 재사용.
+#
+# PII 마스킹:
+#   ingestion 단에서 정규식 강제. 코드 리뷰 누락이 14일 보존 + 검색 가능한 로그 남기는 사고 방지.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: info
+
+positions:
+  filename: /var/lib/promtail/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    tenant_id: krip                       # auth_enabled=false 일 땐 Loki 가 무시
+
+scrape_configs:
+  # 현재 파일 (회전 전).
+  - job_name: krip-backend
+    static_configs:
+      - labels:
+          app: krip-backend
+          env: ${ENV}
+          node_id: ${NODE_ID}
+          __path__: /backend/logs/app.log
+    pipeline_stages: &pipeline
+      # loguru serialize=True 스키마.
+      # 검증된 키 경로:
+      #   record.level.name, record.extra.logger_name, record.extra.request_id,
+      #   record.extra.user_id, record.message
+      - json:
+          expressions:
+            level: record.level.name
+            logger_name: record.extra.logger_name
+            request_id: record.extra.request_id
+            user_id: record.extra.user_id
+            message: record.message
+
+      # PII 마스킹 4종.
+      - replace:
+          expression: '([\w.+-]+@[\w-]+\.[\w.-]+)'
+          replace: '<email>'
+      - replace:
+          expression: '(eyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)'
+          replace: '<jwt>'
+      - replace:
+          expression: '\b(01[016789]-?\d{3,4}-?\d{4})\b'
+          replace: '<phone>'
+      - replace:
+          expression: '\b(\d{6}-?[1-4]\d{6})\b'
+          replace: '<rrn>'
+
+      # 라벨화 — level 만 인덱스 라벨.
+      # logger_name / request_id / user_id 는 본문 필드로 LogQL `| json` 검색.
+      - labels:
+          level:
+
+  # 회전된 .gz 파일. decompression 은 scrape_config 레벨에서 활성화.
+  - job_name: krip-backend-rotated
+    decompression:
+      enabled: true
+      format: gz
+    static_configs:
+      - labels:
+          app: krip-backend
+          env: ${ENV}
+          node_id: ${NODE_ID}
+          __path__: /backend/logs/app.log.*.gz
+    pipeline_stages: *pipeline
