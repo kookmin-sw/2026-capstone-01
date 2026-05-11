@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from beanie import PydanticObjectId
 
 from app.domain.notification.model.inbox import InboxItem
+from app.core.instrumentation import measure_mongo_op
 
 
 # 인박스 페이지 크기 — 모바일 한 화면에 fit.
@@ -36,6 +37,7 @@ class InboxRepository:
 
     # ──────────────────── Create ────────────────────
 
+    @measure_mongo_op("insert", "inbox")
     async def insert(self, item: InboxItem) -> InboxItem:
         """인박스 항목 1건 insert.
 
@@ -49,6 +51,7 @@ class InboxRepository:
 
     # ──────────────────── Read (목록 — 커서 페이지네이션) ────────────────────
 
+    @measure_mongo_op("find", "inbox")
     async def find_by_recipient(
         self,
         recipient_id: str,
@@ -72,6 +75,7 @@ class InboxRepository:
 
     # ──────────────────── Read (미읽음 카운트) ────────────────────
 
+    @measure_mongo_op("count", "inbox")
     async def count_unread(self, recipient_id: str, cap: int = UNREAD_COUNT_CAP) -> int:
         """미읽음 항목 카운트 — `display=true AND read_at=null`.
 
@@ -87,6 +91,7 @@ class InboxRepository:
 
     # ──────────────────── Update (X 버튼 / 읽음 처리) ────────────────────
 
+    @measure_mongo_op("update", "inbox")
     async def hide(self, inbox_item_id: PydanticObjectId, recipient_id: str) -> bool:
         """X 버튼 — `display=False` 토글. 본인 소유 검증을 query 안에 포함 (atomic).
 
@@ -102,6 +107,7 @@ class InboxRepository:
         return res.modified_count == 1
 
 
+    @measure_mongo_op("update", "inbox")
     async def mark_all_read(self, recipient_id: str) -> int:
         """인박스 진입 시 미읽음 일괄 읽음 처리. 변경된 row 수 반환.
 
@@ -118,6 +124,7 @@ class InboxRepository:
 
     # ──────────────────── Cascade (유저 탈퇴만) ────────────────────
 
+    @measure_mongo_op("delete", "inbox")
     async def delete_by_user(self, user_id: str) -> int:
         """유저 탈퇴 cascade — recipient 또는 actor 매칭 항목 일괄 hard delete.
 

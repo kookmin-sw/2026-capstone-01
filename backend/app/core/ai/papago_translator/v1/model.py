@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 import httpx
 
 from app.config.setting import settings
+from app.core.instrumentation import ai_external_call
 from app.core.logger import get_logger
 
 
@@ -78,11 +79,12 @@ class PapagoTranslatorModel:
         Returns:
             DetectResult: lang_code (ko, en, ...)
         """
-        response = await self._client.post(
-            DETECT_URL,
-            data={"query": text},
-        )
-        response.raise_for_status()
+        async with ai_external_call("papago"):
+            response = await self._client.post(
+                DETECT_URL,
+                data={"query": text},
+            )
+            response.raise_for_status()
 
         payload = response.json()
         return DetectResult(lang_code=payload["langCode"])
@@ -104,15 +106,16 @@ class PapagoTranslatorModel:
         Returns:
             TranslateResult: translated_text
         """
-        response = await self._client.post(
-            TRANSLATE_URL,
-            data={
-                "source": source,
-                "target": target,
-                "text": text,
-            },
-        )
-        response.raise_for_status()
+        async with ai_external_call("papago"):
+            response = await self._client.post(
+                TRANSLATE_URL,
+                data={
+                    "source": source,
+                    "target": target,
+                    "text": text,
+                },
+            )
+            response.raise_for_status()
 
         payload = response.json()
         translated = payload["message"]["result"]["translatedText"]

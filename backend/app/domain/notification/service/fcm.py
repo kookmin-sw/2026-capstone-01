@@ -10,6 +10,12 @@ from app.domain.auth.repository.user import UserRepository
 from app.database.session import UnitOfWork, transactional
 from app.core.logger import get_logger
 from app.core.fcm import get_fcm_app
+from app.core.instrumentation import (
+    fcm_multicast_devices_inc,
+    fcm_multicast_timer,
+    fcm_send_inc,
+    fcm_token_purged_inc,
+)
 
 
 logger = get_logger("fcm_service")
@@ -136,33 +142,50 @@ class FcmService:
         )
 
         try:
-            batch = await asyncio.to_thread(
-                messaging.send_each_for_multicast, multicast, app=get_fcm_app(),
-            )
+            async with fcm_multicast_timer("chat"):
+                batch = await asyncio.to_thread(
+                    messaging.send_each_for_multicast, multicast, app=get_fcm_app(),
+                )
         except FirebaseError as e:
             # 글로벌 실패 (인증/네트워크) — 토큰 정리 없이 0 반환. 비즈는 계속.
+            fcm_send_inc("chat", "global_failed")
             logger.warning(
                 "FCM multicast 실패 chat_room_id={} count={} error={}",
                 chat_room_id, len(tokens), e,
             )
             return 0
 
-        # (4) 만료 토큰 bulk 정리
+        fcm_send_inc("chat", "ok")
+
+        # (4) 디바이스별 결과 집계 + 만료 토큰 bulk 정리
+        success_count = 0
+        failed_unregistered = 0
+        failed_other = 0
         invalid_tokens: list[str] = []
         for token, resp in zip(tokens, batch.responses):
             if resp.success:
+                success_count += 1
                 continue
             err = resp.exception
             if isinstance(err, messaging.UnregisteredError):
+                failed_unregistered += 1
                 invalid_tokens.append(token)
             else:
+                failed_other += 1
                 logger.warning(
                     "FCM 발송 실패 chat_room_id={} token_prefix={} error={}",
                     chat_room_id, token[:16], err,
                 )
 
+        fcm_multicast_devices_inc(
+            success=success_count,
+            failed_unregistered=failed_unregistered,
+            failed_other=failed_other,
+        )
+
         if invalid_tokens:
             await token_repo.delete_by_tokens(invalid_tokens)
+            fcm_token_purged_inc(len(invalid_tokens))
             logger.info(
                 "FCM 만료 토큰 정리 chat_room_id={} count={}",
                 chat_room_id, len(invalid_tokens),

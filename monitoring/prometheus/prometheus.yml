@@ -1,0 +1,153 @@
+# Prometheus config
+#
+# G-1: --enable-feature=expand-external-labels 플래그 활성화 필수 (docker-compose.monitoring.yml command 에 명시).
+#
+# 추후 필요한 작업:
+#   - alertmanager / alertmanager-self
+#   - 알림 룰 / recording rules
+#
+# 검증: prometheus 컨테이너에서 `curl http://localhost:9090/-/ready`
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    env: "${ENV}"             # Compose .env 의 ENV 가 expand-external-labels 로 치환
+    cluster: krip             # 멀티 클러스터 진입 시 라벨 공간 분리
+
+# rule_files 는 추후 활성화
+# rule_files:
+#   - "/etc/prometheus/alerts/*.yml"
+#   - "/etc/prometheus/recording-rules.yml"
+
+scrape_configs:
+  # ────────────────────────────────────────────────────────────────────
+  # 자체 모니터링 — Prometheus self
+  # ────────────────────────────────────────────────────────────────────
+  - job_name: prometheus-self
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  # LokiIngestionStalled / PromtailDropping 룰이 의존.
+  - job_name: loki-self
+    static_configs:
+      - targets: ["loki:3100"]
+
+  - job_name: promtail-self
+    static_configs:
+      - targets: ["promtail:9080"]
+
+  # ────────────────────────────────────────────────────────────────────
+  # 호스트 / 컨테이너 메트릭
+  # ────────────────────────────────────────────────────────────────────
+  # node-exporter 는 운영 Linux 호스트에서만 의미 있는 메트릭을 노출한다.
+  # macOS dev 에서는 docker-compose 의 linux-host profile 미활성으로
+  # 컨테이너가 뜨지 않아 본 잡은 down 으로 보이지만 무해하다.
+  # 운영 Linux 부팅은 'make up-prod' 사용.
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # cadvisor 제거됨 — Azure VM 의 overlayfs storage driver 호환 X.
+  # docker-compose.monitoring.yml 의 docstring 참조.
+
+  # ────────────────────────────────────────────────────────────────────
+  # 데이터스토어 exporter
+  # ────────────────────────────────────────────────────────────────────
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  # redis-exporter 의 server-side latency 메트릭은 backend 의 redis_command_duration_seconds
+  # 와 의미가 중복 (server-side vs client-side) + 카디널리티 ~400 시리즈 폭증 hotspot.
+  # backend client-side 측정으로 운영 진단 충분 — server-side 는 drop.
+  - job_name: redis-hot
+    static_configs:
+      - targets: ["redis-exporter-hot:9121"]
+        labels:
+          db: "hot"           # §5.7 hot/dedupe 분리
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'redis_(commands_latencies_usec|latency_percentiles_usec|latency_spike).*'
+        action: drop
+
+  - job_name: redis-dedupe
+    static_configs:
+      - targets: ["redis-exporter-dedupe:9121"]
+        labels:
+          db: "dedupe"
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'redis_(commands_latencies_usec|latency_percentiles_usec|latency_spike).*'
+        action: drop
+
+  - job_name: mongo
+    static_configs:
+      - targets: ["mongodb-exporter:9216"]
+
+  # ────────────────────────────────────────────────────────────────────
+  # Blackbox — 외부 의존성 probe
+  # 5xx 의 "우리 코드 버그 vs 외부 다운" 1차 분리. 비용 거의 0.
+  # 알림 발화 시 본 시리즈가 0 이면 외부 원인 → MTTD 단축.
+  # ────────────────────────────────────────────────────────────────────
+  - job_name: blackbox-external
+    metrics_path: /probe
+    params:
+      module: [http_alive]            # 외부 API 는 root GET 에 4xx 가 정상 — alive probe 사용
+    static_configs:
+      - targets:
+          - https://kr.object.ncloudstorage.com         # Naver Cloud S3
+          - https://naveropenapi.apigw.ntruss.com       # Papago
+          - https://generativelanguage.googleapis.com   # Gemini
+          - https://fcm.googleapis.com                  # FCM
+          - https://oauth2.googleapis.com               # Google OAuth
+    relabel_configs:
+      # C-11: target 파라미터를 instance 라벨로 매핑. 누락 시 알림이 영원히 발화 안 함.
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+    scrape_interval: 60s        # 외부는 보수적 — rate limit 회피
+    scrape_timeout: 15s         # 외부 latency 여유
+
+  # ────────────────────────────────────────────────────────────────────
+  # Backend application metrics — 옵션 4 (start_http_server(9090))
+  # ────────────────────────────────────────────────────────────────────
+  - job_name: backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:9090"]
+    scrape_interval: 15s
+
+  # ────────────────────────────────────────────────────────────────────
+  # Backend health/ready blackbox probe — strict http_2xx (200 만 success)
+  # /health/deep / /ready 는 RED 에서 제외 (metric/fastapi.py:excluded_handlers) 되어
+  # DEEP_CANARY_DURATION + blackbox synthetic 두 메트릭으로만 측정된다.
+  # ────────────────────────────────────────────────────────────────────
+  - job_name: blackbox-internal
+    metrics_path: /probe
+    params:
+      module: [http_2xx]            # strict — 외부 의존성과 다른 모듈 (alive 가 아닌 200 강제)
+    static_configs:
+      - targets:
+          - http://backend:8000/health
+          - http://backend:8000/health/deep
+          - http://backend:8000/ready
+    relabel_configs:
+      # C-11: target → instance 매핑
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+    scrape_interval: 30s
+    scrape_timeout: 10s             # /health/deep PG ping latency 여유
+
+# alertmanager 는 추후 활성화
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ["alertmanager:9093"]

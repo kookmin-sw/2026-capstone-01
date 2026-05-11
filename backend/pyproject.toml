@@ -32,6 +32,9 @@ dependencies = [
     "boto3==1.35.0",
     "pillow==12.1.1",
     "firebase-admin>=6.5.0",
+    # Monitoring
+    "prometheus-client>=0.21.0",
+    "prometheus-fastapi-instrumentator>=7.0.0",
     # LLM
     "langchain==1.0.0",
     "langchain-chroma==1.0.0",

@@ -4,7 +4,7 @@
 - 예시:
   LOG_LEVEL=DEBUG
   LOG_FORMAT=console
-  LOG_FILE_PATH=/var/log/app/app.log
+  LOG_FILE_PATH=/backend/logs/app.log
 
 필드 설명:
   LOG_LEVEL:
@@ -67,11 +67,24 @@ from app.config.setting import settings
 
 def setup_logging() -> None:
     """로깅 시스템 설정"""
-    
+
+    # PROD 환경에서 console 포맷이면 Promtail 의 JSON parser 가 깨져 라벨이
+    # 모두 unknown 으로 들어가고 14일치 로그 검색 불가가 된다. 운영자가 .env 에서
+    # LOG_FORMAT 을 잊거나 잘못 설정해도 안전하도록 fail-safe 로 json 강제.
+    #
+    # 결정과 적용을 분리하는 이유:
+    #   logger.remove() 와 logger.add() 사이에서 logger.warning() 을 호출하면 sink
+    #   부재 구간이라 메시지가 어디에도 남지 않아 fail-safe 발화 자체가 silent 가
+    #   된다 — 본 보호 로직의 의도(운영자 알림)가 깨지는 결함. 결정만 먼저 하고
+    #   sink 가 모두 ready 된 뒤 함수 끝에서 emit.
+    requested_format = settings.LOG_FORMAT
+    forced_json = settings.is_production and requested_format != "json"
+    log_format = "json" if forced_json else requested_format
+
     logger.remove()
-    
+
     # 콘솔 출력 설정
-    if settings.LOG_FORMAT == "json":
+    if log_format == "json":
         # JSON 포맷
         logger.add(
             sys.stdout,
@@ -127,11 +140,24 @@ def setup_logging() -> None:
     # 표준 로거 설정
     logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
     
-    # 주요 라이브러리 로거 레벨 설정
+    # 주요 라이브러리 로거 레벨 설정.
+    # uvicorn.access 는 DEBUG — RED 메트릭이 path/method/status/duration 제공하므로
+    # 매 요청 INFO 출력은 중복 + PROD 로그 비용.
     logging.getLogger("uvicorn").setLevel(logging.INFO)
-    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
+    logging.getLogger("uvicorn.access").setLevel(logging.DEBUG)
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
-    
+
+    # fail-safe 발화 알림 — sink 가 모두 ready 된 시점이라 stdout/JSON sink 와
+    # LOG_FILE_PATH 양쪽에 동시에 남는다. requested_format 을 박는 이유는 운영자가
+    # .env 에 실제로 박은 값을 보여줘야 진단 가치가 있기 때문 (log_format 변수는
+    # 이미 "json" 으로 덮어쓴 상태).
+    if forced_json:
+        logger.warning(
+            "PROD 환경에서 LOG_FORMAT={} 가 지정되어 있어 json 으로 강제 변환했습니다. "
+            "Promtail JSON parser 호환 보호.",
+            requested_format,
+        )
+
     logger.info("Logging system initialized with level: {}", settings.LOG_LEVEL)
 
 

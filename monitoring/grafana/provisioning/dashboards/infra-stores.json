@@ -1,0 +1,212 @@
+{
+  "title": "데이터스토어 (Infra Stores)",
+  "uid": "krip-infra-stores",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "time": {"from": "now-1h", "to": "now"},
+  "refresh": "30s",
+  "tags": ["krip", "infra", "db"],
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "DB 풀 — 사용 중 / 전체",
+      "type": "stat",
+      "description": "현재 사용 중인 커넥션 / 전체 풀 사이즈. 사용 중이 풀 사이즈에 근접하면 풀 고갈 임박.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "palette-classic"}}},
+      "options": {"colorMode": "value", "graphMode": "area", "textMode": "value_and_name", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [
+        {"expr": "db_pool_checked_out", "legendFormat": "사용 중", "refId": "A"},
+        {"expr": "db_pool_size", "legendFormat": "전체", "refId": "B"}
+      ]
+    },
+    {
+      "id": 2,
+      "title": "DB 쿼리 p95 (전체)",
+      "type": "stat",
+      "description": "5분 윈도우 전체 쿼리 p95. 50ms 이상 주의, 100ms 이상 위험 (도메인별 슬로우 쿼리 의심).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 4,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.05}, {"color": "red", "value": 0.1}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(db_query_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "title": "트랜잭션 처리율 (분당)",
+      "type": "stat",
+      "description": "분당 commit + rollback 합계. 비즈 트래픽 큰 그림.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "ops", "decimals": 2}},
+      "options": {"colorMode": "value", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "sum(rate(db_transaction_total[1m]))", "legendFormat": "tx/s", "refId": "A"}]
+    },
+    {
+      "id": 4,
+      "title": "트랜잭션 rollback 비율",
+      "type": "stat",
+      "description": "전체 트랜잭션 대비 rollback. 1% 이상 주의 (예외 누수 의심), 5% 이상 위험.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 3,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.01}, {"color": "red", "value": 0.05}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "sum(rate(db_transaction_total{result=\"rollback\"}[5m])) / clamp_min(sum(rate(db_transaction_total[5m])), 1)", "legendFormat": "rollback %", "refId": "A"}]
+    },
+    {
+      "id": 10,
+      "title": "DB 쿼리 처리 시간 p95 (도메인별)",
+      "type": "timeseries",
+      "description": "route 라벨로 도메인별 분리 — 어느 도메인 쿼리가 느린지 즉시 식별.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 5},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, route) (rate(db_query_duration_seconds_bucket[5m])))", "legendFormat": "{{route}}", "refId": "A"}]
+    },
+    {
+      "id": 11,
+      "title": "DB 쿼리 처리율 (도메인별)",
+      "type": "timeseries",
+      "description": "분당 쿼리 호출 수. 어느 도메인이 DB 부하 주는지 큰 그림.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 5},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (route) (rate(db_query_duration_seconds_count[1m]))", "legendFormat": "{{route}}", "refId": "A"}]
+    },
+    {
+      "id": 20,
+      "title": "트랜잭션 결과 (도메인 × result)",
+      "type": "timeseries",
+      "description": "commit / rollback / other 분포. rollback 이 갑자기 늘면 도메인 service 의 예외 누수 / 비즈 로직 변경 의심.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (route, result) (rate(db_transaction_total[1m]))", "legendFormat": "{{route}} / {{result}}", "refId": "A"}]
+    },
+    {
+      "id": 30,
+      "title": "Postgres 인프라 메트릭 (postgres-exporter)",
+      "type": "timeseries",
+      "description": "exporter 가 직접 노출하는 PG 통계 — 백엔드 측 메트릭과 교차 검증.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 23},
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "sum(pg_stat_database_numbackends)", "legendFormat": "활성 커넥션", "refId": "A"},
+        {"expr": "pg_settings_max_connections", "legendFormat": "max_connections", "refId": "B"}
+      ]
+    },
+    {
+      "id": 31,
+      "title": "Redis 메모리 사용량 (DB 별)",
+      "type": "timeseries",
+      "description": "hot / dedupe 두 DB 의 메모리 사용량. dedupe 가 너무 크면 TTL 누락 의심.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 23},
+      "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "redis_memory_used_bytes", "legendFormat": "{{db}}", "refId": "A"}]
+    },
+    {
+      "id": 40,
+      "title": "Redis 명령 처리 시간 p99 (DB × 명령)",
+      "type": "timeseries",
+      "description": "백엔드 → Redis 단일 명령 latency p99. 5ms 이상이면 Redis 또는 네트워크 지연 의심 (RedisCmdSlow 알림 임계).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 31},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "histogram_quantile(0.99, sum by (le, db) (rate(redis_command_duration_seconds_bucket[5m])))", "legendFormat": "p99 {{db}}", "refId": "A"}]
+    },
+    {
+      "id": 41,
+      "title": "Redis 명령 처리율 (명령 × DB)",
+      "type": "timeseries",
+      "description": "분당 호출 수를 명령별로. 화이트리스트 외 명령은 'other' 로 합쳐져 카디널리티 폭증 차단.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 31},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (command, db) (rate(redis_command_duration_seconds_count[1m]))", "legendFormat": "{{command}} / {{db}}", "refId": "A"}]
+    },
+    {
+      "id": 42,
+      "title": "Redis 명령 에러 (명령 × exc_type)",
+      "type": "timeseries",
+      "description": "분당 예외 발생 수. 0 이 정상. ConnectionError 가 잠깐 튀면 Redis 재시작 / 네트워크 일시 단절 의심.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 39},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 25, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (command, exc_type) (rate(redis_command_errors_total[5m]))", "legendFormat": "{{command}} / {{exc_type}}", "refId": "A"}]
+    },
+    {
+      "id": 43,
+      "title": "Lua 스크립트 호출 (script 별)",
+      "type": "timeseries",
+      "description": "분당 EVALSHA 호출 수. force_jump (시퀀스 점프), incr_fast / incr_with_ttl (시퀀스 발급), recover_and_incr (재시작 복구).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 39},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (script) (rate(redis_lua_script_run_total[1m]))", "legendFormat": "{{script}}", "refId": "A"}]
+    },
+    {
+      "id": 50,
+      "title": "Mongo op p95 (collection × op)",
+      "type": "timeseries",
+      "description": "Mongo repository 메서드 단위 p95. find_one / aggregate / count 의 분포가 다르므로 op 별로 분리.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 46},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, collection, op) (rate(mongo_op_duration_seconds_bucket[5m])))", "legendFormat": "{{collection}} / {{op}}", "refId": "A"}]
+    },
+    {
+      "id": 51,
+      "title": "Mongo op 처리율 (collection × op)",
+      "type": "timeseries",
+      "description": "분당 호출 수. 어느 컬렉션 / op 가 부하의 핵심인지.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 46},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (collection, op) (rate(mongo_op_duration_seconds_count[1m]))", "legendFormat": "{{collection}} / {{op}}", "refId": "A"}]
+    },
+    {
+      "id": 52,
+      "title": "Mongo op 에러 (collection × exc_type)",
+      "type": "timeseries",
+      "description": "Mongo 호출 예외 추이. 0 이 정상. DuplicateKeyError 가 잠깐 튀면 unique 인덱스 충돌 (chat_message 의 server_seq race 등).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 55},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 25, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (collection, op, exc_type) (rate(mongo_op_errors_total[5m]))", "legendFormat": "{{collection}} / {{op}} / {{exc_type}}", "refId": "A"}]
+    }
+  ]
+}
