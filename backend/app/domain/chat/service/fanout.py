@@ -36,13 +36,18 @@ ordering 보장: 동일 채널 내 메시지는 publish 순서대로 전달되�
 중복 수신으로 인한 효율 손실이 있으므로 멀티 워커 운영 시 `NODE_ID` env 를 명시 지정 권장.
 """
 import json
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 from collections import defaultdict
 import asyncio
 
 from app.domain.chat.worker.node_registry import list_active_nodes
 from app.config.setting import settings
 from app.core.chat.redis_key import node_channel_key, ws_route_key
+from app.core.context import request_id_var, traceparent_var
+from app.core.instrumentation import (
+    chat_fanout_dispatch,
+    chat_fanout_publish_inc,
+)
 from app.core.logger import get_logger
 from app.core.redis import get_redis_client
 
@@ -213,33 +218,47 @@ class FanoutService:
 
         envelope 의 `op` 별로 `_local_*` 로 라우팅. 알 수 없는 op 는 warning 후 drop —
         구버전/신버전 노드 혼재 시에도 다운되지 않도록 fail-open.
+
+        cross-node trace 보존 — publisher 가 박은 request_id / traceparent 를 contextvar
+        로 복원해 본 노드의 로그 / 향후 OTel span 에서 동일 ID 가 보이도록 한다.
         """
-        op = envelope.get("op")
+        op = envelope.get("op", "unknown")
+
+        rid_token = request_id_var.set(envelope.get("request_id", ""))
+        tp_token = traceparent_var.set(envelope.get("traceparent", ""))
+
         try:
-            if op == "room":
-                await self._local_deliver_to_room(
-                    envelope["room_id"], envelope["payload"],
-                )
-            elif op == "user":
-                await self._local_deliver_to_user(
-                    envelope["user_id"], envelope["payload"],
-                )
-            elif op == "session":
-                await self._local_deliver_to_session(
-                    envelope["session_id"], envelope["payload"],
-                )
-            elif op == "subscribe":
-                self._local_subscribe_user_to_room(
-                    envelope["user_id"], envelope["room_id"],
-                )
-            elif op == "unsubscribe":
-                self._local_unsubscribe_user_from_room(
-                    envelope["user_id"], envelope["room_id"],
-                )
-            else:
-                logger.warning("알 수 없는 envelope op (drop): {}", op)
-        except KeyError as e:
-            logger.warning("envelope 필드 누락 (drop): op={}, missing={}", op, e)
+            async with chat_fanout_dispatch(op):
+                try:
+                    if op == "room":
+                        await self._local_deliver_to_room(
+                            envelope["room_id"], envelope["payload"],
+                        )
+                    elif op == "user":
+                        await self._local_deliver_to_user(
+                            envelope["user_id"], envelope["payload"],
+                        )
+                    elif op == "session":
+                        await self._local_deliver_to_session(
+                            envelope["session_id"], envelope["payload"],
+                        )
+                    elif op == "subscribe":
+                        self._local_subscribe_user_to_room(
+                            envelope["user_id"], envelope["room_id"],
+                        )
+                    elif op == "unsubscribe":
+                        self._local_unsubscribe_user_from_room(
+                            envelope["user_id"], envelope["room_id"],
+                        )
+                    else:
+                        logger.warning("알 수 없는 envelope op (drop): {}", op)
+                except KeyError as e:
+                    logger.warning(
+                        "envelope 필드 누락 (drop): op={}, missing={}", op, e,
+                    )
+        finally:
+            request_id_var.reset(rid_token)
+            traceparent_var.reset(tp_token)
 
 
     # ──────────────────── 로컬 전달 (in-process / 디스패처 진입) ────────────────────
@@ -310,10 +329,18 @@ class FanoutService:
 
         활성 노드 0 명이면 publish 자체를 skip — 단일 노드 운영 시작 직후 / shutdown
         직후의 race window 에서 의미 없는 PUBLISH 부담 회피.
+
+        envelope 에 request_id / traceparent 를 박아 cross-node 추적을 보존한다 (Phase 5
+        대비). dispatcher 가 contextvar 로 복원해 본 노드의 로그에서도 동일 ID 가 보인다.
         """
         nodes = await list_active_nodes()
         if not nodes:
             return
+
+        envelope.setdefault("request_id", request_id_var.get())
+        envelope.setdefault("traceparent", traceparent_var.get())
+
+        chat_fanout_publish_inc(envelope.get("op", "unknown"))
 
         redis = await get_redis_client()
         envelope_json = json.dumps(envelope)
@@ -335,26 +362,44 @@ class FanoutService:
         if target_node is None:
             return
 
-        envelope = {"op": "session", "session_id": session_id, "payload": payload}
+        envelope = {
+            "op": "session",
+            "session_id": session_id,
+            "payload": payload,
+            "request_id": request_id_var.get(),
+            "traceparent": traceparent_var.get(),
+        }
+        chat_fanout_publish_inc("session")
         await redis.publish(node_channel_key(target_node), json.dumps(envelope))
 
 
     # ──────────────────── 내부 ────────────────────
 
-    @staticmethod
-    async def _broadcast(recipients: list[WebSocket], payload: dict) -> None:
-        """여러 WS 에 동시 push — 한 WS 실패가 다른 WS 를 막지 않도록 `gather(return_exceptions=True)`."""
+    async def _broadcast(self, recipients: list[WebSocket], payload: dict) -> None:
+        """여러 WS 에 동시 push — 한 WS 실패가 다른 WS 를 막지 않도록 `gather(return_exceptions=True)`.
+
+        실패 처리 정책:
+        - dead 세션 (RuntimeError / WebSocketDisconnect) 은 즉시 unregister.
+          starlette 가 이미 닫힌 WS 에 대해 던지는 신호이므로 정리해도 안전하며,
+          정리하지 않으면 매 fan-out 마다 좀비 세션에 반복 시도되어 워닝 폭발.
+          (핸들러의 `finally` cleanup 이 race 로 누락된 경우의 안전망)
+        - 그 외 예외는 일시적일 수 있으므로 정리하지 않고 로그만 남긴다.
+
+        예외 클래스명만이 아니라 `repr(result)` 로 메시지까지 남겨 원인 파악이 가능하게.
+        """
         if not recipients:
             return
         results = await asyncio.gather(
             *(ws.send_json(payload) for ws in recipients),
             return_exceptions=True,
         )
-        # 실패한 소켓 경고 로그 (메트릭 Phase 3 에서 추가)
         for ws, result in zip(recipients, results):
-            if isinstance(result, Exception):
-                logger.warning(
-                    "fan-out send 실패: session_id={}, err={}",
-                    getattr(ws, "session_id", "?"),
-                    type(result).__name__,
-                )
+            if not isinstance(result, Exception):
+                continue
+            logger.warning(
+                "fan-out send 실패: session_id={}, err={!r}",
+                getattr(ws, "session_id", "?"),
+                result,
+            )
+            if isinstance(result, (RuntimeError, WebSocketDisconnect)):
+                self.unregister_ws(ws)

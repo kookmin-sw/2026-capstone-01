@@ -27,6 +27,14 @@ from app.domain.chat.repository.chat_room import ChatRoomRepository
 from app.database.session import mongodb
 from app.core.redis import get_redis_client
 from app.core.logger import get_logger
+from app.core.instrumentation import (
+    chat_reconcile_batch_pop_inc,
+    chat_reconcile_dirty_set_size_set,
+    chat_reconcile_rooms_processed_inc,
+    chat_reconcile_tick,
+    chat_unread_recover_inc,
+    worker_tick,
+)
 from app.core.chat.redis_key import DIRTY_CHAT_ROOM_KEY, unread_key
 
 
@@ -88,86 +96,107 @@ async def reconcile_last_message_once() -> int:
     """
     redis_hot = await get_redis_client()
 
-    # SPOP count=N — Redis 3.2+ 지원. redis-py 는 count 인자 있으면 list 반환.
-    popped = await redis_hot.spop(DIRTY_CHAT_ROOM_KEY, RECONCILE_BATCH_SIZE)
-    if not popped:
-        return 0
-    # count 없이 호출한 경로와 통일성 유지 (redis-py 버전 diff 방어).
-    room_ids: list[str] = list(popped) if isinstance(popped, (list, set)) else [popped]
-    if not room_ids:
-        return 0
+    # 매 tick 시작 시 dirty SET 사이즈 측정 — 적체 인지 신호.
+    chat_reconcile_dirty_set_size_set(await redis_hot.scard(DIRTY_CHAT_ROOM_KEY))
 
-    # Mongo aggregate — 방별 최신 메시지 1건
-    message_repo = ChatMessageRepository(mongodb.database)
-    try:
-        last_by_room = await message_repo.find_last_by_rooms(room_ids)
-    except Exception as e:
-        # Mongo 쪽 장애면 이번 배치를 통째로 되돌려 다음 tick 에서 재시도
-        logger.warning(
-            "reconcile: Mongo aggregate 실패 → {} 개 방 재적재: {}",
-            len(room_ids), type(e).__name__,
-        )
-        await redis_hot.sadd(DIRTY_CHAT_ROOM_KEY, *room_ids)
-        return 0
+    async with chat_reconcile_tick():
+        # SPOP count=N — Redis 3.2+ 지원. redis-py 는 count 인자 있으면 list 반환.
+        popped = await redis_hot.spop(DIRTY_CHAT_ROOM_KEY, RECONCILE_BATCH_SIZE)
+        if not popped:
+            chat_reconcile_batch_pop_inc("empty")
+            return 0
+        # count 없이 호출한 경로와 통일성 유지 (redis-py 버전 diff 방어).
+        room_ids: list[str] = list(popped) if isinstance(popped, (list, set)) else [popped]
+        if not room_ids:
+            chat_reconcile_batch_pop_inc("empty")
+            return 0
 
-    if not last_by_room:
-        # Mongo 에 메시지가 하나도 없는 이상 상태 — 방 생성 직후 삭제된 경우 등.
-        # 이 상태에선 last_message_* 가 NULL 인 게 정상이라 UPDATE 없이 pop 결과만 흘려보냄.
+        # Mongo aggregate — 방별 최신 메시지 1건
+        message_repo = ChatMessageRepository(mongodb.database)
+        try:
+            last_by_room = await message_repo.find_last_by_rooms(room_ids)
+        except Exception as e:
+            # Mongo 쪽 장애면 이번 배치를 통째로 되돌려 다음 tick 에서 재시도
+            chat_reconcile_batch_pop_inc("mongo_failed")
+            logger.warning(
+                "reconcile: Mongo aggregate 실패 → {} 개 방 재적재: {}",
+                len(room_ids), type(e).__name__,
+            )
+            await redis_hot.sadd(DIRTY_CHAT_ROOM_KEY, *room_ids)
+            return 0
+
+        if not last_by_room:
+            # Mongo 에 메시지가 하나도 없는 이상 상태 — 방 생성 직후 삭제된 경우 등.
+            # 이 상태에선 last_message_* 가 NULL 인 게 정상이라 UPDATE 없이 pop 결과만 흘려보냄.
+            chat_reconcile_batch_pop_inc("ok")
+            chat_reconcile_rooms_processed_inc("skipped", len(room_ids))
+            logger.info(
+                "reconcile: pop={} 이지만 Mongo hit 0 — last_message 없는 방으로 간주하고 skip",
+                len(room_ids),
+            )
+            return len(room_ids)
+
+        # RDB UPDATE — 각 방마다 regress 가드 + 실패 시 재큐잉
+        factory = _require_factory()
+        failed: list[str] = []
+        updated = 0
+        commit_failed = False
+        async with factory() as session:
+            chat_room_repo = ChatRoomRepository(session)
+            for room_id, doc in last_by_room.items():
+                try:
+                    await chat_room_repo.update_last_message_if_greater(
+                        chat_room_id=room_id,
+                        message_id=doc["message_id"],
+                        server_seq=doc["server_seq"],
+                        at=doc["created_at"],
+                    )
+                    updated += 1
+                except Exception as e:
+                    logger.warning(
+                        "reconcile: 방 {} UPDATE 실패 — 재적재: {}",
+                        room_id, type(e).__name__,
+                    )
+                    failed.append(room_id)
+            try:
+                await session.commit()
+            except Exception as e:
+                # commit 실패면 배치 전체 다시 돌림. async with factory() 의 __aexit__ 는
+                # 예외가 블록 밖으로 나가지 않으면 auto-rollback 하지 않으므로 명시적으로 rollback.
+                # 방치하면 커넥션이 aborted 트랜잭션 상태로 풀에 반납될 위험.
+                logger.warning(
+                    "reconcile: commit 실패 → 배치 전체 재적재 ({} 개): {}",
+                    len(last_by_room), type(e).__name__,
+                )
+                try:
+                    await session.rollback()
+                except Exception as rb_err:
+                    logger.warning(
+                        "reconcile: rollback 도 실패 (커넥션 풀 보호 실패 가능): {}",
+                        type(rb_err).__name__,
+                    )
+                failed.extend(last_by_room.keys() - set(failed))
+                updated = 0
+                commit_failed = True
+
+        if failed:
+            await redis_hot.sadd(DIRTY_CHAT_ROOM_KEY, *failed)
+
+        # batch result 분류:
+        #   - rdb_failed: commit 통째 실패 — 배치 전체 재적재 (rooms outcome 은 0)
+        #   - ok        : commit 성공 (partial UPDATE 실패는 outcome=failed 로 별도 카운트)
+        if commit_failed:
+            chat_reconcile_batch_pop_inc("rdb_failed")
+        else:
+            chat_reconcile_batch_pop_inc("ok")
+            chat_reconcile_rooms_processed_inc("updated", updated)
+            chat_reconcile_rooms_processed_inc("failed", len(failed))
+
         logger.info(
-            "reconcile: pop={} 이지만 Mongo hit 0 — last_message 없는 방으로 간주하고 skip",
-            len(room_ids),
+            "reconcile: pop={}, mongo_hit={}, updated={}, requeued={}",
+            len(room_ids), len(last_by_room), updated, len(failed),
         )
         return len(room_ids)
-
-    # RDB UPDATE — 각 방마다 regress 가드 + 실패 시 재큐잉
-    factory = _require_factory()
-    failed: list[str] = []
-    updated = 0
-    async with factory() as session:
-        chat_room_repo = ChatRoomRepository(session)
-        for room_id, doc in last_by_room.items():
-            try:
-                await chat_room_repo.update_last_message_if_greater(
-                    chat_room_id=room_id,
-                    message_id=doc["message_id"],
-                    server_seq=doc["server_seq"],
-                    at=doc["created_at"],
-                )
-                updated += 1
-            except Exception as e:
-                logger.warning(
-                    "reconcile: 방 {} UPDATE 실패 — 재적재: {}",
-                    room_id, type(e).__name__,
-                )
-                failed.append(room_id)
-        try:
-            await session.commit()
-        except Exception as e:
-            # commit 실패면 배치 전체 다시 돌림. async with factory() 의 __aexit__ 는
-            # 예외가 블록 밖으로 나가지 않으면 auto-rollback 하지 않으므로 명시적으로 rollback.
-            # 방치하면 커넥션이 aborted 트랜잭션 상태로 풀에 반납될 위험.
-            logger.warning(
-                "reconcile: commit 실패 → 배치 전체 재적재 ({} 개): {}",
-                len(last_by_room), type(e).__name__,
-            )
-            try:
-                await session.rollback()
-            except Exception as rb_err:
-                logger.warning(
-                    "reconcile: rollback 도 실패 (커넥션 풀 보호 실패 가능): {}",
-                    type(rb_err).__name__,
-                )
-            failed.extend(last_by_room.keys() - set(failed))
-            updated = 0
-
-    if failed:
-        await redis_hot.sadd(DIRTY_CHAT_ROOM_KEY, *failed)
-
-    logger.info(
-        "reconcile: pop={}, mongo_hit={}, updated={}, requeued={}",
-        len(room_ids), len(last_by_room), updated, len(failed),
-    )
-    return len(room_ids)
 
 
 async def _reconcile_loop(stop_event: asyncio.Event) -> None:
@@ -179,12 +208,13 @@ async def _reconcile_loop(stop_event: asyncio.Event) -> None:
     while not stop_event.is_set():
         # 적체 drain — 한 사이클 내에 연속 pop. 배치 full 이면 바로 다음 배치 (백로그 해소).
         try:
-            while True:
-                processed = await reconcile_last_message_once()
-                if processed < RECONCILE_BATCH_SIZE:
-                    break
-                if stop_event.is_set():
-                    break
+            async with worker_tick("reconcile"):
+                while True:
+                    processed = await reconcile_last_message_once()
+                    if processed < RECONCILE_BATCH_SIZE:
+                        break
+                    if stop_event.is_set():
+                        break
         except Exception as e:
             logger.exception("reconcile tick 전역 실패 (계속 진행): {}", e)
 
@@ -233,6 +263,7 @@ async def recover_unread_for_user(
         )
 
     if not last_reads:
+        chat_unread_recover_inc("ok")
         logger.info(
             "recover_unread: user_id={}, only_room={} — 활성 방 없음, skip",
             user_id, only_room,
@@ -283,22 +314,25 @@ async def recover_unread_for_user(
                 "user_id={}, err={}",
                 user_id, e,
             )
+            cleanup_ok = True
             try:
                 await redis_hot.delete(unread_key(user_id))
             except Exception as del_err:
                 # DEL 도 실패면 partial state 가 남지만 이미 최선은 다한 상태.
                 # 다음 재연결에서 `get_unread_counts` non-empty 일 수 있고, 일부 방 unread 유실.
-                # 운영 관측성으로 대응 (metric: chat.unread.recover_cleanup_failed).
+                cleanup_ok = False
                 logger.warning(
                     "recover_unread: cleanup DEL 실패 — partial state 잔존 위험: {}",
                     type(del_err).__name__,
                 )
+            chat_unread_recover_inc("redis_failed" if cleanup_ok else "cleanup_failed")
             logger.info(
                 "recover_unread: user_id={}, rooms={}, recovered=0 (redis 실패)",
                 user_id, len(last_reads),
             )
             return {}
 
+    chat_unread_recover_inc("ok")
     logger.info(
         "recover_unread: user_id={}, rooms={}, recovered={}, only_room={}",
         user_id, len(last_reads), len(counts), only_room,

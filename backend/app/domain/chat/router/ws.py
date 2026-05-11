@@ -15,6 +15,7 @@ WS 업그레이드 핸드셰이크는 `BaseHTTPMiddleware` 를 거치지 않으�
     9. op 수신 루프 (매 op 진입 시 `session_exists` 체크 — revoke 감지)
     10. 종료 시: unregister_ws → Redis 정리 → WS close
 """
+import uuid
 from pydantic import TypeAdapter, ValidationError
 import jwt
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -31,6 +32,14 @@ from app.domain.chat.service.session import SessionService
 from app.domain.chat.worker.reconcile import recover_unread_for_user
 from app.config.setting import settings
 from app.container import Container
+from app.core.context import request_id_var
+from app.core.instrumentation import (
+    chat_ws_connect_result,
+    chat_ws_connection_dec,
+    chat_ws_connection_inc,
+    chat_ws_op,
+    chat_ws_op_validation_failure,
+)
 from app.core.logger import get_logger
 
 
@@ -68,12 +77,14 @@ async def ws_chat(
     origin = websocket.headers.get("origin")
     if not _is_allowed_origin(origin):
         logger.warning("WS 연결 거부 — 허용되지 않은 Origin: {}", origin)
+        chat_ws_connect_result("origin_denied")
         await websocket.close(code=CLOSE_FORBIDDEN_ORIGIN)
         return
 
     # 2. JWT 쿠키 검증
     auth = _verify_cookie_jwt(websocket)
     if auth is None:
+        chat_ws_connect_result("auth_expired")
         await websocket.close(code=CLOSE_AUTH_EXPIRED)
         return
     user_id, token_jti = auth
@@ -86,9 +97,14 @@ async def ws_chat(
         session_id = await session_svc.create_session(user_id, token_jti)
     except Exception as e:
         logger.exception("세션 생성 실패: user_id={}, err={}", user_id, e)
+        chat_ws_connect_result("session_failed")
         await websocket.send_json({"type": "server_error", "reason": "session_create_failed"})
         await websocket.close(code=CLOSE_SERVICE_RESTART)
         return
+
+    # 정상 연결 — accept + session 모두 통과.
+    chat_ws_connect_result("ok")
+    chat_ws_connection_inc()
 
     # 5. WS 컨텍스트 심기 (FanoutService duck typing 전제)
     websocket.session_id = session_id  # type: ignore[attr-defined]
@@ -111,6 +127,10 @@ async def ws_chat(
     # 7-a. unread 초기 동기화 — Redis 에 값이 있으면 즉시 push, 없으면 백그라운드 복구.
     #   복구 완료 시 `unread_synced` 를 뒤늦게라도 push 해 클라 UI 가 싱크되도록 한다.
     #   recover 자체는 RDB + Mongo count 조합이라 느릴 수 있으므로 fire-and-forget.
+    #
+    # WebSocketDisconnect 는 외곽 except 에 위임해 정상 종료로 처리 — 여기서 삼키면
+    # 뒤이은 receive_json 이 `RuntimeError: WebSocket is not connected` 를 뱉어
+    # 정상적인 init-단계 disconnect 가 traceback 으로 둔갑한다.
     try:
         counts = await history_svc.get_unread_counts(user_id)
         if counts:
@@ -118,8 +138,10 @@ async def ws_chat(
         else:
             # Redis 비어있음 → Phase 3 복구 경로. 태스크 참조는 _spawn_* 가 내부 set 에 보관.
             _spawn_recover_unread(websocket, user_id)
+    except WebSocketDisconnect:
+        raise
     except Exception as e:
-        logger.warning("unread 동기화 실패 (무시하고 진행): user_id={}, err={}", user_id, e)
+        logger.warning("unread 동기화 실패 (무시하고 진행): user_id={}, err={!r}", user_id, e)
 
     # 8. heartbeat 백그라운드 태스크
     heartbeat_task = asyncio.create_task(
@@ -146,6 +168,8 @@ async def ws_chat(
         # 각 단계는 서로 독립이므로 한 쪽 실패가 다음 단계를 막지 않도록 개별 try 로 격리한다.
         # cleanup path 는 본 요청 처리가 끝난 뒤이므로 warning 으로만 남기고 진행한다.
         # (CancelledError 는 BaseException 이라 `except Exception` 에 잡히지 않아 정상 전파됨)
+        chat_ws_connection_dec()
+
         try:
             fanout.unregister_ws(websocket)
         except Exception as e:
@@ -276,43 +300,51 @@ async def _receive_loop(
             await websocket.close(code=CLOSE_AUTH_EXPIRED)
             return
 
-        # op 파싱
+        # op 단위 request_id contextvar 셋팅 — fanout publish 시 envelope 에 박힌다.
+        op_request_id = str(uuid.uuid4())
+        rid_token = request_id_var.set(op_request_id)
+
+        # op 파싱 — 실패 시 op 라벨이 unknown 으로 잡혀도 의미 살아있다.
+        op_label = raw.get("op", "unknown") if isinstance(raw, dict) else "unknown"
         try:
             req = _ClientRequestAdapter.validate_python(raw)
         except ValidationError as e:
             first_err = e.errors()[0] if e.errors() else {}
+            chat_ws_op_validation_failure(op_label)
             await websocket.send_json({
                 "type": "server_error",
                 "reason": f"invalid op: {first_err.get('msg', 'validation failed')}",
             })
+            request_id_var.reset(rid_token)
             continue
 
-        # 분기 처리
+        # 분기 처리 — chat_ws_op 가 result 카운트를 자동 처리한다.
         try:
-            if isinstance(req, SendOp):
-                await _handle_send(
-                    websocket=websocket,
-                    session_id=session_id,
-                    user_id=user_id,
-                    chat_svc=chat_svc,
-                    req=req,
-                )
-            elif isinstance(req, RefreshOp):
-                await _handle_refresh(
-                    websocket=websocket,
-                    session_id=session_id,
-                    user_id=user_id,
-                    session_svc=session_svc,
-                    req=req,
-                )
-            elif isinstance(req, ReadOp):
-                await _handle_read(
-                    websocket=websocket,
-                    session_id=session_id,
-                    user_id=user_id,
-                    room_svc=room_svc,
-                    req=req,
-                )
+            async with chat_ws_op(op_label):
+                if isinstance(req, SendOp):
+                    await _handle_send(
+                        websocket=websocket,
+                        session_id=session_id,
+                        user_id=user_id,
+                        chat_svc=chat_svc,
+                        req=req,
+                    )
+                elif isinstance(req, RefreshOp):
+                    await _handle_refresh(
+                        websocket=websocket,
+                        session_id=session_id,
+                        user_id=user_id,
+                        session_svc=session_svc,
+                        req=req,
+                    )
+                elif isinstance(req, ReadOp):
+                    await _handle_read(
+                        websocket=websocket,
+                        session_id=session_id,
+                        user_id=user_id,
+                        room_svc=room_svc,
+                        req=req,
+                    )
         except PermissionError as e:
             # read op 는 `read_failed` 이벤트로 실패 사유를 전달 — 다른 op 는
             # `server_error` 규약 유지.
@@ -339,6 +371,8 @@ async def _receive_loop(
         except UpstreamError as e:
             # 외부 저장소 지속 실패 — 연결은 유지, 클라가 재시도 가능
             await websocket.send_json({"type": "server_error", "reason": str(e)})
+        finally:
+            request_id_var.reset(rid_token)
 
 
 async def _handle_send(

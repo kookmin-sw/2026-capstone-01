@@ -1,3 +1,4 @@
+from prometheus_client import start_http_server
 import os
 import random
 import uvicorn
@@ -34,11 +35,19 @@ from app.core.logger import setup_logging, get_logger
 from app.core.ai.menu_ocr.load import MenuOcr
 from app.core.ai.papago_translator.load import PapagoTranslator
 from app.core.redis import get_redis_client, get_redis_dedupe_client, close_redis
+from app.core.instrumentation import (
+    attach_db_instrumentation,
+    prime_worker_gauges,
+    start_event_loop_monitor,
+    stop_event_loop_monitor,
+)
+from app.core.metric import build_instrumentator
 from app.core.fcm import init_fcm, close_fcm
 from app.core.chat.lua_script import lua_scripts
 from app.container import Container
 from app.config.setting import settings
 from app.api.v1.router import api_router
+from app.api.v1.health import router as health_router
 
 
 logger = get_logger("main")
@@ -50,6 +59,25 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         # startup
         setup_logging()
+
+        # /metrics 를 별도 포트로 노출한다.
+        # 데몬 스레드로 동작하며 같은 프로세스의 default registry 를 그대로 사용한다.
+        # FastAPI 미들웨어를 우회하므로 사용자 트래픽과 scrape 가 서로 영향을 주지 않는다.
+        # 외부 노출은 NetworkPolicy 로 monitoring 영역에서만 도달하도록 막는다.
+        start_http_server(settings.METRICS_PORT)
+        logger.info("Prometheus /metrics on :{}", settings.METRICS_PORT)
+
+        # 워커 last_tick_timestamp 를 startup 시각으로 priming.
+        # 첫 tick 전까지 false-negative WorkerStale 알람이 발생하지 않도록 한다.
+        prime_worker_gauges()
+
+        # SQLAlchemy 이벤트 리스너 부착 — query duration / pool gauge 자동 관측.
+        # Container singleton engine 인스턴스를 강제 생성한 뒤 sync_engine 에 listen.
+        attach_db_instrumentation(app.container.engine())
+
+        # 이벤트 루프 lag 측정 백그라운드 태스크 시작.
+        # 1초 주기로 sleep 깨어남 지연을 관측해 이벤트 루프 포화 신호로 사용.
+        start_event_loop_monitor()
 
         # force_jump Lua 호출 시 사용할 jitter 엔트로피 보강
         random.seed(int.from_bytes(os.urandom(16), "big"))
@@ -84,7 +112,7 @@ def create_app() -> FastAPI:
         MenuOcr().load()
         PapagoTranslator().load()
         await TourPlanner().load()
-        logger.info("Starting application in {} mode", settings.ENVIRONMENT)
+        logger.info("Application started in {} mode", settings.ENVIRONMENT)
 
         yield
 
@@ -92,6 +120,7 @@ def create_app() -> FastAPI:
         # 순서 중요 (startup 의 거울): node_registry 를 먼저 정리해 다른 노드의 publisher
         # 가 다음 list_active_nodes 호출부터 우리를 즉시 제외하게 한 뒤, 디스패처가 안전히
         # unsubscribe. 반대 순서면 디스패처 정지 ~ ZSET deregister 사이 publish 가 drop.
+        await stop_event_loop_monitor()
         await stop_withdraw_purge_scheduler()
         await stop_reconcile_scheduler()
         await stop_node_registry()
@@ -100,7 +129,7 @@ def create_app() -> FastAPI:
         close_fcm()
         await close_mongodb()
         await close_redis()
-        logger.info("Application shutting down")
+        logger.info("Application shut down")
 
     # DI Container 초기화 및 wiring
     container = Container()
@@ -168,11 +197,21 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # 메트릭 계측은 모든 미들웨어 등록 이후에 부착한다.
+    # Starlette 의 add_middleware 는 LIFO 라 마지막에 등록된 것이 가장 바깥쪽에 위치한다.
+    # 그래야 인증 실패로 401, 403, 419 가 반환되는 요청까지 RED 메트릭에 잡힌다.
+    # instrument(app) 만 호출하고 expose(app) 는 호출하지 않는다.
+    # /metrics 노출은 lifespan 의 start_http_server 가 별도 포트에서 처리한다.
+    build_instrumentator().instrument(app)
+
     # 라우터
     app.include_router(api_router)
-    
+
+    # 헬스체크 — `/api` prefix 우회. k8s probe / Watchdog / blackbox 가 직접 `/health`, `/health/deep`, `/ready` 호출.
+    app.include_router(health_router)
+
     app.container = container
-    
+
     return app
     
     

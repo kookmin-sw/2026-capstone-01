@@ -28,6 +28,7 @@ import asyncio
 from app.domain.chat.service.fanout import FanoutService
 from app.config.setting import settings
 from app.core.chat.redis_key import node_channel_key
+from app.core.instrumentation import chat_fanout_dispatch_alive, worker_tick
 from app.core.logger import get_logger
 from app.core.redis import get_redis_client
 
@@ -91,6 +92,10 @@ async def _dispatch_loop(
                     pass
                 continue
 
+            # liveness 신호 — envelope 0 건이어도 polling 살아있는 한 last_tick 갱신.
+            # WorkerStale 알람의 false positive 차단.
+            chat_fanout_dispatch_alive()
+
             if msg is None:
                 continue
             if msg.get("type") != "message":
@@ -109,7 +114,8 @@ async def _dispatch_loop(
                 continue
 
             try:
-                await fanout.dispatch_envelope(envelope)
+                async with worker_tick("fanout_dispatch"):
+                    await fanout.dispatch_envelope(envelope)
             except Exception as e:
                 # _local_* 는 자체 예외를 흡수하지만 방어적으로 한번 더 — 한 envelope 실패가
                 # 디스패처 루프 전체를 죽이지 않도록.

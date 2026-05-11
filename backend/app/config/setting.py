@@ -21,7 +21,11 @@ class Settings(BaseSettings):
     # 로깅 설정
     LOG_LEVEL: str = Field("INFO", description="로그 레벨")
     LOG_FORMAT: str = Field("console", description="로그 포맷 (json/console)")
-    LOG_FILE_PATH: Optional[str] = Field(None, description="로그 파일 경로")
+    LOG_FILE_PATH: Optional[str] = Field(
+        "/backend/logs/app.log",
+        description=".env 누락 시에도 Promtail 이 정상 tail 하도록 default 명시. "
+                    "console 출력만 원하면 .env 에서 LOG_FILE_PATH= 빈 값으로 override.",
+    )
     LOG_ROTATION: str = Field("100 MB", description="로그 로테이션")
     LOG_RETENTION: str = Field("30 days", description="로그 보관 기준")
     LOG_COMPRESSION: str = Field("gz", description="로그 롤테이션 파일 압축")
@@ -55,7 +59,14 @@ class Settings(BaseSettings):
         default_factory=socket.gethostname,
         description="노드 식별자. 기본값은 hostname(k8s pod name).",
     )
-    
+
+    # 모니터링
+    METRICS_PORT: int = Field(
+        9090,
+        description="prometheus_client /metrics 노출 포트. backend 8000 과 분리되어 self-noise 차단"
+                    "k8s 진입 시 9090 은 NetworkPolicy 로 monitoring namespace 만 도달.",
+    )
+
     # 인증 정보
     ACCESS_TOKEN: str = Field(..., description="API 접근 토큰")
     

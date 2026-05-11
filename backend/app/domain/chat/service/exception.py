@@ -10,6 +10,10 @@ Router 가 HTTPException 으로 매핑 (§에러 처리 컨벤션):
 
 class ChatRoomNotFoundError(ValueError):
     """요청된 chat_room 이 존재하지 않거나 이미 삭제됨 — Router 에서 404 로 매핑."""
+    # WS op result 라벨용 self-classification — instrumentation._classify_ws_op_error 가 읽는다.
+    # 클래스 rename 시에도 라벨 안정. ValueError subclass 라 isinstance 단독으론 'validation'
+    # 으로 잘못 분류되니, instrumentation 은 error_kind 를 isinstance 보다 먼저 체크한다.
+    error_kind = "not_found"
 
 
 class UpstreamError(Exception):
@@ -19,3 +23,5 @@ class UpstreamError(Exception):
     (`room:seq:*` 복구 이벤트 메트릭과 함께 추적), 발생 시 `dedupe:*` 키는 이미
     Service 가 삭제한 상태 → 클라가 동일 client_msg_id 로 재시도 가능.
     """
+    # WS op result 라벨용 self-classification (위 ChatRoomNotFoundError 와 동일 패턴).
+    error_kind = "upstream"

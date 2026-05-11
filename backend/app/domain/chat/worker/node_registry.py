@@ -21,6 +21,11 @@ import asyncio
 
 from app.config.setting import settings
 from app.core.chat.redis_key import NODE_TTL, NODES_ZSET_KEY
+from app.core.instrumentation import (
+    chat_active_nodes_set,
+    chat_node_heartbeat_failure,
+    worker_tick,
+)
 from app.core.logger import get_logger
 from app.core.redis import get_redis_client
 
@@ -106,8 +111,13 @@ async def _heartbeat_loop(stop_event: asyncio.Event) -> None:
     )
     while not stop_event.is_set():
         try:
-            await heartbeat_self()
+            async with worker_tick("node_heartbeat"):
+                await heartbeat_self()
+                # heartbeat 후 활성 노드 수 갱신 — list_active_nodes 가 만료 항목을 청소하므로
+                # ZSET 의 fresh 한 size 가 그대로 메트릭에 반영된다.
+                chat_active_nodes_set(len(await list_active_nodes()))
         except Exception as e:
+            chat_node_heartbeat_failure()
             logger.warning(
                 "node heartbeat 실패 (계속 진행): node_id={}, err={}",
                 settings.NODE_ID, type(e).__name__,
