@@ -370,6 +370,8 @@ class TestNodeChannelPublish:
             "op": "room",
             "room_id": "CR_1",
             "payload": {"type": "message.new", "sender_session_id": "S1"},
+            "request_id": "",
+            "traceparent": "",
         }
         redis_mock._pipe.execute.assert_awaited_once()
 
@@ -395,6 +397,8 @@ class TestNodeChannelPublish:
             "op": "user",
             "user_id": "U_A",
             "payload": {"type": "room_joined", "room_id": "CR_1"},
+            "request_id": "",
+            "traceparent": "",
         }
 
     async def test_subscribe_publishes_subscribe_envelope(self, node_channel_env):
@@ -408,6 +412,7 @@ class TestNodeChannelPublish:
         envelope = json.loads(redis_mock._pipe.published[0][1])
         assert envelope == {
             "op": "subscribe", "user_id": "U_A", "room_id": "CR_new",
+            "request_id": "", "traceparent": "",
         }
 
     async def test_unsubscribe_publishes_unsubscribe_envelope(self, node_channel_env):
@@ -419,6 +424,7 @@ class TestNodeChannelPublish:
         envelope = json.loads(redis_mock._pipe.published[0][1])
         assert envelope == {
             "op": "unsubscribe", "user_id": "U_A", "room_id": "CR_1",
+            "request_id": "", "traceparent": "",
         }
 
     async def test_fan_out_to_session_publishes_to_target_node_only(
@@ -441,6 +447,8 @@ class TestNodeChannelPublish:
             "op": "session",
             "session_id": "SESS_x",
             "payload": {"type": "session_revoked", "session_id": "SESS_x"},
+            "request_id": "",
+            "traceparent": "",
         }
 
     async def test_fan_out_to_session_drops_when_route_missing(
