@@ -5,6 +5,7 @@ import {
   getChatRoomMembers,
   getInvitableChatRoomFriends,
   inviteChatRoomMembers,
+  leaveChatRoom,
   type ChatMessage,
   type ChatRoom,
   type ChatUserProfile,
@@ -47,6 +48,7 @@ export default function ChatRoomPage() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
   const [incomingMessageNotice, setIncomingMessageNotice] =
@@ -140,8 +142,13 @@ export default function ChatRoomPage() {
     let cancelled = false;
 
     async function loadMembers(): Promise<void> {
-      if (!roomId || room?.type !== "group") {
+      if (!roomId || !room) {
         setMembers([]);
+        return;
+      }
+
+      if (room.type === "direct") {
+        setMembers(room.peer ? [room.peer] : []);
         return;
       }
 
@@ -167,7 +174,7 @@ export default function ChatRoomPage() {
     return () => {
       cancelled = true;
     };
-  }, [room?.type, roomId]);
+  }, [room, roomId]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -322,6 +329,22 @@ export default function ChatRoomPage() {
     }
   }
 
+  async function handleLeaveGroup(): Promise<void> {
+    if (!roomId || room?.type !== "group") return;
+
+    setInviteLoading(true);
+    setActionMessage("");
+    setErrorMessage("");
+    try {
+      await leaveChatRoom(roomId);
+      navigate("/mate", { state: { mainTab: "chat" } });
+    } catch (error) {
+      setErrorMessage(toErrorMessage(error, "Failed to leave group."));
+    } finally {
+      setInviteLoading(false);
+    }
+  }
+
   function getMessageAvatarUrl(message: ChatMessage): string {
     if (room?.type !== "group" || !message.sender_id) return roomProfileImageUrl;
     return memberProfilesById.get(message.sender_id)?.profile_image_url || DEFAULT_PROFILE_IMAGE_URL;
@@ -341,7 +364,11 @@ export default function ChatRoomPage() {
   return (
     <div style={styles.page}>
       <header style={styles.header}>
-        <button type="button" style={styles.backButton} onClick={() => navigate("/chat")}>
+        <button
+          type="button"
+          style={styles.backButton}
+          onClick={() => navigate("/mate", { state: { mainTab: "chat" } })}
+        >
           Back
         </button>
         <button
@@ -361,100 +388,19 @@ export default function ChatRoomPage() {
           <strong style={styles.roomName}>{roomName}</strong>
           <span style={styles.connectionText}>{memberSummary}</span>
         </span>
-        {room?.type === "group" ? (
-          <button
-            type="button"
-            style={styles.inviteButton}
-            onClick={() => void openInvitePanel()}
-          >
-            Invite
-          </button>
-        ) : null}
+        <button
+          type="button"
+          style={styles.infoButton}
+          onClick={() => setInfoOpen(true)}
+          aria-label="Open chat info"
+        >
+          <img src="/icon-menu.svg" alt="" style={styles.infoIcon} />
+        </button>
       </header>
-
-      {room?.type === "group" ? (
-        <section style={styles.memberStrip}>
-          {membersLoading && members.length === 0 ? (
-            <span style={styles.mutedText}>Loading members...</span>
-          ) : (
-            members.map((member) => (
-              <button
-                key={member.user_id}
-                type="button"
-                style={{ ...styles.memberPill, ...styles.memberPillButton }}
-                onClick={() => openFeedPopup(member.user_id)}
-              >
-                <img
-                  src={member.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
-                  alt={member.user_name}
-                  style={styles.memberAvatar}
-                />
-                <span style={styles.memberName}>{member.user_name}</span>
-              </button>
-            ))
-          )}
-        </section>
-      ) : null}
 
       <main ref={messageListRef} style={styles.messageList}>
         {errorMessage ? <div style={styles.error}>{errorMessage}</div> : null}
         {actionMessage ? <div style={styles.notice}>{actionMessage}</div> : null}
-        {inviteOpen ? (
-          <section style={styles.invitePanel}>
-            <div style={styles.invitePanelHeader}>
-              <strong style={styles.inviteTitle}>Invite Friends</strong>
-              <button
-                type="button"
-                style={styles.closeButton}
-                onClick={() => setInviteOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-            {inviteLoading && invitableFriends.length === 0 ? (
-              <p style={styles.mutedText}>Loading friends...</p>
-            ) : invitableFriends.length > 0 ? (
-              <div style={styles.inviteList}>
-                {invitableFriends.map((friend) => {
-                  const checked = selectedInviteIds.includes(friend.user_id);
-                  return (
-                    <label key={friend.user_id} style={styles.inviteFriend}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleInviteSelection(friend.user_id)}
-                      />
-                      <img
-                        src={friend.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
-                        alt={friend.user_name}
-                        style={styles.memberAvatar}
-                      />
-                      <span style={styles.rowMain}>
-                        <strong style={styles.inviteFriendName}>{friend.user_name}</strong>
-                        <span style={styles.userId}>{friend.user_id}</span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            ) : (
-              <p style={styles.mutedText}>No friends available to invite.</p>
-            )}
-            <button
-              type="button"
-              style={{
-                ...styles.inviteSubmitButton,
-                ...(selectedInviteIds.length === 0 || inviteLoading
-                  ? styles.sendButtonDisabled
-                  : {}),
-              }}
-              onClick={() => void handleInviteMembers()}
-              disabled={selectedInviteIds.length === 0 || inviteLoading}
-            >
-              {inviteLoading ? "Inviting..." : `Invite ${selectedInviteIds.length || ""}`.trim()}
-            </button>
-          </section>
-        ) : null}
         {roomPageState?.isLoadingInitialMessages ? (
           <p style={styles.mutedText}>Loading messages...</p>
         ) : null}
@@ -556,6 +502,141 @@ export default function ChatRoomPage() {
           {connectionState === "ready" ? "Send" : connectionState === "closed" ? "Offline" : "Queue"}
         </button>
       </footer>
+
+      {infoOpen ? (
+        <div style={styles.infoBackdrop} onClick={() => setInfoOpen(false)}>
+          <aside style={styles.infoPanel} onClick={(event) => event.stopPropagation()}>
+            <div style={styles.infoHeader}>
+              <div>
+                <p style={styles.infoEyebrow}>Chat Info</p>
+                <h2 style={styles.infoTitle}>{roomName}</h2>
+              </div>
+              <button
+                type="button"
+                style={styles.infoCloseButton}
+                onClick={() => setInfoOpen(false)}
+                aria-label="Close chat info"
+              >
+                <img src="/icon-close.svg" alt="" style={styles.infoCloseIcon} />
+              </button>
+            </div>
+
+            <section style={styles.infoSection}>
+              <div style={styles.infoSectionHeader}>
+                <h3 style={styles.infoSectionTitle}>Members</h3>
+                {room?.type === "group" ? (
+                  <span style={styles.infoCount}>{members.length}</span>
+                ) : null}
+              </div>
+              {membersLoading && members.length === 0 ? (
+                <p style={styles.mutedText}>Loading members...</p>
+              ) : members.length > 0 ? (
+                <div style={styles.memberList}>
+                  {members.map((member) => (
+                    <button
+                      key={member.user_id}
+                      type="button"
+                      style={styles.memberRow}
+                      onClick={() => openFeedPopup(member.user_id)}
+                    >
+                      <img
+                        src={member.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
+                        alt={member.user_name}
+                        style={styles.memberAvatarLarge}
+                      />
+                      <span style={styles.rowMain}>
+                        <strong style={styles.memberRowName}>{member.user_name}</strong>
+                        <span style={styles.userId}>{member.user_id}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p style={styles.mutedText}>No members found.</p>
+              )}
+            </section>
+
+            {room?.type === "group" ? (
+              <>
+                <div style={styles.infoActions}>
+                  <button
+                    type="button"
+                    style={styles.infoPrimaryButton}
+                    onClick={() => void openInvitePanel()}
+                  >
+                    Invite
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.infoDangerButton}
+                    onClick={() => void handleLeaveGroup()}
+                    disabled={inviteLoading}
+                  >
+                    {inviteLoading ? "Leaving..." : "Leave"}
+                  </button>
+                </div>
+
+                {inviteOpen ? (
+                  <section style={styles.invitePanel}>
+                    <div style={styles.invitePanelHeader}>
+                      <strong style={styles.inviteTitle}>Invite Friends</strong>
+                      <button
+                        type="button"
+                        style={styles.closeButton}
+                        onClick={() => setInviteOpen(false)}
+                      >
+                        Close
+                      </button>
+                    </div>
+                    {inviteLoading && invitableFriends.length === 0 ? (
+                      <p style={styles.mutedText}>Loading friends...</p>
+                    ) : invitableFriends.length > 0 ? (
+                      <div style={styles.inviteList}>
+                        {invitableFriends.map((friend) => {
+                          const checked = selectedInviteIds.includes(friend.user_id);
+                          return (
+                            <label key={friend.user_id} style={styles.inviteFriend}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleInviteSelection(friend.user_id)}
+                              />
+                              <img
+                                src={friend.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
+                                alt={friend.user_name}
+                                style={styles.memberAvatar}
+                              />
+                              <span style={styles.rowMain}>
+                                <strong style={styles.inviteFriendName}>{friend.user_name}</strong>
+                                <span style={styles.userId}>{friend.user_id}</span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p style={styles.mutedText}>No friends available to invite.</p>
+                    )}
+                    <button
+                      type="button"
+                      style={{
+                        ...styles.inviteSubmitButton,
+                        ...(selectedInviteIds.length === 0 || inviteLoading
+                          ? styles.sendButtonDisabled
+                          : {}),
+                      }}
+                      onClick={() => void handleInviteMembers()}
+                      disabled={selectedInviteIds.length === 0 || inviteLoading}
+                    >
+                      {inviteLoading ? "Inviting..." : `Invite ${selectedInviteIds.length || ""}`.trim()}
+                    </button>
+                  </section>
+                ) : null}
+              </>
+            ) : null}
+          </aside>
+        </div>
+      ) : null}
 
       {feedPopupUserId ? (
         <FeedPopup
@@ -722,6 +803,22 @@ const styles: Record<string, CSSProperties> = {
   connectionText: {
     color: "var(--neutral-700)",
     fontSize: "0.72rem",
+  },
+  infoButton: {
+    width: 40,
+    height: 40,
+    border: "1px solid rgba(5,181,187,0.18)",
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "#ffffff",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  infoIcon: {
+    width: 22,
+    height: 22,
+    objectFit: "contain",
   },
   inviteButton: {
     border: "1px solid rgba(5,181,187,0.2)",
@@ -1003,5 +1100,134 @@ const styles: Record<string, CSSProperties> = {
   sendButtonDisabled: {
     opacity: 0.5,
     cursor: "not-allowed",
+  },
+  infoBackdrop: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 80,
+    display: "flex",
+    justifyContent: "flex-end",
+    background: "rgba(24,26,32,0.28)",
+  },
+  infoPanel: {
+    width: "min(390px, 92vw)",
+    height: "var(--app-viewport-height)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+    overflowY: "auto",
+    padding: "calc(20px + var(--app-safe-top)) 16px calc(20px + var(--app-safe-bottom))",
+    background: "#ffffff",
+    boxShadow: "-24px 0 54px rgba(24,26,32,0.18)",
+  },
+  infoHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  infoEyebrow: {
+    margin: 0,
+    color: "var(--brand-primary-deep)",
+    fontSize: "0.72rem",
+    fontWeight: 900,
+    textTransform: "uppercase",
+  },
+  infoTitle: {
+    margin: "4px 0 0",
+    color: "var(--text-primary)",
+    fontSize: "1.25rem",
+    lineHeight: 1.2,
+  },
+  infoCloseButton: {
+    width: 38,
+    height: 38,
+    border: "none",
+    borderRadius: "50%",
+    background: "var(--surface-muted)",
+    cursor: "pointer",
+  },
+  infoCloseIcon: {
+    width: 18,
+    height: 18,
+    objectFit: "contain",
+  },
+  infoSection: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  infoSectionHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  infoSectionTitle: {
+    margin: 0,
+    color: "var(--text-primary)",
+    fontSize: "0.98rem",
+  },
+  infoCount: {
+    minWidth: 24,
+    height: 24,
+    display: "grid",
+    placeItems: "center",
+    borderRadius: 999,
+    background: "var(--brand-primary-soft)",
+    color: "var(--brand-primary-deep)",
+    fontSize: "0.75rem",
+    fontWeight: 900,
+  },
+  memberList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  memberRow: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    border: "1px solid var(--border-soft)",
+    borderRadius: 16,
+    background: "#ffffff",
+    textAlign: "left",
+    cursor: "pointer",
+  },
+  memberAvatarLarge: {
+    width: 40,
+    height: 40,
+    borderRadius: "50%",
+    objectFit: "cover",
+    flexShrink: 0,
+  },
+  memberRowName: {
+    color: "var(--text-primary)",
+    fontSize: "0.9rem",
+  },
+  infoActions: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 8,
+  },
+  infoPrimaryButton: {
+    minHeight: 44,
+    border: "none",
+    borderRadius: 14,
+    background: "var(--brand-primary)",
+    color: "#ffffff",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  infoDangerButton: {
+    minHeight: 44,
+    border: "1px solid rgba(220,38,38,0.18)",
+    borderRadius: 14,
+    background: "rgba(220,38,38,0.08)",
+    color: "#b91c1c",
+    fontWeight: 900,
+    cursor: "pointer",
   },
 };
