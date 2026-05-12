@@ -22,6 +22,7 @@ export default function NotificationBell() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [actionId, setActionId] = useState("");
   const previousUnreadCountRef = useRef<number | null>(null);
+  const latestToastNotificationIdRef = useRef<string | null>(null);
 
   async function refreshUnreadAndFriends(showToast = false): Promise<void> {
     const [count, friendRequests] = await Promise.all([
@@ -30,18 +31,7 @@ export default function NotificationBell() {
     ]);
     const previousCount = previousUnreadCountRef.current;
     if (showToast && previousCount !== null && count > previousCount) {
-      const newCount = count - previousCount;
-      window.dispatchEvent(
-        new CustomEvent("krip:app-toast", {
-          detail: {
-            title: "New activity",
-            message: `${newCount} new feed notification${
-              newCount > 1 ? "s" : ""
-            }. Open the bell to see details.`,
-            variant: "info",
-          },
-        })
-      );
+      window.dispatchEvent(new CustomEvent("krip:notification-inbox-updated"));
     }
     previousUnreadCountRef.current = count;
     setUnreadCount(count);
@@ -49,16 +39,17 @@ export default function NotificationBell() {
   }
 
   async function showLatestNotificationToast(): Promise<void> {
-    return;
     try {
       const inbox = await getNotificationInbox();
       const latest = inbox.notifications[0];
       if (!latest) return;
+      if (latest.notification_id === latestToastNotificationIdRef.current) return;
 
       setNotifications(inbox.notifications);
       setNextCursor(inbox.next_cursor);
       setUnreadCount(0);
       previousUnreadCountRef.current = 0;
+      latestToastNotificationIdRef.current = latest.notification_id;
 
       window.dispatchEvent(
         new CustomEvent("krip:app-toast", {

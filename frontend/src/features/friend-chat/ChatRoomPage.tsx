@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   getChatRoomMembers,
   getInvitableChatRoomFriends,
@@ -18,10 +18,13 @@ const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 export default function ChatRoomPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const messageListRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollModeRef = useRef<"bottom" | "preserve">("bottom");
   const shouldForceScrollToBottomRef = useRef(true);
   const scrollSnapshotRef = useRef<{ height: number; top: number } | null>(null);
+  const latestMessageKeyRef = useRef("");
   const {
     connectionState,
     currentUserId,
@@ -46,6 +49,8 @@ export default function ChatRoomPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
+  const [incomingMessageNotice, setIncomingMessageNotice] =
+    useState<ChatMessage | null>(null);
 
   const roomId = room?.chat_room_id ?? "";
   const messages = useMemo(
@@ -112,6 +117,9 @@ export default function ChatRoomPage() {
     if (!roomId) return;
 
     shouldForceScrollToBottomRef.current = true;
+    latestMessageKeyRef.current = "";
+    setIncomingMessageNotice(null);
+    consumeRecentMessageScrollRequest(roomId);
     setActiveRoomId(roomId);
     void loadInitialMessages(roomId);
 
@@ -119,6 +127,14 @@ export default function ChatRoomPage() {
       setActiveRoomId("");
     };
   }, [loadInitialMessages, roomId, setActiveRoomId]);
+
+  useEffect(() => {
+    const routeState = location.state as { scrollToRecentMessage?: boolean } | null;
+    if (!roomId || !routeState?.scrollToRecentMessage) return;
+
+    shouldForceScrollToBottomRef.current = true;
+    scrollMessageListToBottom(messageListRef.current, "smooth");
+  }, [location.state, roomId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,21 +178,51 @@ export default function ChatRoomPage() {
     }
   }, [messages, roomId, sendRead]);
 
+  useEffect(() => {
+    const messageList = messageListRef.current;
+    if (!messageList) return undefined;
+
+    function clearIncomingNoticeAtBottom(): void {
+      if (isMessageListNearBottom(messageList)) {
+        setIncomingMessageNotice(null);
+      }
+    }
+
+    messageList.addEventListener("scroll", clearIncomingNoticeAtBottom, {
+      passive: true,
+    });
+
+    return () => {
+      messageList.removeEventListener("scroll", clearIncomingNoticeAtBottom);
+    };
+  }, [roomId]);
+
   useLayoutEffect(() => {
+    const messageList = messageListRef.current;
+    if (!messageList) return;
+
     if (scrollModeRef.current === "preserve") {
       const snapshot = scrollSnapshotRef.current;
       scrollModeRef.current = "bottom";
       scrollSnapshotRef.current = null;
 
       if (snapshot) {
-        const nextHeight = document.documentElement.scrollHeight;
-        window.scrollTo({
-          top: snapshot.top + nextHeight - snapshot.height,
-          behavior: "auto",
-        });
+        const nextHeight = messageList.scrollHeight;
+        messageList.scrollTop = snapshot.top + nextHeight - snapshot.height;
       }
 
       return;
+    }
+
+    const latestMessage = messages.at(-1);
+    const latestMessageKey = latestMessage ? getMessageKey(latestMessage) : "";
+    const previousLatestMessageKey = latestMessageKeyRef.current;
+    const hasNewLatestMessage =
+      Boolean(latestMessageKey) && latestMessageKey !== previousLatestMessageKey;
+    const isInitialMessageRender = !previousLatestMessageKey;
+
+    if (latestMessageKey) {
+      latestMessageKeyRef.current = latestMessageKey;
     }
 
     const shouldForceScroll = shouldForceScrollToBottomRef.current;
@@ -184,28 +230,36 @@ export default function ChatRoomPage() {
       shouldForceScrollToBottomRef.current = false;
     }
 
-    if (shouldForceScroll || isNearBottom()) {
-      bottomRef.current?.scrollIntoView({
-        behavior: shouldForceScroll ? "auto" : "smooth",
-        block: "end",
-      });
-
-      if (shouldForceScroll) {
-        window.scrollTo({
-          top: document.documentElement.scrollHeight,
-          behavior: "auto",
-        });
+    if (
+      hasNewLatestMessage &&
+      !isInitialMessageRender &&
+      latestMessage &&
+      latestMessage.sender_id !== currentUserId
+    ) {
+      if (isMessageListNearBottom(messageList)) {
+        setIncomingMessageNotice(null);
+        scrollMessageListToBottom(messageList, "smooth");
+      } else {
+        setIncomingMessageNotice(latestMessage);
       }
+
+      return;
     }
-  }, [messages]);
+
+    if (shouldForceScroll || isMessageListNearBottom(messageList)) {
+      setIncomingMessageNotice(null);
+      scrollMessageListToBottom(messageList, shouldForceScroll ? "auto" : "smooth");
+    }
+  }, [currentUserId, messages]);
 
   async function handleLoadOlderMessages(): Promise<void> {
     if (!roomId) return;
 
     scrollModeRef.current = "preserve";
+    const messageList = messageListRef.current;
     scrollSnapshotRef.current = {
-      height: document.documentElement.scrollHeight,
-      top: window.scrollY,
+      height: messageList?.scrollHeight ?? 0,
+      top: messageList?.scrollTop ?? 0,
     };
     await loadOlderMessages(roomId);
   }
@@ -214,6 +268,8 @@ export default function ChatRoomPage() {
     const content = input.trim();
     if (!content || !roomId || content.length > 2000) return;
 
+    shouldForceScrollToBottomRef.current = true;
+    setIncomingMessageNotice(null);
     sendMessage(roomId, content);
     setInput("");
   }
@@ -340,7 +396,7 @@ export default function ChatRoomPage() {
         </section>
       ) : null}
 
-      <main style={styles.messageList}>
+      <main ref={messageListRef} style={styles.messageList}>
         {errorMessage ? <div style={styles.error}>{errorMessage}</div> : null}
         {actionMessage ? <div style={styles.notice}>{actionMessage}</div> : null}
         {inviteOpen ? (
@@ -458,6 +514,24 @@ export default function ChatRoomPage() {
         <div ref={bottomRef} />
       </main>
 
+      {incomingMessageNotice ? (
+        <button
+          type="button"
+          style={styles.incomingNotice}
+          onClick={() => {
+            setIncomingMessageNotice(null);
+            scrollMessageListToBottom(messageListRef.current, "smooth");
+          }}
+        >
+          <span style={styles.incomingNoticeSender}>
+            {getMessageSenderName(incomingMessageNotice)}
+          </span>
+          <span style={styles.incomingNoticeText}>
+            {renderMessagePreview(incomingMessageNotice)}
+          </span>
+        </button>
+      ) : null}
+
       <footer style={styles.composer}>
         <input
           value={input}
@@ -504,10 +578,51 @@ function getLastServerSeq(messages: ChatMessage[]): number {
   );
 }
 
-function isNearBottom(): boolean {
+function isMessageListNearBottom(messageList: HTMLElement): boolean {
   const distanceFromBottom =
-    document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
+    messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight;
   return distanceFromBottom <= BOTTOM_THRESHOLD_PX;
+}
+
+/**
+ * 메시지 목록에서 안정적으로 비교할 수 있는 키를 만든다.
+ */
+function getMessageKey(message: ChatMessage): string {
+  return message.message_id || message.client_msg_id || `${message.server_seq}`;
+}
+
+/**
+ * 알림에서 채팅방으로 들어온 요청을 소비한다.
+ */
+function consumeRecentMessageScrollRequest(roomId: string): void {
+  const requestedRoomId: string | null =
+    window.sessionStorage.getItem("krip:chat-scroll-room");
+  if (requestedRoomId === roomId) {
+    window.sessionStorage.removeItem("krip:chat-scroll-room");
+  }
+}
+
+/**
+ * 채팅 알림 진입 시 문서 맨 아래의 최신 메시지 위치로 이동한다.
+ */
+function scrollMessageListToBottom(
+  messageList: HTMLElement | null,
+  behavior: ScrollBehavior
+): void {
+  if (!messageList) return;
+
+  window.requestAnimationFrame(() => {
+    messageList.scrollTo({
+      top: messageList.scrollHeight,
+      behavior,
+    });
+  });
+}
+
+function renderMessagePreview(message: ChatMessage): string {
+  const content = renderMessageContent(message).trim();
+  if (!content) return "New message";
+  return content.length > 80 ? `${content.slice(0, 80)}...` : content;
 }
 
 function renderMessageContent(message: ChatMessage): string {
@@ -546,16 +661,16 @@ function toErrorMessage(error: unknown, fallback: string): string {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "var(--app-viewport-height)",
+    height: "var(--app-viewport-height)",
     display: "flex",
     flexDirection: "column",
     background: "transparent",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
+    overflow: "hidden",
   },
   header: {
-    position: "sticky",
-    top: 0,
     zIndex: 5,
+    flexShrink: 0,
     display: "flex",
     alignItems: "center",
     gap: 12,
@@ -618,9 +733,8 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   memberStrip: {
-    position: "sticky",
-    top: 65,
     zIndex: 4,
+    flexShrink: 0,
     display: "flex",
     gap: 8,
     overflowX: "auto",
@@ -661,10 +775,13 @@ const styles: Record<string, CSSProperties> = {
   },
   messageList: {
     flex: 1,
+    minHeight: 0,
     display: "flex",
     flexDirection: "column",
     gap: 12,
-    padding: "18px 16px calc(110px + var(--app-safe-bottom))",
+    overflowY: "auto",
+    overscrollBehavior: "contain",
+    padding: "16px 16px 16px",
   },
   error: {
     padding: "12px 14px",
@@ -816,17 +933,55 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "0.72rem",
   },
   composer: {
-    position: "fixed",
-    left: "var(--app-safe-left)",
-    right: "var(--app-safe-right)",
-    bottom: 0,
     zIndex: 20,
+    flexShrink: 0,
     display: "grid",
     gridTemplateColumns: "1fr auto",
     gap: 10,
     padding: "12px 16px calc(12px + var(--app-safe-bottom))",
     background: "rgba(255,255,255,0.96)",
     borderTop: "1px solid var(--border-soft)",
+  },
+  incomingNotice: {
+    position: "fixed",
+    left: "50%",
+    bottom: "calc(76px + var(--app-safe-bottom))",
+    zIndex: 21,
+    transform: "translateX(-50%)",
+    width: "min(328px, calc(100% - 32px))",
+    minHeight: 48,
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "8px 12px",
+    border: "1px solid rgba(5,181,187,0.2)",
+    borderRadius: 16,
+    background: "rgba(255,255,255,0.82)",
+    boxShadow: "0 12px 32px rgba(24,26,32,0.18)",
+    backdropFilter: "blur(14px)",
+    color: "var(--text-primary)",
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  incomingNoticeSender: {
+    maxWidth: 92,
+    flexShrink: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: "var(--brand-primary-deep)",
+    fontSize: "0.78rem",
+    fontWeight: 900,
+  },
+  incomingNoticeText: {
+    minWidth: 0,
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: "var(--text-secondary)",
+    fontSize: "0.82rem",
+    fontWeight: 800,
   },
   input: {
     minHeight: 44,

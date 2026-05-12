@@ -53,7 +53,6 @@ export default function FeedPopup({
     };
   }, [userId]);
 
-  const statusText = popup?.status_message || popup?.message || "";
   const profileMeta = [popup?.nationality, ...(popup?.travel_styles ?? [])]
     .filter((value): value is string => Boolean(value))
     .map(formatProfileMeta)
@@ -123,7 +122,6 @@ export default function FeedPopup({
               <div style={styles.headerText}>
                 <h2 style={styles.name}>{popup.user_name || "Unknown"}</h2>
                 {profileMeta ? <p style={styles.profileMeta}>{profileMeta}</p> : null}
-                <p style={styles.status}>{statusText || "No status message."}</p>
               </div>
             </header>
             <button
@@ -169,6 +167,7 @@ export default function FeedPopup({
         {selectedPost ? (
           <div style={styles.detailBackdrop} onClick={() => setSelectedPost(null)}>
             <div style={styles.detailCard} onClick={(event) => event.stopPropagation()}>
+              <div style={styles.sheetHandle} />
               <button
                 type="button"
                 style={styles.detailClose}
@@ -356,6 +355,17 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 22,
     background: "#ffffff",
     boxShadow: "0 24px 70px rgba(0,0,0,0.28)",
+  },
+  sheetHandle: {
+    position: "absolute",
+    top: 8,
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: 48,
+    height: 4,
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.64)",
+    zIndex: 3,
   },
   detailClose: {
     position: "absolute",

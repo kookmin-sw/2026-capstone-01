@@ -81,7 +81,9 @@ export async function createFeedPost({
     formData.append("caption", caption);
   }
 
-  const { data } = await client.post<FeedPost>("/api/feed/posts", formData);
+  const { data } = await client.post<FeedPost>("/api/feed/posts", formData, {
+    timeout: 0,
+  });
   return data;
 }
 

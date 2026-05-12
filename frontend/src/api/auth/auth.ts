@@ -50,6 +50,28 @@ export type ProfilePreferencesPayload = Pick<
   | "planning_preference"
 >;
 
+export type ProfileUpdatePayload = Partial<
+  Pick<
+    RegisterPayload,
+    | "email"
+    | "user_name"
+    | "phone_number"
+    | "age"
+    | "gender"
+    | "nationality"
+    | "travel_styles"
+    | "food_preferences"
+    | "density_preference"
+    | "budget_preference"
+    | "walking_preference"
+    | "transport_preferences"
+    | "companion_preference"
+    | "time_preferences"
+    | "communication_preference"
+    | "planning_preference"
+  >
+>;
+
 export interface RegisterPayload {
   email: string;
   user_name: string;
@@ -357,26 +379,15 @@ export function getMyProfile(): Promise<UserProfile | null> {
   return authRequest("/api/auth/profile/me");
 }
 
-export function updateMyProfilePreferences(
-  payload: ProfilePreferencesPayload,
-  profile: UserProfile
+export function updateMyProfile(
+  payload: ProfileUpdatePayload
 ): Promise<UserProfile | null> {
-  const registerPayload: RegisterPayload = {
-    email: profile.email,
-    user_name: profile.user_name,
-    phone_number: profile.phone_number ?? "",
-    age: Number(profile.age ?? 0),
-    gender: profile.gender ?? "",
-    nationality: profile.nationality ?? "",
-    ...payload,
-  };
-
-  return authRequest("/api/auth/register", {
-    method: "POST",
+  return authRequest("/api/auth/profile/me", {
+    method: "PATCH",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(registerPayload),
+    body: JSON.stringify(payload),
   });
 }
 

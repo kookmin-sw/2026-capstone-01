@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getMyProfile } from "../api/auth/auth";
+import { navigateBackOrFallback } from "../utils/navigation";
 import {
   createFeedComment,
   deleteFeedComment,
@@ -197,10 +198,18 @@ export default function UserFeedPage() {
     .map(formatMeta)
     .join(" · ");
 
+  const isSelectedPostLikedByViewer = selectedLikes.some(
+    (likeUser) => likeUser.user_id === viewerUserId
+  );
+
   return (
     <div style={styles.page}>
       <header style={styles.topBar}>
-        <button type="button" style={styles.backButton} onClick={() => navigate(-1)}>
+        <button
+          type="button"
+          style={styles.backButton}
+          onClick={() => navigateBackOrFallback(navigate, "/my")}
+        >
           ‹
         </button>
         <strong style={styles.topTitle}>{profile?.user_name || "Feed"}</strong>
@@ -259,6 +268,7 @@ export default function UserFeedPage() {
       {selectedPost ? (
         <div style={styles.detailBackdrop} onClick={() => setSelectedPost(null)}>
           <div style={styles.detailCard} onClick={(event) => event.stopPropagation()}>
+            <div style={styles.sheetHandle} />
             <button
               type="button"
               style={styles.detailClose}
@@ -345,7 +355,7 @@ export default function UserFeedPage() {
                     aria-label="Like"
                   >
                     <span style={styles.actionCount}>{selectedPost.like_count}</span>
-                    <HeartIcon />
+                    <HeartIcon filled={isSelectedPostLikedByViewer} />
                   </button>
                   <span style={styles.commentSummary}>
                     <span style={styles.actionCount}>{selectedPost.comment_count}</span>
@@ -414,12 +424,16 @@ function getVisibilityLabel(value: string): string {
   return "Public";
 }
 
-function HeartIcon() {
+function HeartIcon({ filled }: { filled: boolean }) {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
         d="M12 20.2s-7.4-4.6-9.2-9.4C1.6 7.5 3.6 4.5 6.8 4.5c1.8 0 3.2.9 4.1 2.2.9-1.3 2.3-2.2 4.1-2.2 3.2 0 5.2 3 4 6.3-1.7 4.8-9 9.4-9 9.4Z"
-        fill="currentColor"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );
@@ -441,8 +455,8 @@ function CommentIcon() {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
-    padding: "18px 0 112px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(18px + var(--app-safe-top)) 0 calc(78px + var(--app-bottom-nav-reserved))",
     background: "#ffffff",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
@@ -571,6 +585,17 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: "0 24px 70px rgba(0,0,0,0.28)",
     display: "grid",
     gridTemplateColumns: "1fr",
+  },
+  sheetHandle: {
+    position: "absolute",
+    top: 8,
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: 48,
+    height: 4,
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.64)",
+    zIndex: 3,
   },
   detailClose: {
     position: "absolute",

@@ -448,6 +448,7 @@ export default function HomePage() {
   const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("detecting");
   const [locationError, setLocationError] = useState("");
+  const [isScrollHandleVisible, setIsScrollHandleVisible] = useState(false);
   const hasGpsLocationRef = useRef(false);
 
   useEffect(() => {
@@ -660,6 +661,19 @@ export default function HomePage() {
     fetchSearchHistory().catch(() => {
       setRecentSearches([]);
     });
+  }, []);
+
+  useEffect(() => {
+    function handlePageScroll(): void {
+      setIsScrollHandleVisible(window.scrollY > 160);
+    }
+
+    handlePageScroll();
+    window.addEventListener("scroll", handlePageScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", handlePageScroll);
+    };
   }, []);
 
   const favoriteIds = useMemo(
@@ -921,6 +935,16 @@ export default function HomePage() {
 
   return (
     <div style={styles.page}>
+      {isScrollHandleVisible ? (
+        <button
+          type="button"
+          style={styles.floatingScrollHandle}
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          aria-label="Scroll to top"
+        >
+          <span style={styles.floatingScrollHandleBar} />
+        </button>
+      ) : null}
       <div style={styles.shell}>
         <header style={styles.header}>
           <div>
@@ -932,10 +956,10 @@ export default function HomePage() {
             <button
               type="button"
               style={styles.myPageButton}
-              aria-label="Open My Page"
-              onClick={() => navigate("/my")}
+              aria-label="Open chat"
+              onClick={() => navigate("/chat")}
             >
-              Y
+              <ChatIcon />
             </button>
           </div>
         </header>
@@ -1371,6 +1395,26 @@ function SearchIcon() {
   );
 }
 
+function ChatIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M5.2 18.4c-1.7-1.4-2.7-3.4-2.7-5.7 0-4.6 4.1-8.2 9.5-8.2s9.5 3.6 9.5 8.2-4.1 8.2-9.5 8.2c-1.2 0-2.3-.2-3.4-.5L4.5 21.5c-.7.2-1.2-.5-.9-1.1l1.6-2Z"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8 12.4h8M8 9.2h5.6"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function StarIcon({ filled }: { filled: boolean }) {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1533,6 +1577,7 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--brand-primary-deep)",
     boxShadow: "var(--shadow-soft)",
     cursor: "pointer",
+    flexShrink: 0,
     fontWeight: 900,
   },
   searchPanel: {
@@ -1794,6 +1839,28 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--neutral-700)",
     fontSize: "0.9rem",
     fontWeight: 700,
+  },
+  floatingScrollHandle: {
+    position: "fixed",
+    top: "calc(var(--app-safe-top) + 8px)",
+    left: "50%",
+    transform: "translateX(-50%)",
+    zIndex: 18,
+    width: 48,
+    height: 24,
+    display: "grid",
+    placeItems: "center",
+    border: "none",
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.92)",
+    boxShadow: "0 8px 24px rgba(24,26,32,0.16)",
+    cursor: "pointer",
+  },
+  floatingScrollHandleBar: {
+    width: 32,
+    height: 4,
+    borderRadius: 999,
+    background: "rgba(5,181,187,0.52)",
   },
   modalOverlay: {
     position: "fixed",

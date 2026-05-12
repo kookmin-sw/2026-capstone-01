@@ -49,7 +49,7 @@ export default function LoginPage() {
     <div style={styles.wrapper}>
       <div style={styles.center}>
         <div style={styles.heroFrame}>
-          <img src="/loading.png" alt="Krip login" style={styles.heroImage} />
+          <img src="/krip_logo.png" alt="Krip login" style={styles.heroImage} />
           <div style={styles.bottom}>
             <button style={styles.googleBtn} onClick={handleGoogleLogin}>
               <GoogleIcon />
@@ -82,10 +82,9 @@ const styles: Record<string, CSSProperties> = {
   wrapper: {
     position: "relative",
     width: "100%",
-    minWidth: "var(--app-design-width)",
     minHeight: "var(--app-viewport-height)",
     background:
-      "linear-gradient(180deg, #18bcc1 0%, #18bcc1 68%, #14b4ba 100%)",
+      "#01C0C0",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -100,24 +99,29 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    padding: "calc(20px + var(--app-safe-top)) 20px 0",
+    padding: "0 20px",
   },
   heroFrame: {
     position: "relative",
-    width: "min(100%, 430px)",
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
   },
   heroImage: {
-    width: "100%",
-    maxHeight: "min(74dvh, 592px)",
+    width: "25vw",
+    height: "auto",
     objectFit: "contain",
     display: "block",
   },
   bottom: {
-    position: "absolute",
+    position: "fixed",
     left: 0,
     right: 0,
-    bottom: "5.5%",
-    width: "100%",
+    bottom: "calc(28px + var(--app-safe-bottom))",
+    width: "min(100%, 430px)",
+    margin: "0 auto 2.5rem",
     padding: "0 34px",
     display: "flex",
     flexDirection: "column",
@@ -131,7 +135,7 @@ const styles: Record<string, CSSProperties> = {
     width: "86%",
     minHeight: 52,
     padding: "0 18px",
-    borderRadius: 16,
+    borderRadius: "2.5rem",
     border: "1px solid rgba(255,255,255,0.78)",
     background: "#ffffff",
     color: "#256f72",
