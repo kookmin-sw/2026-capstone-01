@@ -1,7 +1,19 @@
 # Krip 모니터링 시스템 구조
 
-Prometheus + Grafana + Loki 기반의 옵저버빌리티 스택.
-두 개의 도커 네트워크 (`krip-network`, `monitoring-network`) 를 통해 backend / 데이터스토어 / 모니터링 컴포넌트가 상호 접근한다.
+Krip 백엔드의 옵저버빌리티 스택. **메트릭(Prometheus) + 로그(Loki) + Synthetic 프로브(Blackbox)** 를 Grafana 한 곳에서 관측한다. 
+
+두 개의 도커 네트워크 (`krip-network`, `monitoring-network`) 로 backend / 데이터스토어 / 모니터링 컴포넌트를 분리·연결.
+
+### 스케일 한눈에 보기
+
+| 항목 | 값 |
+| --- | --- |
+| 모니터링 컴포넌트 | **10** — Prometheus · Grafana · Loki · Promtail · Blackbox + exporter 5종 (node · postgres · mongo · redis × 2) |
+| Prometheus 스크레이프 잡 | **11** (self 3 · DB 4 · node · backend · blackbox 2) |
+| Grafana 대시보드 | **7** (provisioning 자동 등록) |
+| 메트릭 보존 | Prometheus tsdb **15일** |
+| 로그 보존 | Loki filesystem **14일** |
+| PII 마스킹 | Promtail ingestion 단에서 **4종 강제** (email · JWT · 휴대폰 · 주민번호) |
 
 ---
 
@@ -107,7 +119,7 @@ backend 의 client-side `redis_command_duration_seconds` 와 의미 중복 + 폭
 - 데이터소스 / 대시보드 모두 provisioning 으로 자동 등록 — UI 수정은 가능하지만
   `editable: false` 라 변경 사항은 휘발성.
 
-**프로비저닝 대시보드 6종** (`grafana/provisioning/dashboards/`):
+**프로비저닝 대시보드 7종** (`grafana/provisioning/dashboards/`):
 
 | UID | 제목 | 패널 수 | 태그 |
 |---|---|---|---|
