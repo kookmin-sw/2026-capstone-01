@@ -11,6 +11,50 @@ iconLink.rel = "icon";
 iconLink.type = "image/png";
 iconLink.href = "/favicon.png";
 
+let lastTouchEndAt = 0;
+
+function preventViewportZoom(): void {
+  document.addEventListener(
+    "gesturestart",
+    (event) => {
+      event.preventDefault();
+    },
+    { passive: false }
+  );
+
+  document.addEventListener(
+    "gesturechange",
+    (event) => {
+      event.preventDefault();
+    },
+    { passive: false }
+  );
+
+  document.addEventListener(
+    "touchmove",
+    (event) => {
+      if (event.touches.length > 1) {
+        event.preventDefault();
+      }
+    },
+    { passive: false }
+  );
+
+  document.addEventListener(
+    "touchend",
+    (event) => {
+      const now = window.performance.now();
+      if (now - lastTouchEndAt <= 320) {
+        event.preventDefault();
+      }
+      lastTouchEndAt = now;
+    },
+    { passive: false }
+  );
+}
+
+preventViewportZoom();
+
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
     <App />

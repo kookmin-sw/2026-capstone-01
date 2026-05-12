@@ -9,7 +9,6 @@ import {
   updateMyProfile,
   uploadMyProfileImage,
   withdrawUser,
-  type ProfileUpdatePayload,
   type ProfilePreferencesPayload,
   type UserProfile,
 } from "../api/auth/auth";
@@ -130,14 +129,6 @@ const EMPTY_PREFERENCES: ProfilePreferencesPayload = {
   planning_preference: "",
 };
 
-const EMPTY_PROFILE_DRAFT: ProfileUpdatePayload = {
-  email: "",
-  user_name: "",
-  phone_number: "",
-  age: 0,
-  gender: "",
-  nationality: "",
-};
 
 export default function MyPage() {
   const navigate = useNavigate();
@@ -151,10 +142,6 @@ export default function MyPage() {
   const [isProfileImageMenuOpen, setIsProfileImageMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
-  const [profileDraft, setProfileDraft] =
-    useState<ProfileUpdatePayload>(EMPTY_PROFILE_DRAFT);
-  const [isProfileEditing, setIsProfileEditing] = useState(false);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [preferenceDraft, setPreferenceDraft] =
     useState<ProfilePreferencesPayload>(EMPTY_PREFERENCES);
   const [isPreferenceEditing, setIsPreferenceEditing] = useState(false);
@@ -192,7 +179,6 @@ export default function MyPage() {
       .then((data) => {
         setProfile(data);
         if (data) {
-          setProfileDraft(toProfileUpdatePayload(data));
           setPreferenceDraft(toPreferencePayload(data));
         }
       })
@@ -650,41 +636,6 @@ export default function MyPage() {
     }));
   }
 
-  function setProfileDraftValue(
-    key: keyof ProfileUpdatePayload,
-    value: string | number
-  ): void {
-    setProfileDraft((current) => ({
-      ...current,
-      [key]: value,
-    }));
-  }
-
-  async function handleProfileSave(): Promise<void> {
-    if (isSavingProfile) return;
-
-    setIsSavingProfile(true);
-    try {
-      const updatedProfile = await updateMyProfile(normalizeProfileUpdatePayload(profileDraft));
-      setProfile((current) => ({
-        ...(current ?? {}),
-        ...(updatedProfile ?? {}),
-      }) as UserProfile);
-      if (updatedProfile) {
-        setProfileDraft(toProfileUpdatePayload(updatedProfile));
-      }
-      setIsProfileEditing(false);
-      showAppToast({ title: "Profile saved", variant: "success" });
-    } catch (error) {
-      showAppToast({
-        title: "Failed to save profile",
-        message: toErrorMessage(error, "Please try again."),
-        variant: "error",
-      });
-    } finally {
-      setIsSavingProfile(false);
-    }
-  }
 
   async function handlePreferenceSave(): Promise<void> {
     if (isSavingPreferences) return;
@@ -791,7 +742,7 @@ export default function MyPage() {
               onClick={() => setIsSettingsOpen(true)}
               aria-label="Open settings"
             >
-              ⚙
+              <img src="/setting.png" alt="settings" style={{ width: 20, height: 20, objectFit: "contain", display: "block" }} />
             </button>
             <button
               type="button"
@@ -871,22 +822,6 @@ export default function MyPage() {
                 x
               </button>
             </div>
-            <button
-              type="button"
-              style={styles.settingsActionButton}
-              onClick={() => setIsProfileEditing((current) => !current)}
-            >
-              Edit Profile
-            </button>
-            {isProfileEditing ? (
-              <ProfileEditor
-                value={profileDraft}
-                isSaving={isSavingProfile}
-                onChange={setProfileDraftValue}
-                onReset={() => setProfileDraft(toProfileUpdatePayload(profile))}
-                onSave={() => void handleProfileSave()}
-              />
-            ) : null}
             <button
               type="button"
               style={styles.settingsActionButton}
@@ -1015,92 +950,6 @@ export default function MyPage() {
   );
 }
 
-function ProfileEditor({
-  value,
-  isSaving,
-  onChange,
-  onReset,
-  onSave,
-}: {
-  value: ProfileUpdatePayload;
-  isSaving: boolean;
-  onChange: (key: keyof ProfileUpdatePayload, value: string | number) => void;
-  onReset: () => void;
-  onSave: () => void;
-}) {
-  return (
-    <div style={styles.preferenceEditor}>
-      <Field label="Name">
-        <input
-          value={value.user_name ?? ""}
-          maxLength={100}
-          style={styles.input}
-          onChange={(event) => onChange("user_name", event.target.value)}
-        />
-      </Field>
-      <Field label="Email">
-        <input
-          type="email"
-          value={value.email ?? ""}
-          style={styles.input}
-          onChange={(event) => onChange("email", event.target.value)}
-        />
-      </Field>
-      <Field label="Phone">
-        <input
-          value={value.phone_number ?? ""}
-          maxLength={30}
-          style={styles.input}
-          onChange={(event) => onChange("phone_number", event.target.value)}
-        />
-      </Field>
-      <div style={styles.twoColumn}>
-        <Field label="Age">
-          <input
-            type="number"
-            min={0}
-            max={120}
-            value={Number(value.age ?? 0)}
-            style={styles.input}
-            onChange={(event) => onChange("age", Number(event.target.value))}
-          />
-        </Field>
-        <Field label="Gender">
-          <select
-            value={value.gender ?? ""}
-            style={styles.input}
-            onChange={(event) => onChange("gender", event.target.value)}
-          >
-            <option value="">Select</option>
-            <option value="male">Male</option>
-            <option value="female">Female</option>
-          </select>
-        </Field>
-      </div>
-      <Field label="Nationality">
-        <input
-          value={value.nationality ?? ""}
-          maxLength={80}
-          style={styles.input}
-          onChange={(event) => onChange("nationality", event.target.value)}
-        />
-      </Field>
-      <div style={styles.preferenceEditorActions}>
-        <button type="button" style={styles.secondaryButton} onClick={onReset} disabled={isSaving}>
-          Reset
-        </button>
-        <button
-          type="button"
-          style={{ ...styles.primaryButton, ...(isSaving ? styles.buttonDisabled : {}) }}
-          onClick={onSave}
-          disabled={isSaving}
-        >
-          {isSaving ? "Saving..." : "Save Profile"}
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function PreferenceEditor({
   value,
@@ -1757,9 +1606,9 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: "50%",
     padding: 0,
     background: "#ffffff",
-    color: "var(--text-secondary)",
-    fontSize: "1.08rem",
-    fontWeight: 900,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     cursor: "pointer",
   },
   newPostButton: {
@@ -2866,31 +2715,6 @@ function toPreferencePayload(profile: UserProfile | null): ProfilePreferencesPay
   };
 }
 
-function toProfileUpdatePayload(profile: UserProfile | null): ProfileUpdatePayload {
-  if (!profile) return EMPTY_PROFILE_DRAFT;
-
-  return {
-    email: profile.email ?? "",
-    user_name: profile.user_name ?? "",
-    phone_number: profile.phone_number ?? "",
-    age: Number(profile.age ?? 0),
-    gender: profile.gender ?? "",
-    nationality: profile.nationality ?? "",
-  };
-}
-
-function normalizeProfileUpdatePayload(
-  payload: ProfileUpdatePayload
-): ProfileUpdatePayload {
-  return {
-    email: payload.email,
-    user_name: payload.user_name,
-    phone_number: payload.phone_number,
-    age: Number(payload.age ?? 0),
-    gender: payload.gender,
-    nationality: payload.nationality,
-  };
-}
 
 function getVisibilityLabel(visibility: FeedVisibility): string {
   if (visibility === "public") return "Public";
