@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, CSSProperties, MouseEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   createTripMatePost,
   deleteDraft,
@@ -41,8 +41,8 @@ import {
   type RecommendationCandidate,
   type RecommendedTraveler,
 } from "../../utils/mateRecommendation";
-import NotificationBell from "../../components/NotificationBell";
 import FeedPopup from "../../components/FeedPopup";
+import ChatPage from "../friend-chat/ChatPage";
 
 const COMPANION_FILTERS = ["all", "sole", "friend", "couple", "family"] as const;
 const COMPANION_OPTIONS: CompanionType[] = ["friend", "family", "couple", "sole"];
@@ -77,6 +77,7 @@ const EMPTY_FORM = {
 };
 
 type Tab = "list" | "write";
+type MainTab = "mate" | "chat";
 type MateFriendState = {
   friendship_status: FriendshipStatus | null;
   is_requester: boolean | null;
@@ -85,6 +86,8 @@ type MateFriendState = {
 
 export default function MatePage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const locationState = location.state as { mainTab?: MainTab } | null;
   const searchRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const draftTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -93,6 +96,9 @@ export default function MatePage() {
   const suggestionRequestIdRef = useRef(0);
 
   const [tab, setTab] = useState<Tab>("list");
+  const [mainTab, setMainTab] = useState<MainTab>(
+    locationState?.mainTab === "chat" ? "chat" : "mate"
+  );
   const [posts, setPosts] = useState<TripMatePost[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -333,7 +339,7 @@ export default function MatePage() {
   }, []);
 
   useEffect(() => {
-    if (tab !== "write") {
+    if (mainTab !== "mate" || tab !== "write") {
       return undefined;
     }
 
@@ -370,7 +376,7 @@ export default function MatePage() {
         clearInterval(draftTimer.current);
       }
     };
-  }, [tab, editingPostId]);
+  }, [mainTab, tab, editingPostId]);
 
   const filteredPosts = useMemo(
     () =>
@@ -420,6 +426,17 @@ export default function MatePage() {
     }
 
     setTab(nextTab);
+  }
+
+  function handleMainTabChange(nextTab: MainTab): void {
+    if (nextTab === "chat") {
+      if (editingPostId) {
+        resetEditor();
+      }
+      setTab("list");
+    }
+
+    setMainTab(nextTab);
   }
 
   function handleSearch(keyword: string): void {
@@ -485,14 +502,24 @@ export default function MatePage() {
 
   async function handleAutoSaveDraft(showError = true): Promise<void> {
     if (editingPostId) return;
+    if (!showError && !canAutoSaveDraft(draftFormRef.current)) return;
+
+    const draftPayload = buildDraftPayload(
+      draftFormRef.current,
+      draftImageUrlsRef.current
+    );
+
+    if (!draftPayload) {
+      if (showError) {
+        window.alert("Write something before saving a draft.");
+      }
+      return;
+    }
 
     setDraftSaving(true);
     setDraftStatus("Saving draft...");
     try {
-      await saveDraft({
-        ...draftFormRef.current,
-        image_urls: draftImageUrlsRef.current,
-      });
+      await saveDraft(draftPayload);
       setDraftStatus("Draft saved");
     } catch (draftError) {
       setDraftStatus("");
@@ -505,6 +532,60 @@ export default function MatePage() {
         setDraftStatus("");
       }, 900);
     }
+  }
+
+  function canAutoSaveDraft(draftForm: typeof EMPTY_FORM): boolean {
+    return (
+      Boolean(draftForm.title.trim()) &&
+      draftForm.content.trim().length >= 10 &&
+      Boolean(draftForm.region.trim()) &&
+      Boolean(draftForm.travel_start_date) &&
+      Boolean(draftForm.travel_end_date) &&
+      Number.isFinite(Number(draftForm.preferred_age_min)) &&
+      Number.isFinite(Number(draftForm.preferred_age_max))
+    );
+  }
+
+  function buildDraftPayload(
+    draftForm: typeof EMPTY_FORM,
+    currentImageUrls: string[]
+  ): Parameters<typeof saveDraft>[0] | null {
+    const title = draftForm.title.trim();
+    const content = draftForm.content.trim();
+    const region = draftForm.region.trim();
+    const hasImages = currentImageUrls.length > 0;
+    const hasText =
+      Boolean(title) ||
+      Boolean(content) ||
+      Boolean(region) ||
+      Boolean(draftForm.travel_start_date) ||
+      Boolean(draftForm.travel_end_date);
+
+    if (!hasText && !hasImages) {
+      return null;
+    }
+
+    const payload: Parameters<typeof saveDraft>[0] = {
+      companion_type: draftForm.companion_type,
+      preferred_gender: draftForm.preferred_gender,
+      preferred_age_min: Number(draftForm.preferred_age_min),
+      preferred_age_max: Number(draftForm.preferred_age_max),
+    };
+
+    if (title) payload.title = title;
+    if (content) payload.content = content;
+    if (region) payload.region = region;
+    if (draftForm.travel_start_date) {
+      payload.travel_start_date = draftForm.travel_start_date;
+    }
+    if (draftForm.travel_end_date) {
+      payload.travel_end_date = draftForm.travel_end_date;
+    }
+    if (hasImages) {
+      payload.image_urls = currentImageUrls;
+    }
+
+    return payload;
   }
 
   async function handleLike(event: MouseEvent<HTMLButtonElement>, post: TripMatePost): Promise<void> {
@@ -725,43 +806,45 @@ export default function MatePage() {
   return (
     <div style={styles.page}>
       <div style={styles.shell}>
-        <header style={styles.header}>
-          <div>
-            <p style={styles.eyebrow}>Trip Mate</p>
-            <h1 style={styles.headerTitle}>Find Travel Companions</h1>
-            <p style={styles.headerCopy}>
-              Meet people planning similar routes, dates, and travel styles around Seoul.
-            </p>
-          </div>
-          <div style={styles.headerActions}>
-            <NotificationBell />
-            <button
-              type="button"
-              style={styles.headerButton}
-              onClick={() => handleTabChange(tab === "list" ? "write" : "list")}
-            >
-              {tab === "list" ? "Write Post" : "View Posts"}
-            </button>
-          </div>
-        </header>
+        {mainTab === "mate" ? (
+          <header style={styles.header}>
+            <div>
+              <p style={styles.eyebrow}>Trip Mate</p>
+              <h1 style={styles.headerTitle}>Mate</h1>
+            </div>
+            <div style={styles.headerActions}>
+              <button
+                type="button"
+                style={styles.headerButton}
+                onClick={() => handleTabChange(tab === "list" ? "write" : "list")}
+              >
+                {tab === "list" ? "Post" : "Mate"}
+              </button>
+            </div>
+          </header>
+        ) : null}
 
         <section style={styles.tabPanel}>
-          {(["list", "write"] as const).map((item) => (
+          {(["mate", "chat"] as const).map((item) => (
             <button
               key={item}
               type="button"
               style={{
                 ...styles.tabButton,
-                ...(tab === item ? styles.tabButtonActive : {}),
+                ...(mainTab === item ? styles.tabButtonActive : {}),
               }}
-              onClick={() => handleTabChange(item)}
+              onClick={() => handleMainTabChange(item)}
             >
-              {item === "list" ? "Browse" : editingPostId ? "Edit Post" : "New Post"}
+              {item === "mate" ? "Mate" : "Chat"}
             </button>
           ))}
         </section>
 
-        {tab === "list" ? (
+        {mainTab === "chat" ? (
+          <section style={styles.chatEmbed}>
+            <ChatPage embedded />
+          </section>
+        ) : tab === "list" ? (
           <>
             <section style={styles.searchPanel}>
               <div style={styles.searchRow}>
@@ -2114,6 +2197,9 @@ const styles: Record<string, CSSProperties> = {
   tabButtonActive: {
     background: "linear-gradient(135deg, rgba(5,181,187,0.16), rgba(228,247,247,0.96))",
     color: "var(--text-primary)",
+  },
+  chatEmbed: {
+    margin: "-18px -16px calc(-40px - var(--app-bottom-nav-reserved))",
   },
   searchPanel: {
     position: "relative",

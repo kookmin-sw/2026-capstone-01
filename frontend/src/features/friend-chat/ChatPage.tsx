@@ -2,7 +2,11 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getMyProfile } from "../../api/auth";
-import { type ChatRoom, type SystemContent } from "../../api/chat";
+import {
+  createGroupChatRoom,
+  type ChatRoom,
+  type SystemContent,
+} from "../../api/chat";
 import {
   acceptFriendRequest,
   blockUser,
@@ -26,17 +30,16 @@ import { reportChatNetworkError } from "../../utils/chatDiagnostics";
 import FeedPopup from "../../components/FeedPopup";
 import { navigateBackOrFallback } from "../../utils/navigation";
 
-type ChatTab = "chats" | "friends";
+type FriendManagerTab = "friend" | "request";
 type LoadingKey = "received" | "sent" | "friends" | "blocks";
 
 const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
-const TABS: Array<{ key: ChatTab; label: string }> = [
-  { key: "chats", label: "Chat" },
-  { key: "friends", label: "Friends" },
-];
-
-export default function ChatPage() {
+export default function ChatPage({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
   const navigate = useNavigate();
   const {
     rooms: chatRooms,
@@ -46,7 +49,6 @@ export default function ChatPage() {
     refreshRooms,
     openDirectChat,
   } = useChat();
-  const [tab, setTab] = useState<ChatTab>("chats");
   const [receivedRequests, setReceivedRequests] = useState<Friendship[]>([]);
   const [sentRequests, setSentRequests] = useState<Friendship[]>([]);
   const [friends, setFriends] = useState<Friendship[]>([]);
@@ -70,10 +72,14 @@ export default function ChatPage() {
   const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isFriendManagerOpen, setIsFriendManagerOpen] = useState(false);
+  const [friendManagerTab, setFriendManagerTab] = useState<FriendManagerTab>("friend");
   const [friendSearchQuery, setFriendSearchQuery] = useState("");
   const [friendSearchResults, setFriendSearchResults] = useState<FriendSearchUser[]>([]);
   const [friendSearchLoading, setFriendSearchLoading] = useState(false);
   const [friendSearchError, setFriendSearchError] = useState("");
+  const [isGroupCreateOpen, setIsGroupCreateOpen] = useState(false);
+  const [groupTitle, setGroupTitle] = useState("");
+  const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
 
   const pendingCount = receivedRequests.length;
   const displayNamesById = useMemo(() => {
@@ -103,7 +109,7 @@ export default function ChatPage() {
   }, [chatRooms, currentUserId, currentUserName, friends]);
   const resolveDisplayName = useCallback(
     (userId: string | null): string =>
-      userId === null ? "(알 수 없음)" : displayNamesById.get(userId) || "탈퇴한 사용자",
+      userId === null ? "Unknown user" : displayNamesById.get(userId) || "Unknown user",
     [displayNamesById]
   );
   const chatRows = useMemo(
@@ -118,16 +124,6 @@ export default function ChatPage() {
         : chatRows,
     [chatRows, normalizedSearchQuery]
   );
-  const filteredFriends = useMemo(
-    () =>
-      normalizedSearchQuery
-        ? friends.filter((friend) =>
-            friend.peer.user_name.toLowerCase().includes(normalizedSearchQuery)
-          )
-        : friends,
-    [friends, normalizedSearchQuery]
-  );
-
   useEffect(() => {
     void refreshAll();
   }, []);
@@ -271,6 +267,34 @@ export default function ChatPage() {
     }
   }
 
+  async function handleCreateGroupChat(): Promise<void> {
+    const title = groupTitle.trim();
+    if (!title || selectedGroupMemberIds.length === 0 || actionId) return;
+
+    setActionId("create-group");
+    setError("");
+    try {
+      const room = await createGroupChatRoom(title, selectedGroupMemberIds);
+      setIsGroupCreateOpen(false);
+      setGroupTitle("");
+      setSelectedGroupMemberIds([]);
+      await refreshRooms();
+      navigate(`/chat/${room.chat_room_id}`);
+    } catch (groupError) {
+      setError(toErrorMessage(groupError, "Failed to create group chat."));
+    } finally {
+      setActionId("");
+    }
+  }
+
+  function toggleGroupMember(userId: string): void {
+    setSelectedGroupMemberIds((current) =>
+      current.includes(userId)
+        ? current.filter((item) => item !== userId)
+        : [...current, userId]
+    );
+  }
+
   async function handleSendFriendRequest(user: FriendSearchUser): Promise<void> {
     setActionId(`request:${user.user_id}`);
     setFriendSearchError("");
@@ -297,23 +321,40 @@ export default function ChatPage() {
     <div style={styles.page}>
       <div style={styles.shell}>
         <header style={styles.header}>
-          <button
-            type="button"
-            style={styles.backButton}
-            onClick={() => navigateBackOrFallback(navigate, "/home")}
-          >
-            ‹
-          </button>
+          {embedded ? (
+            <span style={styles.backButtonSpacer} />
+          ) : (
+            <button
+              type="button"
+              style={styles.backButton}
+              onClick={() => navigateBackOrFallback(navigate, "/home")}
+            >
+              <img src="/icon-back.svg" alt="" style={styles.headerIcon} />
+            </button>
+          )}
           <h1 style={styles.title}>Chat</h1>
-          <button
-            type="button"
-            style={styles.friendManagerButton}
-            onClick={() => setIsFriendManagerOpen(true)}
-            aria-label="Manage friends"
-          >
-            <img src="/user-add-alt.png" alt="" style={styles.friendManagerIcon} />
-            {pendingCount > 0 ? <span style={styles.addButtonDot} /> : null}
-          </button>
+          <div style={styles.headerIconGroup}>
+            <button
+              type="button"
+              style={styles.friendManagerButton}
+              onClick={() => setIsGroupCreateOpen(true)}
+              aria-label="Create group chat"
+            >
+              <img src="/icon-plus.svg" alt="" style={styles.friendManagerIcon} />
+            </button>
+            <button
+              type="button"
+              style={styles.friendManagerButton}
+              onClick={() => {
+                setFriendManagerTab("friend");
+                setIsFriendManagerOpen(true);
+              }}
+              aria-label="Manage friends"
+            >
+              <img src="/user-add-alt.png" alt="" style={styles.friendManagerIcon} />
+              {pendingCount > 0 ? <span style={styles.addButtonDot} /> : null}
+            </button>
+          </div>
         </header>
 
         <label style={styles.searchWrap}>
@@ -324,165 +365,46 @@ export default function ChatPage() {
             placeholder="Search"
             style={styles.searchInput}
           />
-          <span style={styles.searchIcon}>⌕</span>
+          <img src="/icon-search.svg" alt="" style={styles.searchIconImage} />
         </label>
-
-        <section style={styles.segment} aria-label="Chat tabs">
-          {TABS.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => setTab(item.key)}
-              style={{
-                ...styles.segmentButton,
-                ...(tab === item.key ? styles.segmentButtonActive : {}),
-              }}
-            >
-              {item.label}
-              {item.key === "chats" ? ` (${chatRows.length})` : ""}
-            </button>
-          ))}
-        </section>
 
         {notice ? <div style={styles.notice}>{notice}</div> : null}
         {error ? <div style={styles.error}>{error}</div> : null}
 
-        {tab === "chats" ? (
-          <section style={styles.list}>
-            {chatLoading && filteredChatRows.length === 0 ? (
-              <p style={styles.mutedText}>Loading chats...</p>
-            ) : filteredChatRows.length > 0 ? (
-              filteredChatRows.map((chat) => (
-                <button
-                  key={chat.id}
-                  type="button"
-                  style={styles.chatRow}
-                  onClick={() => navigate(`/chat/${chat.id}`)}
-                >
-                  <Avatar name={chat.name} imageUrl={chat.imageUrl} />
-                  <span style={styles.rowMain}>
-                    <strong style={styles.rowTitle}>{chat.name}</strong>
-                    <span style={styles.rowSubtitle}>{chat.preview}</span>
+        <section style={styles.list}>
+          {chatLoading && filteredChatRows.length === 0 ? (
+            <p style={styles.mutedText}>Loading chats...</p>
+          ) : filteredChatRows.length > 0 ? (
+            filteredChatRows.map((chat) => (
+              <button
+                key={chat.id}
+                type="button"
+                style={styles.chatRow}
+                onClick={() => navigate(`/chat/${chat.id}`)}
+              >
+                <Avatar name={chat.name} imageUrl={chat.imageUrl} />
+                <span style={styles.rowMain}>
+                  <strong style={styles.rowTitle}>{chat.name}</strong>
+                  <span style={styles.rowSubtitle}>{chat.preview}</span>
+                </span>
+                {chat.unreadCount > 0 ? (
+                  <span style={styles.unreadBadge}>
+                    {chat.unreadCount >= 999 ? "999+" : chat.unreadCount}
                   </span>
-                  {chat.unreadCount > 0 ? (
-                    <span style={styles.unreadBadge}>
-                      {chat.unreadCount >= 999 ? "999+" : chat.unreadCount}
-                    </span>
-                  ) : null}
-                </button>
-              ))
-            ) : (
-              <EmptyCard
-                title={searchQuery.trim() ? "No matching chats" : "No chats yet"}
-                copy={
-                  searchQuery.trim()
-                    ? "Try another friend name."
-                    : "Accepted friends will appear here as chat-ready contacts."
-                }
-              />
-            )}
-          </section>
-        ) : null}
-
-        {tab === "friends" ? (
-          <section style={styles.stack}>
-            <div style={styles.panel}>
-              <div style={styles.sectionHeader}>
-                <h2 style={styles.sectionTitle}>Friends</h2>
-                {cursors.friends ? (
-                  <button
-                    type="button"
-                    style={styles.linkButton}
-                    onClick={() => void loadFriends(cursors.friends || undefined, true)}
-                  >
-                    Load More
-                  </button>
                 ) : null}
-              </div>
-
-              {loading.friends && filteredFriends.length === 0 ? (
-                <p style={styles.mutedText}>Loading friends...</p>
-              ) : filteredFriends.length > 0 ? (
-                <div style={styles.friendList}>
-                  {filteredFriends.map((friend) => (
-                    <FriendCard
-                      key={friend.friendship_id}
-                      item={friend}
-                      onChat={() => void handleOpenDirectChat(friend.peer.user_id)}
-                      onViewFeed={() => setFeedPopupUserId(friend.peer.user_id)}
-                      onDelete={() => {
-                        setActionId(`delete:${friend.friendship_id}`);
-                        void runAction(
-                          () => deleteFriend(friend.friendship_id),
-                          "Friend deleted."
-                        );
-                      }}
-                      onBlock={() => {
-                        setActionId(`block:${friend.peer.user_id}`);
-                        void runAction(
-                          () => blockUser(friend.peer.user_id),
-                          "User blocked."
-                        );
-                      }}
-                      busy={Boolean(actionId)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <EmptyCard
-                  title={searchQuery.trim() ? "No matching friends" : "No friends yet"}
-                  copy={searchQuery.trim() ? "Try another friend name." : "Accepted friends will appear here."}
-                />
-              )}
-            </div>
-
-            <div style={styles.panel}>
-              <div style={styles.sectionHeader}>
-                <h2 style={styles.sectionTitle}>Blocked Users</h2>
-                {cursors.blocks ? (
-                  <button
-                    type="button"
-                    style={styles.linkButton}
-                    onClick={() => void loadBlocks(cursors.blocks || undefined, true)}
-                  >
-                    Load More
-                  </button>
-                ) : null}
-              </div>
-
-              {loading.blocks && blockedUsers.length === 0 ? (
-                <p style={styles.mutedText}>Loading blocked users...</p>
-              ) : blockedUsers.length > 0 ? (
-                <div style={styles.friendList}>
-                  {blockedUsers.map((block) => (
-                    <div key={block.block_id} style={styles.friendCard}>
-                      <PeerSummary peer={block.blocked} />
-                      <button
-                        type="button"
-                        style={styles.secondaryButton}
-                        disabled={Boolean(actionId)}
-                        onClick={() => {
-                          setActionId(`unblock:${block.blocked.user_id}`);
-                          void runAction(
-                            () => unblockUser(block.blocked.user_id),
-                            "User unblocked."
-                          );
-                        }}
-                      >
-                        Unblock
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyCard
-                  title="No blocked users"
-                  copy="Blocked users will appear here."
-                />
-              )}
-            </div>
-          </section>
-        ) : null}
+              </button>
+            ))
+          ) : (
+            <EmptyCard
+              title={searchQuery.trim() ? "No matching chats" : "No chats yet"}
+              copy={
+                searchQuery.trim()
+                  ? "Try another friend name."
+                  : "Accepted friends will appear here as chat-ready contacts."
+              }
+            />
+          )}
+        </section>
 
         {isFriendManagerOpen ? (
           <div style={styles.managerBackdrop} onClick={() => setIsFriendManagerOpen(false)}>
@@ -494,10 +416,31 @@ export default function ChatPage() {
                   style={styles.managerCloseButton}
                   onClick={() => setIsFriendManagerOpen(false)}
                 >
-                  ×
+                  <img src="/icon-close.svg" alt="" style={styles.closeIcon} />
                 </button>
               </div>
 
+              <div style={styles.managerTabs} aria-label="Friend manager tabs">
+                {(["friend", "request"] as const).map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    style={{
+                      ...styles.managerTabButton,
+                      ...(friendManagerTab === item ? styles.managerTabButtonActive : {}),
+                    }}
+                    onClick={() => setFriendManagerTab(item)}
+                  >
+                    {item === "friend" ? "Friend" : "Request"}
+                    {item === "request" && pendingCount > 0 ? (
+                      <span style={styles.managerTabBadge}>{pendingCount}</span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+
+              {friendManagerTab === "friend" ? (
+                <>
               <div style={styles.addFriendPanel}>
                 <label style={styles.managerSearchWrap}>
                   <input
@@ -549,6 +492,99 @@ export default function ChatPage() {
                   <p style={styles.mutedText}>No users found.</p>
                 ) : null}
               </div>
+
+              <div style={styles.panel}>
+                <div style={styles.sectionHeader}>
+                  <h2 style={styles.sectionTitle}>Friend List</h2>
+                  {cursors.friends ? (
+                    <button
+                      type="button"
+                      style={styles.linkButton}
+                      onClick={() => void loadFriends(cursors.friends || undefined, true)}
+                    >
+                      Load More
+                    </button>
+                  ) : null}
+                </div>
+
+                {loading.friends && friends.length === 0 ? (
+                  <p style={styles.mutedText}>Loading friends...</p>
+                ) : friends.length > 0 ? (
+                  <div style={styles.friendList}>
+                    {friends.map((friend) => (
+                      <FriendCard
+                        key={friend.friendship_id}
+                        item={friend}
+                        onChat={() => void handleOpenDirectChat(friend.peer.user_id)}
+                        onViewFeed={() => setFeedPopupUserId(friend.peer.user_id)}
+                        onDelete={() => {
+                          setActionId(`delete:${friend.friendship_id}`);
+                          void runAction(
+                            () => deleteFriend(friend.friendship_id),
+                            "Friend deleted."
+                          );
+                        }}
+                        onBlock={() => {
+                          setActionId(`block:${friend.peer.user_id}`);
+                          void runAction(
+                            () => blockUser(friend.peer.user_id),
+                            "User blocked."
+                          );
+                        }}
+                        busy={Boolean(actionId)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyCard title="No friends yet" copy="Accepted friends will appear here." />
+                )}
+              </div>
+
+              <div style={styles.panel}>
+                <div style={styles.sectionHeader}>
+                  <h2 style={styles.sectionTitle}>Blocked Users</h2>
+                  {cursors.blocks ? (
+                    <button
+                      type="button"
+                      style={styles.linkButton}
+                      onClick={() => void loadBlocks(cursors.blocks || undefined, true)}
+                    >
+                      Load More
+                    </button>
+                  ) : null}
+                </div>
+
+                {loading.blocks && blockedUsers.length === 0 ? (
+                  <p style={styles.mutedText}>Loading blocked users...</p>
+                ) : blockedUsers.length > 0 ? (
+                  <div style={styles.friendList}>
+                    {blockedUsers.map((block) => (
+                      <div key={block.block_id} style={styles.friendCard}>
+                        <PeerSummary peer={block.blocked} />
+                        <button
+                          type="button"
+                          style={styles.secondaryButton}
+                          disabled={Boolean(actionId)}
+                          onClick={() => {
+                            setActionId(`unblock:${block.blocked.user_id}`);
+                            void runAction(
+                              () => unblockUser(block.blocked.user_id),
+                              "User unblocked."
+                            );
+                          }}
+                        >
+                          Unblock
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyCard title="No blocked users" copy="Blocked users will appear here." />
+                )}
+              </div>
+                </>
+              ) : (
+                <>
 
               <RequestSection
                 title="Received Requests"
@@ -617,6 +653,78 @@ export default function ChatPage() {
                   </button>
                 )}
               />
+                </>
+              )}
+            </section>
+          </div>
+        ) : null}
+
+        {isGroupCreateOpen ? (
+          <div style={styles.managerBackdrop} onClick={() => setIsGroupCreateOpen(false)}>
+            <section style={styles.managerPanel} onClick={(event) => event.stopPropagation()}>
+              <div style={styles.managerHeader}>
+                <h2 style={styles.managerTitle}>New Group</h2>
+                <button
+                  type="button"
+                  style={styles.managerCloseButton}
+                  onClick={() => setIsGroupCreateOpen(false)}
+                >
+                  <img src="/icon-close.svg" alt="" style={styles.closeIcon} />
+                </button>
+              </div>
+
+              <label style={styles.managerSearchWrap}>
+                <input
+                  type="text"
+                  value={groupTitle}
+                  onChange={(event) => setGroupTitle(event.target.value)}
+                  placeholder="Group name"
+                  style={styles.managerSearchInput}
+                />
+              </label>
+
+              <div style={styles.friendList}>
+                {friends.length > 0 ? (
+                  friends.map((friend) => {
+                    const selected = selectedGroupMemberIds.includes(friend.peer.user_id);
+
+                    return (
+                      <label key={friend.friendship_id} style={styles.groupFriendRow}>
+                        <PeerSummary peer={friend.peer} />
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleGroupMember(friend.peer.user_id)}
+                          style={styles.groupCheckbox}
+                        />
+                      </label>
+                    );
+                  })
+                ) : (
+                  <p style={styles.mutedText}>Add friends before creating a group.</p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                style={{
+                  ...styles.primaryButton,
+                  ...styles.groupCreateButton,
+                  ...(!groupTitle.trim() || selectedGroupMemberIds.length === 0
+                    ? styles.disabledButton
+                    : {}),
+                }}
+                disabled={
+                  !groupTitle.trim() ||
+                  selectedGroupMemberIds.length === 0 ||
+                  actionId === "create-group"
+                }
+                onClick={() => void handleCreateGroupChat()}
+              >
+                {actionId === "create-group"
+                  ? "Creating..."
+                  : `Create Group (${selectedGroupMemberIds.length})`}
+              </button>
             </section>
           </div>
         ) : null}
@@ -813,7 +921,7 @@ function renderLastMessage(
   resolveDisplayName: (userId: string | null) => string
 ): string {
   if (!lastMessage) return "No messages yet.";
-  if (lastMessage.content === null) return "삭제된 메시지입니다";
+  if (lastMessage.content === null) return "Message deleted.";
   if (lastMessage.type === "system") {
     return renderSystemLastMessage(lastMessage.content, resolveDisplayName);
   }
@@ -829,20 +937,25 @@ function renderSystemLastMessage(
 
   const actorName = resolveDisplayName(content.actor_id);
   if (content.action === "created") {
-    return `${actorName}님이 채팅방을 만들었습니다`;
+    return `${actorName} created the chat.`;
   }
   if (content.action === "join") {
     const targetNames = content.target_ids.map(resolveDisplayName);
-    if (targetNames.length === 1 && (!content.actor_id || content.actor_id === content.target_ids[0])) {
-      return `${targetNames[0]}님이 들어왔습니다`;
+    if (
+      targetNames.length === 1 &&
+      (!content.actor_id || content.actor_id === content.target_ids[0])
+    ) {
+      return `${targetNames[0]} joined the chat.`;
     }
-    return `${actorName}님이 ${formatTargetNames(targetNames)}님을 초대했습니다`;
+    return `${actorName} invited ${formatTargetNames(targetNames)}.`;
   }
   if (content.action === "leave") {
-    return `${actorName}님이 나갔습니다`;
+    return `${actorName} left the chat.`;
   }
   if (content.action === "kick") {
-    return `${actorName}님이 ${formatTargetNames(content.target_ids.map(resolveDisplayName))}님을 내보냈습니다`;
+    return `${actorName} removed ${formatTargetNames(
+      content.target_ids.map(resolveDisplayName)
+    )}.`;
   }
 
   return "System message";
@@ -862,19 +975,10 @@ function isSystemContent(content: unknown): content is SystemContent {
 }
 
 function formatTargetNames(names: string[]): string {
-  if (names.length === 0) return "(알 수 없음)";
+  if (names.length === 0) return "someone";
   if (names.length === 1) return names[0];
-  return `${names[0]} 외 ${names.length - 1}명`;
+  return `${names[0]} and ${names.length - 1} others`;
 }
-
-function toErrorMessage(error: unknown, fallback: string): string {
-  const apiError = error as {
-    response?: { data?: { detail?: string; message?: string } };
-    message?: string;
-  };
-  return apiError.response?.data?.detail || apiError.response?.data?.message || apiError.message || fallback;
-}
-
 function getErrorStatus(error: unknown): number | undefined {
   const apiError = error as { response?: { status?: number } };
   return apiError.response?.status;
@@ -920,6 +1024,24 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 0.8,
     cursor: "pointer",
   },
+  headerIcon: {
+    width: 24,
+    height: 24,
+    objectFit: "contain",
+  },
+  backButtonSpacer: {
+    width: 36,
+    height: 36,
+    display: "block",
+    flexShrink: 0,
+  },
+  headerIconGroup: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 4,
+    minWidth: 76,
+  },
   friendManagerButton: {
     position: "relative",
     width: 36,
@@ -964,11 +1086,10 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "0.94rem",
     fontWeight: 500,
   },
-  searchIcon: {
-    color: "#8d8d8d",
-    fontSize: "1.8rem",
-    lineHeight: 1,
-    transform: "rotate(-18deg)",
+  searchIconImage: {
+    width: 22,
+    height: 22,
+    objectFit: "contain",
     flexShrink: 0,
   },
   refreshButton: {
@@ -1171,6 +1292,10 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
+  disabledButton: {
+    opacity: 0.48,
+    cursor: "not-allowed",
+  },
   secondaryButton: {
     border: "1px solid rgba(5,181,187,0.18)",
     borderRadius: 16,
@@ -1285,6 +1410,45 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1,
     cursor: "pointer",
   },
+  managerTabs: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 8,
+    padding: 4,
+    borderRadius: 16,
+    background: "#f4f4f4",
+  },
+  managerTabButton: {
+    minHeight: 40,
+    border: "none",
+    borderRadius: 12,
+    background: "transparent",
+    color: "#7a7a7a",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  managerTabButtonActive: {
+    background: "#ffffff",
+    color: "#171717",
+    boxShadow: "0 8px 18px rgba(15,23,42,0.08)",
+  },
+  managerTabBadge: {
+    display: "inline-grid",
+    placeItems: "center",
+    minWidth: 18,
+    height: 18,
+    marginLeft: 6,
+    padding: "0 5px",
+    borderRadius: 999,
+    background: "#04bfbf",
+    color: "#ffffff",
+    fontSize: "0.68rem",
+  },
+  closeIcon: {
+    width: 18,
+    height: 18,
+    objectFit: "contain",
+  },
   addFriendPanel: {
     display: "flex",
     flexDirection: "column",
@@ -1317,6 +1481,25 @@ const styles: Record<string, CSSProperties> = {
     color: "#ffffff",
     fontWeight: 900,
     cursor: "pointer",
+  },
+  groupFriendRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: 12,
+    borderRadius: 16,
+    background: "#ffffff",
+    border: "1px solid #eeeeee",
+  },
+  groupCheckbox: {
+    width: 20,
+    height: 20,
+    accentColor: "#04bfbf",
+    flexShrink: 0,
+  },
+  groupCreateButton: {
+    width: "100%",
   },
   inlineError: {
     margin: 0,

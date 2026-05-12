@@ -953,14 +953,6 @@ export default function HomePage() {
           </div>
           <div style={styles.headerActions}>
             <NotificationBell></NotificationBell>
-            <button
-              type="button"
-              style={styles.myPageButton}
-              aria-label="Open chat"
-              onClick={() => navigate("/chat")}
-            >
-              <ChatIcon />
-            </button>
           </div>
         </header>
 
@@ -1390,26 +1382,6 @@ function SearchIcon() {
         strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ChatIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M5.2 18.4c-1.7-1.4-2.7-3.4-2.7-5.7 0-4.6 4.1-8.2 9.5-8.2s9.5 3.6 9.5 8.2-4.1 8.2-9.5 8.2c-1.2 0-2.3-.2-3.4-.5L4.5 21.5c-.7.2-1.2-.5-.9-1.1l1.6-2Z"
-        stroke="currentColor"
-        strokeWidth="1.9"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M8 12.4h8M8 9.2h5.6"
-        stroke="currentColor"
-        strokeWidth="1.9"
-        strokeLinecap="round"
       />
     </svg>
   );

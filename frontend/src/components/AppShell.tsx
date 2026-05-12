@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { getMyProfile } from "../api/auth/auth";
 import { registerFcmToken } from "../lib/fcm";
+import { recordLastTab } from "../utils/navigation";
 
 const TAB_ITEMS = [
   { to: "/home", label: "Home", icon: "home" },
@@ -12,10 +13,19 @@ const TAB_ITEMS = [
   { to: "/my", label: "My Page", icon: "my" },
 ] as const;
 
+const TAB_ROOT_PATHS = TAB_ITEMS.map((item) => item.to);
+
 export default function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const currentPath = location.pathname;
+
+  // 탭 루트 방문 시마다 마지막 탭을 기록해 뒤로가기에서 활용한다.
+  useEffect(() => {
+    if (TAB_ROOT_PATHS.includes(currentPath as (typeof TAB_ROOT_PATHS)[number])) {
+      recordLastTab(currentPath);
+    }
+  }, [currentPath]);
 
   useEffect(() => {
     getMyProfile()
