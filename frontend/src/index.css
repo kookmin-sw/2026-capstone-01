@@ -124,6 +124,39 @@ textarea:focus-visible {
   transform: translateY(1px) scale(0.99);
 }
 
+.manual-step2-calendar-day,
+.manual-step2-calendar-day:hover,
+.manual-step2-calendar-day:active,
+.manual-step2-calendar-day:focus,
+.manual-step2-day-tab,
+.manual-step2-day-tab:hover,
+.manual-step2-day-tab:active,
+.manual-step2-day-tab:focus {
+  transform: none !important;
+}
+
+.manual-step5-edit-hint {
+  animation: manualStep5Hint 3s ease forwards;
+}
+
+@keyframes manualStep5Hint {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  12%,
+  72% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
 @keyframes spin {
   from {
     transform: rotate(0deg);
