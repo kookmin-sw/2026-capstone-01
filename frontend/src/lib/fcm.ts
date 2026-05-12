@@ -117,6 +117,7 @@ function handleNotificationPayload(payload: MessagePayload): void {
   const title = payload.notification?.title || payload.data?.title || "Krip";
   const body = payload.notification?.body || payload.data?.body || "New notification";
   const likeNotification = isLikeNotificationPayload(payload);
+  const feedActivityNotification = isFeedActivityNotificationPayload(payload);
   const roomId =
     payload.data?.chatRoomId ||
     payload.data?.chat_room_id ||
@@ -124,7 +125,9 @@ function handleNotificationPayload(payload: MessagePayload): void {
   const path =
     payload.data?.url ||
     payload.data?.path ||
-    (roomId ? `/chat/${roomId}` : getNotificationPath(payload, likeNotification));
+    (roomId
+      ? `/chat/${roomId}`
+      : getNotificationPath(payload, likeNotification || feedActivityNotification));
   const imageUrl =
     payload.data?.profile_image_url ||
     payload.data?.profileImageUrl ||
@@ -225,7 +228,35 @@ function isLikeNotificationPayload(payload: MessagePayload): boolean {
   );
 }
 
-function getNotificationPath(payload: MessagePayload, likeNotification: boolean): string {
+function isFeedActivityNotificationPayload(payload: MessagePayload): boolean {
+  const data = payload.data ?? {};
+  const type = [
+    data.type,
+    data.notification_type,
+    data.notificationType,
+    data.event_type,
+    data.eventType,
+    data.action,
+    data.target_type,
+    data.targetType,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const text = `${payload.notification?.title || ""} ${payload.notification?.body || ""} ${
+    data.title || ""
+  } ${data.body || ""}`.toLowerCase();
+
+  return (
+    type.includes("feed") ||
+    type.includes("comment") ||
+    type.includes("reply") ||
+    text.includes("comment") ||
+    text.includes("\uB313\uAE00")
+  );
+}
+
+function getNotificationPath(payload: MessagePayload, feedNotification: boolean): string {
   const data = payload.data ?? {};
   const type = [
     data.type,
@@ -242,11 +273,11 @@ function getNotificationPath(payload: MessagePayload, likeNotification: boolean)
     .toLowerCase();
 
   if (type.includes("tripmate")) return "/mate";
-  if (type.includes("feed")) {
+  if (type.includes("feed") || feedNotification) {
     const actorId = data.actor_id || data.actorId || data.user_id || data.userId;
     return actorId ? `/profile/${encodeURIComponent(actorId)}` : "/my";
   }
-  return likeNotification ? "/mate" : "/chat";
+  return "/chat";
 }
 
 function extractActorName(title: string, body: string): string {

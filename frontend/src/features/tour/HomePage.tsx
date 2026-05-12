@@ -448,6 +448,7 @@ export default function HomePage() {
   const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("detecting");
   const [locationError, setLocationError] = useState("");
+  const [isScrollHandleVisible, setIsScrollHandleVisible] = useState(false);
   const hasGpsLocationRef = useRef(false);
 
   useEffect(() => {
@@ -660,6 +661,19 @@ export default function HomePage() {
     fetchSearchHistory().catch(() => {
       setRecentSearches([]);
     });
+  }, []);
+
+  useEffect(() => {
+    function handlePageScroll(): void {
+      setIsScrollHandleVisible(window.scrollY > 160);
+    }
+
+    handlePageScroll();
+    window.addEventListener("scroll", handlePageScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", handlePageScroll);
+    };
   }, []);
 
   const favoriteIds = useMemo(
@@ -921,6 +935,16 @@ export default function HomePage() {
 
   return (
     <div style={styles.page}>
+      {isScrollHandleVisible ? (
+        <button
+          type="button"
+          style={styles.floatingScrollHandle}
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          aria-label="Scroll to top"
+        >
+          <span style={styles.floatingScrollHandleBar} />
+        </button>
+      ) : null}
       <div style={styles.shell}>
         <header style={styles.header}>
           <div>
@@ -1815,6 +1839,28 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--neutral-700)",
     fontSize: "0.9rem",
     fontWeight: 700,
+  },
+  floatingScrollHandle: {
+    position: "fixed",
+    top: "calc(var(--app-safe-top) + 8px)",
+    left: "50%",
+    transform: "translateX(-50%)",
+    zIndex: 18,
+    width: 48,
+    height: 24,
+    display: "grid",
+    placeItems: "center",
+    border: "none",
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.92)",
+    boxShadow: "0 8px 24px rgba(24,26,32,0.16)",
+    cursor: "pointer",
+  },
+  floatingScrollHandleBar: {
+    width: 32,
+    height: 4,
+    borderRadius: 999,
+    background: "rgba(5,181,187,0.52)",
   },
   modalOverlay: {
     position: "fixed",

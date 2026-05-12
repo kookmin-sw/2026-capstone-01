@@ -6,9 +6,10 @@ import {
   getMyProfile,
   logoutUser,
   replaceMyProfileImage,
-  updateMyProfilePreferences,
+  updateMyProfile,
   uploadMyProfileImage,
   withdrawUser,
+  type ProfileUpdatePayload,
   type ProfilePreferencesPayload,
   type UserProfile,
 } from "../api/auth/auth";
@@ -129,6 +130,15 @@ const EMPTY_PREFERENCES: ProfilePreferencesPayload = {
   planning_preference: "",
 };
 
+const EMPTY_PROFILE_DRAFT: ProfileUpdatePayload = {
+  email: "",
+  user_name: "",
+  phone_number: "",
+  age: 0,
+  gender: "",
+  nationality: "",
+};
+
 export default function MyPage() {
   const navigate = useNavigate();
   const profileImageInputRef = useRef<HTMLInputElement>(null);
@@ -140,10 +150,11 @@ export default function MyPage() {
   const [isDeletingProfileImage, setIsDeletingProfileImage] = useState(false);
   const [isProfileImageMenuOpen, setIsProfileImageMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isStatusEditing, setIsStatusEditing] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("");
-  const [statusDraft, setStatusDraft] = useState("");
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [profileDraft, setProfileDraft] =
+    useState<ProfileUpdatePayload>(EMPTY_PROFILE_DRAFT);
+  const [isProfileEditing, setIsProfileEditing] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [preferenceDraft, setPreferenceDraft] =
     useState<ProfilePreferencesPayload>(EMPTY_PREFERENCES);
   const [isPreferenceEditing, setIsPreferenceEditing] = useState(false);
@@ -181,9 +192,7 @@ export default function MyPage() {
       .then((data) => {
         setProfile(data);
         if (data) {
-          const nextStatus = getInitialStatusMessage(data);
-          setStatusMessage(nextStatus);
-          setStatusDraft(nextStatus);
+          setProfileDraft(toProfileUpdatePayload(data));
           setPreferenceDraft(toPreferencePayload(data));
         }
       })
@@ -610,16 +619,6 @@ export default function MyPage() {
     }
   }
 
-  function handleStatusSave(): void {
-    const nextStatus = statusDraft.trim();
-    setStatusMessage(nextStatus);
-    setStatusDraft(nextStatus);
-    setIsStatusEditing(false);
-    if (profile?.user_id) {
-      window.localStorage.setItem(getStatusStorageKey(profile.user_id), nextStatus);
-    }
-  }
-
   function togglePreferenceList(
     key: "travel_styles" | "food_preferences" | "transport_preferences" | "time_preferences",
     value: string
@@ -651,6 +650,42 @@ export default function MyPage() {
     }));
   }
 
+  function setProfileDraftValue(
+    key: keyof ProfileUpdatePayload,
+    value: string | number
+  ): void {
+    setProfileDraft((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
+  async function handleProfileSave(): Promise<void> {
+    if (isSavingProfile) return;
+
+    setIsSavingProfile(true);
+    try {
+      const updatedProfile = await updateMyProfile(normalizeProfileUpdatePayload(profileDraft));
+      setProfile((current) => ({
+        ...(current ?? {}),
+        ...(updatedProfile ?? {}),
+      }) as UserProfile);
+      if (updatedProfile) {
+        setProfileDraft(toProfileUpdatePayload(updatedProfile));
+      }
+      setIsProfileEditing(false);
+      showAppToast({ title: "Profile saved", variant: "success" });
+    } catch (error) {
+      showAppToast({
+        title: "Failed to save profile",
+        message: toErrorMessage(error, "Please try again."),
+        variant: "error",
+      });
+    } finally {
+      setIsSavingProfile(false);
+    }
+  }
+
   async function handlePreferenceSave(): Promise<void> {
     if (isSavingPreferences) return;
     if (!profile) {
@@ -664,7 +699,7 @@ export default function MyPage() {
 
     setIsSavingPreferences(true);
     try {
-      const updatedProfile = await updateMyProfilePreferences(preferenceDraft, profile);
+      const updatedProfile = await updateMyProfile(preferenceDraft);
       setProfile((current) => ({
         ...(current ?? {}),
         ...(updatedProfile ?? {}),
@@ -695,8 +730,6 @@ export default function MyPage() {
     { label: "Gender", value: formatGender(profile?.gender) },
     { label: "Nationality", value: profile?.nationality ?? "" },
   ].filter((item) => item.value);
-  const preferenceTags = getPreferenceTags(profile);
-
   return (
     <div style={styles.page}>
       <section style={styles.socialProfile}>
@@ -775,18 +808,6 @@ export default function MyPage() {
               +
             </button>
           </div>
-          <p style={styles.statusMessage}>
-            {statusMessage || "No status message yet."}
-          </p>
-          {preferenceTags.length > 0 ? (
-            <div style={styles.preferenceTags} aria-label="Travel preferences">
-              {preferenceTags.map((tag) => (
-                <span key={tag} style={styles.preferenceTag}>
-                  #{tag}
-                </span>
-              ))}
-            </div>
-          ) : null}
           <span style={styles.profileStat}>
             <strong>{feedPosts.length}</strong> posts
           </span>
@@ -853,23 +874,18 @@ export default function MyPage() {
             <button
               type="button"
               style={styles.settingsActionButton}
-              onClick={() => setIsStatusEditing((current) => !current)}
+              onClick={() => setIsProfileEditing((current) => !current)}
             >
-              Edit Status Message
+              Edit Profile
             </button>
-            {isStatusEditing ? (
-              <div style={styles.statusEditor}>
-                <textarea
-                  value={statusDraft}
-                  maxLength={80}
-                  style={styles.statusTextarea}
-                  placeholder="Write a short status message."
-                  onChange={(event) => setStatusDraft(event.target.value)}
-                />
-                <button type="button" style={styles.primaryButton} onClick={handleStatusSave}>
-                  Save Status
-                </button>
-              </div>
+            {isProfileEditing ? (
+              <ProfileEditor
+                value={profileDraft}
+                isSaving={isSavingProfile}
+                onChange={setProfileDraftValue}
+                onReset={() => setProfileDraft(toProfileUpdatePayload(profile))}
+                onSave={() => void handleProfileSave()}
+              />
             ) : null}
             <button
               type="button"
@@ -995,6 +1011,93 @@ export default function MyPage() {
           onCommentDelete={(comment) => void handleCommentDelete(comment)}
         />
       ) : null}
+    </div>
+  );
+}
+
+function ProfileEditor({
+  value,
+  isSaving,
+  onChange,
+  onReset,
+  onSave,
+}: {
+  value: ProfileUpdatePayload;
+  isSaving: boolean;
+  onChange: (key: keyof ProfileUpdatePayload, value: string | number) => void;
+  onReset: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div style={styles.preferenceEditor}>
+      <Field label="Name">
+        <input
+          value={value.user_name ?? ""}
+          maxLength={100}
+          style={styles.input}
+          onChange={(event) => onChange("user_name", event.target.value)}
+        />
+      </Field>
+      <Field label="Email">
+        <input
+          type="email"
+          value={value.email ?? ""}
+          style={styles.input}
+          onChange={(event) => onChange("email", event.target.value)}
+        />
+      </Field>
+      <Field label="Phone">
+        <input
+          value={value.phone_number ?? ""}
+          maxLength={30}
+          style={styles.input}
+          onChange={(event) => onChange("phone_number", event.target.value)}
+        />
+      </Field>
+      <div style={styles.twoColumn}>
+        <Field label="Age">
+          <input
+            type="number"
+            min={0}
+            max={120}
+            value={Number(value.age ?? 0)}
+            style={styles.input}
+            onChange={(event) => onChange("age", Number(event.target.value))}
+          />
+        </Field>
+        <Field label="Gender">
+          <select
+            value={value.gender ?? ""}
+            style={styles.input}
+            onChange={(event) => onChange("gender", event.target.value)}
+          >
+            <option value="">Select</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+          </select>
+        </Field>
+      </div>
+      <Field label="Nationality">
+        <input
+          value={value.nationality ?? ""}
+          maxLength={80}
+          style={styles.input}
+          onChange={(event) => onChange("nationality", event.target.value)}
+        />
+      </Field>
+      <div style={styles.preferenceEditorActions}>
+        <button type="button" style={styles.secondaryButton} onClick={onReset} disabled={isSaving}>
+          Reset
+        </button>
+        <button
+          type="button"
+          style={{ ...styles.primaryButton, ...(isSaving ? styles.buttonDisabled : {}) }}
+          onClick={onSave}
+          disabled={isSaving}
+        >
+          {isSaving ? "Saving..." : "Save Profile"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1435,9 +1538,12 @@ function FeedPostModal({
   onCommentSubmit: () => void;
   onCommentDelete: (comment: FeedComment) => void;
 }) {
+  const isLikedByMe = likes.some((likeUser) => likeUser.user_id === currentUserId);
+
   return (
     <div style={styles.modalBackdrop} onClick={onClose}>
       <div style={styles.feedModal} onClick={(event) => event.stopPropagation()}>
+        <div style={styles.sheetHandle} />
         <button type="button" style={styles.modalCloseButton} onClick={onClose}>
           x
         </button>
@@ -1552,7 +1658,7 @@ function FeedPostModal({
                 aria-label="Like"
               >
                 <span style={styles.feedActionCount}>{post.like_count}</span>
-                <HeartIcon />
+                <HeartIcon filled={isLikedByMe} />
               </button>
               <span style={styles.feedCommentSummary}>
                 <span style={styles.feedActionCount}>{post.comment_count}</span>
@@ -1589,12 +1695,16 @@ function FeedPostModal({
   );
 }
 
-function HeartIcon() {
+function HeartIcon({ filled }: { filled: boolean }) {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
         d="M12 20.2s-7.4-4.6-9.2-9.4C1.6 7.5 3.6 4.5 6.8 4.5c1.8 0 3.2.9 4.1 2.2.9-1.3 2.3-2.2 4.1-2.2 3.2 0 5.2 3 4 6.3-1.7 4.8-9 9.4-9 9.4Z"
-        fill="currentColor"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );
@@ -1675,26 +1785,6 @@ const styles: Record<string, CSSProperties> = {
   profileStat: {
     color: "var(--neutral-700)",
     fontWeight: 800,
-  },
-  preferenceTags: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 6,
-    marginTop: 10,
-    maxWidth: 520,
-  },
-  preferenceTag: {
-    display: "inline-flex",
-    alignItems: "center",
-    minHeight: 28,
-    borderRadius: 999,
-    padding: "0 10px",
-    background: "rgba(5,181,187,0.12)",
-    border: "1px solid rgba(5,181,187,0.18)",
-    color: "var(--brand-primary-deep)",
-    fontSize: "0.76rem",
-    fontWeight: 900,
-    lineHeight: 1,
   },
   avatarWrap: {
     position: "relative",
@@ -2126,7 +2216,7 @@ const styles: Record<string, CSSProperties> = {
   },
   preferenceChoiceActive: {
     background: "var(--brand-primary-soft)",
-    borderColor: "rgba(5,181,187,0.38)",
+    border: "1px solid rgba(5,181,187,0.38)",
     color: "var(--brand-primary-deep)",
   },
   preferenceEditorActions: {
@@ -2385,6 +2475,17 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 18,
     background: "#ffffff",
     boxShadow: "0 24px 70px rgba(15,23,42,0.28)",
+  },
+  sheetHandle: {
+    position: "absolute",
+    top: 8,
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: 48,
+    height: 4,
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.64)",
+    zIndex: 3,
   },
   modalCloseButton: {
     position: "absolute",
@@ -2748,31 +2849,6 @@ function bytesToAscii(bytes: Uint8Array, start: number, end: number): string {
     .join("");
 }
 
-function getPreferenceTags(profile: UserProfile | null): string[] {
-  if (!profile) return [];
-
-  const values = [
-    ...(profile.travel_styles ?? []),
-    ...(profile.food_preferences ?? []),
-    profile.density_preference,
-    profile.budget_preference,
-    profile.walking_preference,
-    ...(profile.transport_preferences ?? []),
-    profile.companion_preference,
-    ...(profile.time_preferences ?? []),
-    profile.communication_preference,
-    profile.planning_preference,
-  ];
-
-  return Array.from(
-    new Set(
-      values
-        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        .map(formatPreferenceTag)
-    )
-  );
-}
-
 function toPreferencePayload(profile: UserProfile | null): ProfilePreferencesPayload {
   if (!profile) return EMPTY_PREFERENCES;
 
@@ -2790,73 +2866,36 @@ function toPreferencePayload(profile: UserProfile | null): ProfilePreferencesPay
   };
 }
 
-function formatPreferenceTag(value: string): string {
-  const labelMap: Record<string, string> = {
-    activity: "Activity",
-    famous_attractions: "Famous Attractions",
-    healing: "Healing",
-    culture_history: "Culture & History",
-    shopping: "Shopping",
-    food_tour: "Food Tour",
-    photo_aesthetic: "Photo Aesthetic",
-    festival_event: "Festival & Event",
-    nature: "Nature",
-    traditional: "Traditional",
-    trekking: "Trekking",
-    hidden_gems: "Hidden Gems",
-    art_exhibition: "Art Exhibition",
-    theme_park: "Theme Park",
-    food_halal: "Halal",
-    food_vegetarian: "Vegetarian",
-    foodie: "Foodie",
-    cafe_lover: "Cafe Lover",
-    density_relaxed: "Relaxed",
-    density_packed: "Packed",
-    budget_saving: "Saving",
-    budget_moderate: "Moderate",
-    budget_premium: "Premium",
-    walking_low: "Low Walking",
-    walking_medium: "Medium Walking",
-    walking_high: "High Walking",
-    transport_public: "Public Transit",
-    transport_car: "Car",
-    transport_taxi: "Taxi",
-    companion_independent: "Independent",
-    companion_together: "Together",
-    companion_flexible: "Flexible",
-    daytime: "Daytime",
-    nightlife: "Nightlife",
-    night_view: "Night View",
-    communication_high: "High Communication",
-    communication_low: "Low Communication",
-    planner: "Planner",
-    spontaneous: "Spontaneous",
-    follower: "Follower",
-  };
+function toProfileUpdatePayload(profile: UserProfile | null): ProfileUpdatePayload {
+  if (!profile) return EMPTY_PROFILE_DRAFT;
 
-  const key = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
-  return labelMap[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return {
+    email: profile.email ?? "",
+    user_name: profile.user_name ?? "",
+    phone_number: profile.phone_number ?? "",
+    age: Number(profile.age ?? 0),
+    gender: profile.gender ?? "",
+    nationality: profile.nationality ?? "",
+  };
+}
+
+function normalizeProfileUpdatePayload(
+  payload: ProfileUpdatePayload
+): ProfileUpdatePayload {
+  return {
+    email: payload.email,
+    user_name: payload.user_name,
+    phone_number: payload.phone_number,
+    age: Number(payload.age ?? 0),
+    gender: payload.gender,
+    nationality: payload.nationality,
+  };
 }
 
 function getVisibilityLabel(visibility: FeedVisibility): string {
   if (visibility === "public") return "Public";
   if (visibility === "friends") return "Friends";
   return "Private";
-}
-
-function getInitialStatusMessage(profile: UserProfile): string {
-  const profileStatus =
-    profile.status ||
-    (profile as UserProfile & { status_message?: string | null }).status_message ||
-    "";
-  if (profile.user_id) {
-    return window.localStorage.getItem(getStatusStorageKey(profile.user_id)) || profileStatus;
-  }
-  return profileStatus;
-}
-
-function getStatusStorageKey(userId: string): string {
-  return `krip:my-page-status:${userId}`;
 }
 
 function formatGender(gender?: string): string {

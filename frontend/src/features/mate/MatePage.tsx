@@ -27,6 +27,7 @@ import {
   deleteFriendSearchHistoryAll,
   deleteFriendSearchHistoryOne,
   getFriendDetail,
+  getFriends,
   getFriendSearchHistory,
   searchFriendUsers,
   sendFriendRequest,
@@ -106,6 +107,7 @@ export default function MatePage() {
   const [recommendationCandidates, setRecommendationCandidates] = useState<
     RecommendationCandidate[]
   >([]);
+  const [acceptedFriendIds, setAcceptedFriendIds] = useState<Set<string>>(new Set());
 
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -322,6 +324,15 @@ export default function MatePage() {
   }, []);
 
   useEffect(() => {
+    loadAcceptedFriendIds()
+      .then((friendIds) => setAcceptedFriendIds(friendIds))
+      .catch((error) => {
+        console.warn("Failed to load accepted friends for recommendations", error);
+        setAcceptedFriendIds(new Set());
+      });
+  }, []);
+
+  useEffect(() => {
     if (tab !== "write") {
       return undefined;
     }
@@ -381,8 +392,15 @@ export default function MatePage() {
     (suggestionLoading || suggestedUsers.length > 0 || visibleSearchHistory.length > 0);
 
   const mateRecommendations = useMemo(
-    () => recommendTravelers(currentRecommendationProfile, recommendationCandidates, 10),
-    [currentRecommendationProfile, recommendationCandidates]
+    () =>
+      recommendTravelers(
+        currentRecommendationProfile,
+        recommendationCandidates.filter(
+          (candidate) => !acceptedFriendIds.has(candidate.user_id)
+        ),
+        10
+      ),
+    [acceptedFriendIds, currentRecommendationProfile, recommendationCandidates]
   );
   const recommendationSourceTags = useMemo(
     () => getMatePreferenceTags(currentRecommendationProfile),
@@ -1558,13 +1576,12 @@ function RecommendedTravelerModal({
   onChat: () => void;
   onViewFeed: () => void;
 }) {
-  const profileEntries = Object.entries(traveler).filter(
-    ([key]) => key !== "similarity_score" && key !== "profile_image_url"
-  );
+  const profileEntries = getVisibleRecommendedProfileEntries(traveler);
 
   return (
     <div style={styles.modalOverlay} onClick={onClose}>
       <div style={styles.recommendedModalCard} onClick={(event) => event.stopPropagation()}>
+        <div style={styles.sheetHandle} />
         <div style={styles.recommendedModalHeader}>
           {traveler.profile_image_url ? (
             <img
@@ -1662,6 +1679,7 @@ function PostModal({
   return (
     <div style={styles.modalOverlay} onClick={onClose}>
       <div style={styles.modalCard} onClick={(event) => event.stopPropagation()}>
+        <div style={styles.sheetHandle} />
         <div style={styles.modalHero}>
           <div style={styles.modalHeroTop}>
             <span style={styles.modalCategory}>{COMPANION_LABELS[post.companion_type]}</span>
@@ -1758,10 +1776,54 @@ function formatProfileKey(key: string): string {
 }
 
 function formatProfileValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "-";
   if (Array.isArray(value)) return value.join(", ");
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+function getVisibleRecommendedProfileEntries(
+  traveler: RecommendedTraveler
+): Array<[string, unknown]> {
+  const displayKeys = [
+    "nationality",
+    "travel_styles",
+    "food_preferences",
+    "density_preference",
+    "budget_preference",
+    "walking_preference",
+    "transport_preferences",
+    "companion_preference",
+    "time_preferences",
+    "communication_preference",
+    "planning_preference",
+  ];
+
+  return displayKeys
+    .map((key) => [key, traveler[key]] as [string, unknown])
+    .filter(([, value]) => hasVisibleProfileValue(value));
+}
+
+function hasVisibleProfileValue(value: unknown): boolean {
+  if (value === null || value === undefined || value === "") return false;
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+async function loadAcceptedFriendIds(): Promise<Set<string>> {
+  const friendIds: Set<string> = new Set();
+  let cursor: string | undefined;
+
+  do {
+    const response = await getFriends(cursor);
+    response.items.forEach((friendship) => {
+      if (friendship.status === "accepted") {
+        friendIds.add(friendship.peer.user_id);
+      }
+    });
+    cursor = response.next_cursor ?? undefined;
+  } while (cursor);
+
+  return friendIds;
 }
 
 function getMatePreferenceTags(profile: {
@@ -3087,11 +3149,11 @@ const styles: Record<string, CSSProperties> = {
     animation: "slideUpModal 280ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
   sheetHandle: {
-    width: 56,
-    height: 6,
+    width: 48,
+    height: 4,
     borderRadius: 999,
     background: "rgba(5,181,187,0.24)",
-    margin: "4px auto 6px",
+    margin: "4px auto 8px",
   },
   sheetTitle: {
     margin: 0,

@@ -24,6 +24,7 @@ import {
 import { useChat } from "./ChatProvider";
 import { reportChatNetworkError } from "../../utils/chatDiagnostics";
 import FeedPopup from "../../components/FeedPopup";
+import { navigateBackOrFallback } from "../../utils/navigation";
 
 type ChatTab = "chats" | "friends";
 type LoadingKey = "received" | "sent" | "friends" | "blocks";
@@ -296,7 +297,11 @@ export default function ChatPage() {
     <div style={styles.page}>
       <div style={styles.shell}>
         <header style={styles.header}>
-          <button type="button" style={styles.backButton} onClick={() => navigate(-1)}>
+          <button
+            type="button"
+            style={styles.backButton}
+            onClick={() => navigateBackOrFallback(navigate, "/home")}
+          >
             ‹
           </button>
           <h1 style={styles.title}>Chat</h1>
