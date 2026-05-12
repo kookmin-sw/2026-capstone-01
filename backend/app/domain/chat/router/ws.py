@@ -98,8 +98,16 @@ async def ws_chat(
     except Exception as e:
         logger.exception("세션 생성 실패: user_id={}, err={}", user_id, e)
         chat_ws_connect_result("session_failed")
-        await websocket.send_json({"type": "server_error", "reason": "session_create_failed"})
-        await websocket.close(code=CLOSE_SERVICE_RESTART)
+        # 이 시점에 클라가 이미 끊겼다면 send/close 자체가 disconnect 예외를 던질 수 있음.
+        # 아직 inc/register 전이라 cleanup 할 자원이 없으므로 조용히 흡수하고 반환.
+        try:
+            await websocket.send_json({"type": "server_error", "reason": "session_create_failed"})
+        except Exception:
+            pass
+        try:
+            await websocket.close(code=CLOSE_SERVICE_RESTART)
+        except Exception:
+            pass
         return
 
     # 정상 연결 — accept + session 모두 통과.
@@ -111,46 +119,49 @@ async def ws_chat(
     websocket.user_id = user_id        # type: ignore[attr-defined]
     websocket.subscribed_rooms = set()  # type: ignore[attr-defined]
 
-    # 6. 세션/방 등록
-    fanout.register_session(websocket)
+    # 6~9 단계는 모두 단일 try 안에서 수행 — init 단계 (connected 송신·unread 동기화·
+    # heartbeat 생성) 중간에 클라가 끊겨도 finally cleanup 에 반드시 도달하도록 보장한다.
+    # 한 짝이라도 누락되면 metric counter / fanout dict / Redis 세션 키가 누수.
+    heartbeat_task: asyncio.Task | None = None
     try:
-        room_ids = await room_svc.list_user_room_ids(user_id)
-    except Exception as e:
-        logger.exception("방 목록 로드 실패: user_id={}, err={}", user_id, e)
-        room_ids = []
-    for rid in room_ids:
-        fanout.register_ws_to_room(websocket, rid)
+        # 6. 세션/방 등록
+        fanout.register_session(websocket)
+        try:
+            room_ids = await room_svc.list_user_room_ids(user_id)
+        except Exception as e:
+            logger.exception("방 목록 로드 실패: user_id={}, err={}", user_id, e)
+            room_ids = []
+        for rid in room_ids:
+            fanout.register_ws_to_room(websocket, rid)
 
-    # 7. connected 이벤트 — 클라가 session_id 를 수신해 향후 비교/로깅에 사용
-    await websocket.send_json({"type": "connected", "session_id": session_id})
+        # 7. connected 이벤트 — 클라가 session_id 를 수신해 향후 비교/로깅에 사용.
+        #    핸드셰이크 직후 즉시 close 하는 race 에서는 여기서 WebSocketDisconnect 가
+        #    발생하지만, 외곽 except 가 정상 종료로 흡수 + finally 가 cleanup 한다.
+        await websocket.send_json({"type": "connected", "session_id": session_id})
 
-    # 7-a. unread 초기 동기화 — Redis 에 값이 있으면 즉시 push, 없으면 백그라운드 복구.
-    #   복구 완료 시 `unread_synced` 를 뒤늦게라도 push 해 클라 UI 가 싱크되도록 한다.
-    #   recover 자체는 RDB + Mongo count 조합이라 느릴 수 있으므로 fire-and-forget.
-    #
-    # WebSocketDisconnect 는 외곽 except 에 위임해 정상 종료로 처리 — 여기서 삼키면
-    # 뒤이은 receive_json 이 `RuntimeError: WebSocket is not connected` 를 뱉어
-    # 정상적인 init-단계 disconnect 가 traceback 으로 둔갑한다.
-    try:
-        counts = await history_svc.get_unread_counts(user_id)
-        if counts:
-            await websocket.send_json({"type": "unread_synced", "counts": counts})
-        else:
-            # Redis 비어있음 → Phase 3 복구 경로. 태스크 참조는 _spawn_* 가 내부 set 에 보관.
-            _spawn_recover_unread(websocket, user_id)
-    except WebSocketDisconnect:
-        raise
-    except Exception as e:
-        logger.warning("unread 동기화 실패 (무시하고 진행): user_id={}, err={!r}", user_id, e)
+        # 7-a. unread 초기 동기화 — Redis 에 값이 있으면 즉시 push, 없으면 백그라운드 복구.
+        #   복구 완료 시 `unread_synced` 를 뒤늦게라도 push 해 클라 UI 가 싱크되도록 한다.
+        #   recover 자체는 RDB + Mongo count 조합이라 느릴 수 있으므로 fire-and-forget.
+        try:
+            counts = await history_svc.get_unread_counts(user_id)
+            if counts:
+                await websocket.send_json({"type": "unread_synced", "counts": counts})
+            else:
+                # Redis 비어있음 → Phase 3 복구 경로. 태스크 참조는 _spawn_* 가 내부 set 에 보관.
+                _spawn_recover_unread(websocket, user_id)
+        except WebSocketDisconnect:
+            # 외곽 except 에서 정상 종료 + finally cleanup 으로 위임.
+            raise
+        except Exception as e:
+            logger.warning("unread 동기화 실패 (무시하고 진행): user_id={}, err={!r}", user_id, e)
 
-    # 8. heartbeat 백그라운드 태스크
-    heartbeat_task = asyncio.create_task(
-        _heartbeat_loop(session_svc, session_id, user_id),
-        name=f"chat-hb-{session_id}",
-    )
+        # 8. heartbeat 백그라운드 태스크
+        heartbeat_task = asyncio.create_task(
+            _heartbeat_loop(session_svc, session_id, user_id),
+            name=f"chat-hb-{session_id}",
+        )
 
-    # 9. op 수신 루프
-    try:
+        # 9. op 수신 루프
         await _receive_loop(
             websocket=websocket,
             session_id=session_id,
@@ -162,9 +173,9 @@ async def ws_chat(
     except WebSocketDisconnect:
         logger.debug("WS 정상 종료: session_id={}", session_id)
     except Exception as e:
-        logger.exception("WS 수신 루프 예외: session_id={}, err={}", session_id, e)
+        logger.exception("WS 핸들러 예외: session_id={}, err={}", session_id, e)
     finally:
-        # 10. 종료 순서: ① 로컬 dict 먼저 → ② heartbeat 정리 대기 → ③ Redis 정리
+        # 10. 종료 순서: ① metric → ② 로컬 dict → ③ heartbeat 정리 대기 → ④ Redis 정리.
         # 각 단계는 서로 독립이므로 한 쪽 실패가 다음 단계를 막지 않도록 개별 try 로 격리한다.
         # cleanup path 는 본 요청 처리가 끝난 뒤이므로 warning 으로만 남기고 진행한다.
         # (CancelledError 는 BaseException 이라 `except Exception` 에 잡히지 않아 정상 전파됨)
@@ -177,16 +188,18 @@ async def ws_chat(
                 "fanout unregister 실패 (무시): session_id={}, err={}", session_id, e,
             )
 
-        # heartbeat task 를 cancel 만 하고 반환하면 pending 상태로 GC 되어
-        # "Task was destroyed but it is pending!" 경고 노이즈 + 리소스 누수 위험.
-        # gather(return_exceptions=True) 로 CancelledError 소화까지 기다림 (bounded).
-        try:
-            heartbeat_task.cancel()
-            await asyncio.gather(heartbeat_task, return_exceptions=True)
-        except Exception as e:
-            logger.warning(
-                "heartbeat 정리 실패 (무시): session_id={}, err={}", session_id, e,
-            )
+        # heartbeat_task 가 None 이면 init 단계 disconnect 로 생성 전 — cancel 스킵.
+        # cancel 만 하고 반환하면 pending 상태로 GC 되어 "Task was destroyed but it is
+        # pending!" 경고 노이즈 + 리소스 누수 위험. gather(return_exceptions=True) 로
+        # CancelledError 소화까지 기다림 (bounded).
+        if heartbeat_task is not None:
+            try:
+                heartbeat_task.cancel()
+                await asyncio.gather(heartbeat_task, return_exceptions=True)
+            except Exception as e:
+                logger.warning(
+                    "heartbeat 정리 실패 (무시): session_id={}, err={}", session_id, e,
+                )
 
         try:
             await session_svc.terminate_session(session_id, user_id)
