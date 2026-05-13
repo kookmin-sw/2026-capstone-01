@@ -1,4 +1,5 @@
 import { notifyUnauthorized, removeToken } from "../../utils/tokens";
+import { getUserAuthorizationBearer } from "../client";
 import {
   API_BASE_URL,
   AUTHORIZATION_BEARER,
@@ -243,11 +244,12 @@ function toErrorMessage(value: unknown, fallback: string): string {
 }
 
 function getAuthHeaders(headers: RequestHeaders = {}): RequestHeaders {
-  if (!AUTHORIZATION_BEARER) return headers;
+  const authorization = getUserAuthorizationBearer() || AUTHORIZATION_BEARER;
+  if (!authorization) return headers;
 
   return {
     ...headers,
-    Authorization: AUTHORIZATION_BEARER,
+    Authorization: authorization,
   };
 }
 
@@ -313,7 +315,7 @@ async function authRequest<T>(
   if (response.status === 401) {
     console.warn("Unauthorized request", {
       path,
-      authorization: AUTHORIZATION_BEARER,
+      authorization: getUserAuthorizationBearer() || AUTHORIZATION_BEARER,
     });
     removeToken();
     notifyUnauthorized();
@@ -328,7 +330,7 @@ async function authRequest<T>(
   throw error;
 }
 
-export function createLoginUrl(): string {
+export function createLoginUrl(platform?: "android"): string {
   const url = new URL("/api/auth/login", API_BASE_URL);
   url.searchParams.set("type", "google");
 
@@ -336,6 +338,10 @@ export function createLoginUrl(): string {
 
   if (shouldUseLocalLogin) {
     url.searchParams.set("is_local", "true");
+  }
+
+  if (platform) {
+    url.searchParams.set("platform", platform);
   }
 
   return url.toString();

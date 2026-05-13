@@ -1,5 +1,7 @@
 import type { CSSProperties } from "react";
 import { useEffect } from "react";
+import { Browser } from "@capacitor/browser";
+import { Capacitor } from "@capacitor/core";
 import { useNavigate } from "react-router-dom";
 import { createLoginUrl, getMyProfile } from "../api/auth/auth";
 
@@ -42,6 +44,11 @@ export default function LoginPage() {
   }, [navigate]);
 
   function handleGoogleLogin(): void {
+    if (Capacitor.isNativePlatform()) {
+      void Browser.open({ url: createLoginUrl("android") });
+      return;
+    }
+
     window.location.href = createLoginUrl();
   }
 

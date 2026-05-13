@@ -461,34 +461,36 @@ export default function ChatPage({
         {isFriendManagerOpen ? (
           <div style={styles.managerBackdrop} onClick={() => setIsFriendManagerOpen(false)}>
             <section style={styles.managerPanel} onClick={(event) => event.stopPropagation()}>
-              <div style={styles.managerHeader}>
-                <h2 style={styles.managerTitle}>Friends</h2>
-                <button
-                  type="button"
-                  style={styles.managerCloseButton}
-                  onClick={() => setIsFriendManagerOpen(false)}
-                >
-                  <img src="/icon-close.svg" alt="" style={styles.closeIcon} />
-                </button>
-              </div>
-
-              <div style={styles.managerTabs} aria-label="Friend manager tabs">
-                {(["friend", "request"] as const).map((item) => (
+              <div style={styles.managerFixedHeader}>
+                <div style={styles.managerHeader}>
+                  <h2 style={styles.managerTitle}>Friends</h2>
                   <button
-                    key={item}
                     type="button"
-                    style={{
-                      ...styles.managerTabButton,
-                      ...(friendManagerTab === item ? styles.managerTabButtonActive : {}),
-                    }}
-                    onClick={() => setFriendManagerTab(item)}
+                    style={styles.managerCloseButton}
+                    onClick={() => setIsFriendManagerOpen(false)}
                   >
-                    {item === "friend" ? "Friend" : "Request"}
-                    {item === "request" && pendingCount > 0 ? (
-                      <span style={styles.managerTabBadge}>{pendingCount}</span>
-                    ) : null}
+                    <img src="/icon-close.svg" alt="" style={styles.closeIcon} />
                   </button>
-                ))}
+                </div>
+
+                <div style={styles.managerTabs} aria-label="Friend manager tabs">
+                  {(["friend", "request"] as const).map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      style={{
+                        ...styles.managerTabButton,
+                        ...(friendManagerTab === item ? styles.managerTabButtonActive : {}),
+                      }}
+                      onClick={() => setFriendManagerTab(item)}
+                    >
+                      {item === "friend" ? "Friend" : "Request"}
+                      {item === "request" && pendingCount > 0 ? (
+                        <span style={styles.managerTabBadge}>{pendingCount}</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {friendManagerTab === "friend" ? (
@@ -568,7 +570,6 @@ export default function ChatPage({
                         key={friend.friendship_id}
                         item={friend}
                         onChat={() => void handleOpenDirectChat(friend.peer.user_id)}
-                        onViewFeed={() => setFeedPopupUserId(friend.peer.user_id)}
                         onDelete={() => {
                           setActionId(`delete:${friend.friendship_id}`);
                           void runAction(
@@ -875,14 +876,12 @@ function getFriendSearchActionLabel(user: FriendSearchUser): string {
 function FriendCard({
   item,
   onChat,
-  onViewFeed,
   onDelete,
   onBlock,
   busy,
 }: {
   item: Friendship;
   onChat: () => void;
-  onViewFeed: () => void;
   onDelete: () => void;
   onBlock: () => void;
   busy: boolean;
@@ -893,9 +892,6 @@ function FriendCard({
       <div style={styles.actionRow}>
         <button type="button" style={styles.primaryButton} onClick={onChat}>
           Chat
-        </button>
-        <button type="button" style={styles.secondaryButton} onClick={onViewFeed}>
-          Feed
         </button>
         <button type="button" style={styles.secondaryButton} disabled={busy} onClick={onDelete}>
           Delete
@@ -909,17 +905,11 @@ function FriendCard({
 }
 
 function PeerSummary({ peer }: { peer: FriendPeer }) {
-  const meta = [peer.nationality, peer.age ? String(peer.age) : "", formatGender(peer.gender)]
-    .filter(Boolean)
-    .join(" / ");
-
   return (
     <div style={styles.peerSummary}>
       <Avatar name={peer.user_name} imageUrl={peer.profile_image_url} />
       <span style={styles.rowMain}>
         <strong style={styles.rowTitle}>{peer.user_name}</strong>
-        {meta ? <span style={styles.rowSubtitle}>{meta}</span> : null}
-        <span style={styles.userId}>{peer.user_id}</span>
       </span>
     </div>
   );
@@ -1318,13 +1308,15 @@ const styles: Record<string, CSSProperties> = {
     background: "#ffffff",
     border: "none",
     borderBottom: "1px solid #f0f0f0",
+    minWidth: 0,
   },
   peerSummary: {
     display: "flex",
     alignItems: "center",
     gap: 12,
     minWidth: 0,
-    width: "100%",
+    flex: "1 1 auto",
+    width: "auto",
   },
   chatRow: {
     display: "flex",
@@ -1361,13 +1353,16 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 4,
-    flex: 1,
+    flex: "1 1 auto",
   },
   rowTitle: {
     color: "#222222",
     fontSize: "1.06rem",
     lineHeight: 1.1,
     fontWeight: 700,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   rowTitleMeta: {
     marginLeft: 4,
@@ -1411,6 +1406,7 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: "flex-end",
     gap: 4,
     flexShrink: 0,
+    maxWidth: 190,
   },
   primaryButton: {
     border: "none",
@@ -1518,10 +1514,20 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 14,
-    padding: 18,
+    padding: "0 18px 18px",
     borderRadius: "26px 26px 0 0",
     background: "#ffffff",
     boxShadow: "0 22px 70px rgba(15,23,42,0.22)",
+  },
+  managerFixedHeader: {
+    position: "sticky",
+    top: 0,
+    zIndex: 2,
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+    padding: "18px 0 0",
+    background: "#ffffff",
   },
   managerHeader: {
     display: "flex",
