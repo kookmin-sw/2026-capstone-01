@@ -1643,7 +1643,7 @@ const styles: Record<string, CSSProperties> = {
     margin: "2px 0 0",
     fontSize: "clamp(1.15rem, 3.7vw, 2rem)",
     fontWeight: 800,
-    lineHeight: 1.1,
+    lineHeight: 1.25,
     color: "var(--text-primary)",
   },
   headerActions: {
@@ -1796,8 +1796,8 @@ const styles: Record<string, CSSProperties> = {
   filterChip: {
     border: "transparent",
     borderRadius: 999,
-    padding: "0.25rem 0.7rem",
-    alignContent: "center",
+    padding: "0.3rem 0.7rem 0.35rem",
+    lineHeight: 1.4,
     background: "#fff",
     color: "var(--neutral-500)",
     fontWeight: 500,
@@ -1813,7 +1813,8 @@ const styles: Record<string, CSSProperties> = {
   secondaryChip: {
     border: "transparent",
     borderRadius: 999,
-    padding: "0.25rem 0.7rem",
+    padding: "0.3rem 0.7rem 0.35rem",
+    lineHeight: 1.4,
     background: "#fff",
     color: "var(--neutral-500)",
     fontWeight: 500,
@@ -1885,7 +1886,7 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--text-primary)",
     fontSize: "1.1rem",
     fontWeight: 700,
-    lineHeight: 1.18,
+    lineHeight: 1.35,
     display: "-webkit-box",
     WebkitLineClamp: 2,
     WebkitBoxOrient: "vertical",
