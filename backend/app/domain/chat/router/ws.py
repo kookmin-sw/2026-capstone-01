@@ -34,6 +34,7 @@ from app.config.setting import settings
 from app.container import Container
 from app.core.context import request_id_var
 from app.core.instrumentation import (
+    chat_message_send_timer,
     chat_ws_connect_result,
     chat_ws_connection_dec,
     chat_ws_connection_inc,
@@ -397,14 +398,18 @@ async def _handle_send(
     req: SendOp,
 ) -> None:
     """`op=send` — MessageService.send_message 실행 후 ACK 직송."""
-    ack = await chat_svc.send_message(
-        sender_user_id=user_id,
-        sender_session_id=session_id,
-        room_id=req.room_id,
-        client_msg_id=req.client_msg_id,
-        msg_type=req.type,
-        content=req.content,
+    fanout_path = (
+        "cross_node" if settings.FANOUT_MODE == "node_channel" else "local"
     )
+    async with chat_message_send_timer(fanout_path):
+        ack = await chat_svc.send_message(
+            sender_user_id=user_id,
+            sender_session_id=session_id,
+            room_id=req.room_id,
+            client_msg_id=req.client_msg_id,
+            msg_type=req.type,
+            content=req.content,
+        )
     await websocket.send_json({
         "type": "message.sent",
         "client_msg_id": ack.client_msg_id,
