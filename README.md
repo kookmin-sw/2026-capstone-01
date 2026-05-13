@@ -137,7 +137,7 @@ Firebase Cloud Messaging을 통해 채팅, 친구, 서비스 이벤트 알림을
 <br>
 
 
-## 🤖 AI / LLM
+### 🤖 AI / LLM
 
 | 역할 | 종류 |
 | --- | --- |
@@ -147,6 +147,8 @@ Firebase Cloud Messaging을 통해 채팅, 친구, 서비스 이벤트 알림을
 
 <br>
 
+
+### 📊 Monitoring / Observability
 
 | 역할 | 종류 |
 | --- | --- |
