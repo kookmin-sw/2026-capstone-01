@@ -74,8 +74,7 @@ export async function getNotificationUnreadCount(): Promise<number> {
     "/api/notification/inbox/unread-count",
     { useConfiguredBearer: true }
   );
-  const hiddenCount = Object.keys(readHiddenNotifications()).length;
-  return Math.min(999, Math.max(0, Number(data.unread_count || 0) - hiddenCount));
+  return Math.min(999, Math.max(0, Number(data.unread_count || 0)));
 }
 
 export async function hideNotification(notificationId: string): Promise<void> {
