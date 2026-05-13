@@ -2,6 +2,7 @@ import axios from "axios";
 import type { AxiosRequestConfig } from "axios";
 
 import { API_BASE_URL, AUTHORIZATION_BEARER } from "./auth/config";
+import { notifyUnauthorized, removeToken } from "../utils/tokens";
 
 declare module "axios" {
   export interface AxiosRequestConfig {
@@ -41,6 +42,8 @@ export function getUserAuthorizationBearer(): string {
 client.interceptors.request.use((config) => {
   const authorization = getRequestAuthorization(config);
   if (config.requireUserBearer && !authorization) {
+    removeToken();
+    notifyUnauthorized();
     return Promise.reject(new Error("A logged-in Bearer token is required."));
   }
 
@@ -61,7 +64,8 @@ client.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem("accessToken");
+      removeToken();
+      notifyUnauthorized();
     }
 
     if (

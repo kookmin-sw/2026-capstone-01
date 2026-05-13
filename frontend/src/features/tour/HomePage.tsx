@@ -423,9 +423,32 @@ function mapFavoritePlace(item: FavoritePlaceApiItem): Place | null {
   };
 }
 
+function getFilterMask(left: boolean, right: boolean): string {
+  if (left && right) {
+    return "linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)";
+  }
+
+  if (left) {
+    return "linear-gradient(to right, transparent 0, black 16px, black 100%)";
+  }
+
+  if (right) {
+    return "linear-gradient(to right, black 0, black calc(100% - 16px), transparent 100%)";
+  }
+
+  return "none";
+}
+
 export default function HomePage() {
   const navigate = useNavigate();
   const observerRef = useRef<HTMLDivElement | null>(null);
+  const categoryFilterRef = useRef<HTMLDivElement | null>(null);
+
+  const [categoryFilterFade, setCategoryFilterFade] = useState({
+    left: false,
+    right: false,
+  });
+
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [placesSource, setPlacesSource] = useState<Place[]>([]);
@@ -448,7 +471,6 @@ export default function HomePage() {
   const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("detecting");
   const [locationError, setLocationError] = useState("");
-  const [isScrollHandleVisible, setIsScrollHandleVisible] = useState(false);
   const hasGpsLocationRef = useRef(false);
 
   useEffect(() => {
@@ -475,6 +497,26 @@ export default function HomePage() {
         setIsProfileLoading(false);
       });
   }, [navigate]);
+
+  function updateFadeState(
+    ref: React.RefObject<HTMLDivElement>,
+    setter: React.Dispatch<
+      React.SetStateAction<{
+        left: boolean;
+        right: boolean;
+      }>
+    >
+  ) {
+    const el = ref.current;
+    if (!el) return;
+
+    const maxScrollLeft = el.scrollWidth - el.clientWidth;
+
+    setter({
+      left: el.scrollLeft > 2,
+      right: maxScrollLeft <= 2 || el.scrollLeft < maxScrollLeft - 2,
+    });
+  }
 
   function applyCurrentPosition(coords: GeolocationCoordinates): void {
     hasGpsLocationRef.current = true;
@@ -663,19 +705,6 @@ export default function HomePage() {
     });
   }, []);
 
-  useEffect(() => {
-    function handlePageScroll(): void {
-      setIsScrollHandleVisible(window.scrollY > 160);
-    }
-
-    handlePageScroll();
-    window.addEventListener("scroll", handlePageScroll, { passive: true });
-
-    return () => {
-      window.removeEventListener("scroll", handlePageScroll);
-    };
-  }, []);
-
   const favoriteIds = useMemo(
     () => new Set(favoritePlaces.map((place) => place.id)),
     [favoritePlaces]
@@ -730,6 +759,29 @@ export default function HomePage() {
       setActiveCategory(ALL_CATEGORY);
     }
   }, [activeCategory, categoryFilters]);
+
+  useEffect(() => {
+  const el = categoryFilterRef.current;
+  if (!el) return;
+
+  const updateCategoryFade = () => {
+      updateFadeState(categoryFilterRef, setCategoryFilterFade);
+    };
+
+    requestAnimationFrame(updateCategoryFade);
+
+    el.addEventListener("scroll", updateCategoryFade);
+    window.addEventListener("resize", updateCategoryFade);
+
+    const resizeObserver = new ResizeObserver(updateCategoryFade);
+    resizeObserver.observe(el);
+
+    return () => {
+      el.removeEventListener("scroll", updateCategoryFade);
+      window.removeEventListener("resize", updateCategoryFade);
+      resizeObserver.disconnect();
+    };
+  }, [categoryFilters.length]);
 
   const filteredPlaces = useMemo<PlaceWithMeta[]>(() => {
     const source = activeSort === "Favorites" ? favoritePlacesWithMeta : places;
@@ -935,16 +987,6 @@ export default function HomePage() {
 
   return (
     <div style={styles.page}>
-      {isScrollHandleVisible ? (
-        <button
-          type="button"
-          style={styles.floatingScrollHandle}
-          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          aria-label="Scroll to top"
-        >
-          <span style={styles.floatingScrollHandleBar} />
-        </button>
-      ) : null}
       <div style={styles.shell}>
         <header style={styles.header}>
           <div>
@@ -952,14 +994,21 @@ export default function HomePage() {
             <h1 style={styles.headerTitle}>Explore Nearby Places</h1>
           </div>
           <div style={styles.headerActions}>
-            <NotificationBell></NotificationBell>
+            <NotificationBell buttonStyle={styles.myPageButton} />
+            <button
+              type="button"
+              style={styles.myPageButton}
+              aria-label="Open chat"
+              onClick={() => navigate("/chat")}
+            >
+              <ChatIcon />
+            </button>
           </div>
         </header>
 
         <section style={styles.searchPanel}>
           <div style={styles.searchRow}>
             <label style={styles.searchWrap}>
-              <SearchIcon />
               <input
                 value={searchInput}
                 onClick={openSearchSheet}
@@ -971,19 +1020,18 @@ export default function HomePage() {
                 style={styles.searchInput}
                 readOnly
               />
-            </label>
-            <button
+              <button
               type="button"
               style={styles.searchAction}
               aria-label="Search"
               onClick={openSearchSheet}
-            >
-              <SearchIcon />
-            </button>
+              >
+                <SearchIcon></SearchIcon>
+              </button>
+            </label>
           </div>
 
           <div style={styles.locationBar}>
-            <span style={styles.locationBadge}>{locationLabel}</span>
             <button
               type="button"
               style={styles.locationButton}
@@ -991,35 +1039,41 @@ export default function HomePage() {
             >
               Use my location
             </button>
-            <span style={styles.locationHint}>
-              {locationError ||
-                `Viewing ${filteredPlaces.length} places sorted by ${activeSort.toLowerCase()} near ${locationDetailText}`}
-            </span>
-            {locationError ? (
-              <span style={styles.locationHint}>
-                Current basis: {locationDetailText}
-              </span>
-            ) : null}
           </div>
         </section>
 
         <section style={styles.filtersSection}>
-          <div style={styles.filterGroup}>
-            {categoryFilters.map((category) => {
-              const isActive = activeCategory === category;
-              return (
-                <button
-                  key={category}
-                  style={{
-                    ...styles.filterChip,
-                    ...(isActive ? styles.filterChipActive : {}),
-                  }}
-                  onClick={() => setActiveCategory(category)}
-                >
-                  {category}
-                </button>
-              );
-            })}
+          <div ref={categoryFilterRef}
+            className="filter-group-scroll"
+            style={{
+              ...styles.filterGroup,
+              justifyContent: "flex-start",
+              WebkitMaskImage: getFilterMask(
+                categoryFilterFade.left,
+                categoryFilterFade.right
+              ),
+              maskImage: getFilterMask(
+                categoryFilterFade.left,
+                categoryFilterFade.right
+              ),
+            }}>
+            <div style={styles.categoryFilterContent}>
+              {categoryFilters.map((category) => {
+                const isActive = activeCategory === category;
+                return (
+                  <button
+                    key={category}
+                    style={{
+                      ...styles.filterChip,
+                      ...(isActive ? styles.filterChipActive : {}),
+                    }}
+                    onClick={() => setActiveCategory(category)}
+                  >
+                    {category}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div style={styles.filterGroup}>
@@ -1041,7 +1095,9 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section style={styles.listSection}>
+        <section style={visiblePlaces.length > 0
+          ? styles.listSection
+          : styles.emptyListSection}>
           {visiblePlaces.length > 0 ? (
             visiblePlaces.map((place) => (
               <article
@@ -1051,7 +1107,6 @@ export default function HomePage() {
                 onClick={() => openPlaceDetail(place)}
               >
                 <div style={styles.thumbnail}>
-                  <span style={styles.thumbnailLabel}>{place.thumbnail.label}</span>
                 </div>
 
                 <div style={styles.cardBody}>
@@ -1075,7 +1130,7 @@ export default function HomePage() {
                       aria-label={`Toggle favorite for ${place.name}`}
                       disabled={favoriteActionIds.includes(place.id)}
                     >
-                      <StarIcon filled={place.isFavorite} />
+                      <BookmarkIcon filled={place.isFavorite} />
                     </button>
                   </div>
 
@@ -1356,7 +1411,7 @@ export default function HomePage() {
                         onClick={() => void removeRecentSearch(keyword)}
                         aria-label={`Delete ${keyword}`}
                       >
-                        횞
+                        Delete
                       </button>
                     </div>
                   ))}
@@ -1375,11 +1430,11 @@ export default function HomePage() {
 
 function SearchIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg width="25" height="25" viewBox="0 0 24 24" fill="#848484" aria-hidden="true">
       <path
         d="M10.5 18a7.5 7.5 0 1 1 5.303-12.803A7.5 7.5 0 0 1 10.5 18Zm0-13a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11Zm10 15l-4.35-4.35"
         stroke="currentColor"
-        strokeWidth="1.8"
+        strokeWidth="1.2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -1387,14 +1442,40 @@ function SearchIcon() {
   );
 }
 
-function StarIcon({ filled }: { filled: boolean }) {
+function ChatIcon() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
-        d="m12 3.75l2.547 5.163l5.697.828l-4.122 4.018l.973 5.674L12 16.756l-5.095 2.677l.973-5.674L3.756 9.74l5.697-.828L12 3.75Z"
+        d="M5.2 18.4c-1.7-1.4-2.7-3.4-2.7-5.7 0-4.6 4.1-8.2 9.5-8.2s9.5 3.6 9.5 8.2-4.1 8.2-9.5 8.2c-1.2 0-2.3-.2-3.4-.5L4.5 21.5c-.7.2-1.2-.5-.9-1.1l1.6-2Z"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8 12.4h8M8 9.2h5.6"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function BookmarkIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M6.5 4.5C6.5 3.67 7.17 3 8 3H16C16.83 3 17.5 3.67 17.5 4.5V20.25L12 16.75L6.5 20.25V4.5Z"
         fill={filled ? "#9f9f9f" : "transparent"}
         stroke="#6f6f6f"
-        strokeWidth="1.7"
+        strokeWidth="1.8"
         strokeLinejoin="round"
       />
     </svg>
@@ -1489,14 +1570,14 @@ const styles: Record<string, CSSProperties> = {
   eyebrow: {
     margin: 0,
     color: "var(--brand-primary-deep)",
-    fontSize: "0.78rem",
+    fontSize: "0.7rem",
     fontWeight: 800,
     letterSpacing: "0.14em",
     textTransform: "uppercase",
   },
   headerTitle: {
     margin: "2px 0 0",
-    fontSize: "clamp(1.35rem, 3.7vw, 2rem)",
+    fontSize: "clamp(1.15rem, 3.7vw, 2rem)",
     fontWeight: 800,
     lineHeight: 1.1,
     color: "var(--text-primary)",
@@ -1509,8 +1590,8 @@ const styles: Record<string, CSSProperties> = {
   },
   notificationButton: {
     position: "relative",
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     border: "1px solid rgba(5,181,187,0.18)",
     borderRadius: "50%",
     display: "grid",
@@ -1539,8 +1620,8 @@ const styles: Record<string, CSSProperties> = {
   },
   myPageButton: {
     position: "relative",
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     border: "1px solid rgba(5,181,187,0.18)",
     borderRadius: "50%",
     display: "grid",
@@ -1553,12 +1634,9 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 900,
   },
   searchPanel: {
-    padding: 20,
+    padding: "0 16px",
     borderRadius: 28,
-    background:
-      "linear-gradient(180deg, rgba(5,181,187,0.1), rgba(255,255,255,0.96) 44%)",
-    border: "1px solid rgba(5,181,187,0.14)",
-    boxShadow: "var(--shadow-soft)",
+    background: "transparent",
   },
   searchRow: {
     display: "flex",
@@ -1569,35 +1647,29 @@ const styles: Record<string, CSSProperties> = {
     flex: 1,
     display: "flex",
     alignItems: "center",
-    gap: 10,
-    padding: "0 14px",
-    minHeight: 56,
-    borderRadius: 20,
-    border: "1.5px solid rgba(5,181,187,0.16)",
-    background: "rgba(255,255,255,0.92)",
-    color: "var(--neutral-700)",
+    padding: "0 0.7rem 0 1.3rem",
+    minHeight: "2.75rem",
+    borderRadius: "3rem",
+    background: "#fff",
+    color: "var(--neutral-600)",
   },
   searchInput: {
     width: "100%",
     border: "none",
     outline: "none",
     background: "transparent",
-    fontSize: "1rem",
+    fontSize: "0.9rem",
     color: "var(--text-primary)",
     fontFamily: "inherit",
   },
   searchAction: {
-    width: 54,
-    height: 54,
-    borderRadius: "50%",
-    border: "1px solid rgba(5,181,187,0.2)",
+    width: 34,
+    border: "transparent",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "linear-gradient(135deg, var(--brand-primary), #12c0c6)",
-    color: "#ffffff",
-    boxShadow: "0 12px 24px rgba(5,181,187,0.22)",
-    flexShrink: 0,
+    background: "transparent",
+    color: "#848484",
     cursor: "pointer",
   },
   locationBar: {
@@ -1607,21 +1679,13 @@ const styles: Record<string, CSSProperties> = {
     gap: 10,
     alignItems: "center",
   },
-  locationBadge: {
-    padding: "8px 12px",
-    borderRadius: 999,
-    background: "var(--brand-primary-soft)",
-    color: "var(--brand-primary-deep)",
-    fontSize: "0.82rem",
-    fontWeight: 700,
-  },
   locationButton: {
-    border: "1px solid rgba(5,181,187,0.2)",
+    border: "transparent",
     borderRadius: 999,
-    padding: "8px 12px",
-    background: "rgba(255,255,255,0.92)",
+    padding: "7px 12px",
+    background: "#fff",
     color: "var(--brand-primary-deep)",
-    fontSize: "0.82rem",
+    fontSize: "0.7rem",
     fontWeight: 800,
     cursor: "pointer",
   },
@@ -1632,56 +1696,79 @@ const styles: Record<string, CSSProperties> = {
   filtersSection: {
     display: "flex",
     flexDirection: "column",
-    gap: 12,
+    margin: "0 16px 0.8rem",
+    gap: 8,
+    overflow: "hidden",
   },
   filterGroup: {
     display: "flex",
-    flexWrap: "wrap",
-    gap: 10,
+    flexWrap: "nowrap",
+    gap: "0.3rem",
     justifyContent: "center",
+    alignItems: "center",
+    overflowX: "auto",
+    overflowY: "hidden",
+    scrollbarWidth: "none",
+    msOverflowStyle: "none",
+    width: "100%",
+    minWidth: 0,
+  },
+  categoryFilterContent: {
+    display: "flex",
+    flexWrap: "nowrap",
+    gap: "0.3rem",
+    justifyContent: "center",
+    alignItems: "center",
+    minWidth: "100%",
+    width: "max-content",
+    flexShrink: 0,
   },
   filterChip: {
-    border: "1px solid rgba(248,180,0,0.18)",
+    border: "transparent",
     borderRadius: 999,
-    padding: "12px 18px",
-    background: "rgba(255,255,255,0.86)",
-    color: "var(--neutral-700)",
-    fontWeight: 800,
-    fontSize: "0.98rem",
+    padding: "0.25rem 0.7rem",
+    alignContent: "center",
+    background: "#fff",
+    color: "var(--neutral-500)",
+    fontWeight: 500,
+    fontSize: "0.7rem",
     cursor: "pointer",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
   },
   filterChipActive: {
-    background: "linear-gradient(135deg, rgba(248,180,0,0.2), rgba(255,233,179,0.92))",
-    color: "var(--text-primary)",
-    boxShadow: "0 12px 24px rgba(248,180,0,0.14)",
+    background: "#01C0C0",
+    color: "#fff",
   },
   secondaryChip: {
-    border: "1px solid rgba(5,181,187,0.18)",
+    border: "transparent",
     borderRadius: 999,
-    padding: "10px 16px",
-    background: "rgba(255,255,255,0.86)",
-    color: "var(--neutral-700)",
-    fontWeight: 700,
+    padding: "0.25rem 0.7rem",
+    background: "#fff",
+    color: "var(--neutral-500)",
+    fontWeight: 500,
+    fontSize: "0.7rem",
     cursor: "pointer",
+    whiteSpace: "nowrap",
   },
   secondaryChipActive: {
-    background: "linear-gradient(135deg, rgba(5,181,187,0.18), rgba(228,247,247,0.96))",
-    color: "var(--text-primary)",
+    background: "#01C0C0",
+    color: "#fff",
   },
   listSection: {
     display: "flex",
     flexDirection: "column",
-    gap: 14,
+    background: "#fff",
+    borderRadius: "1.8rem",
+    boxShadow: "var(--shadow-soft)",
+    paddingTop: 12,
   },
   card: {
     display: "grid",
-    gridTemplateColumns: "116px 1fr",
+    gridTemplateColumns: "6.5rem 1fr",
     gap: 16,
-    padding: 16,
-    borderRadius: 28,
-    background: "rgba(255,255,255,0.92)",
-    border: "1px solid var(--border-soft)",
-    boxShadow: "var(--shadow-soft)",
+    padding: "0.8rem 16px",
+    height: "10rem",
     cursor: "pointer",
   },
   thumbnail: {
@@ -1690,25 +1777,16 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "flex-end",
     justifyContent: "flex-start",
-    padding: 12,
+    padding: 8,
     boxSizing: "border-box",
     background: "linear-gradient(160deg, rgba(5,181,187,0.18), rgba(248,180,0,0.14))",
   },
-  thumbnailLabel: {
-    padding: "6px 10px",
-    borderRadius: 999,
-    background: "rgba(255,255,255,0.74)",
-    color: "var(--text-secondary)",
-    fontSize: "0.75rem",
-    fontWeight: 800,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-  },
   cardBody: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
+    display: "grid",
+    gridTemplateRows: "auto auto 1fr auto",
+    gap: 6,
     minWidth: 0,
+    position: "relative",
   },
   cardTop: {
     display: "flex",
@@ -1719,36 +1797,42 @@ const styles: Record<string, CSSProperties> = {
   cardCategory: {
     margin: 0,
     color: "var(--brand-primary-deep)",
-    fontSize: "0.82rem",
-    fontWeight: 800,
+    fontSize: "0.8rem",
+    fontWeight: 700,
+    lineHeight: "1rem",
   },
   cardTitle: {
     margin: "2px 0 0",
     color: "var(--text-primary)",
-    fontSize: "1.35rem",
-    fontWeight: 800,
-    lineHeight: 1.08,
+    fontSize: "1.1rem",
+    fontWeight: 700,
+    lineHeight: 1.05,
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
   },
   favoriteButton: {
-    width: 40,
-    height: 40,
-    borderRadius: "50%",
-    border: "1px solid rgba(5,181,187,0.14)",
+    border: "transparent",
     display: "grid",
     placeItems: "center",
-    background: "rgba(255,255,255,0.9)",
+    background: "transparent",
     cursor: "pointer",
     flexShrink: 0,
   },
   favoriteButtonPending: {
-    opacity: 0.55,
+    opacity: 0.4,
     cursor: "wait",
   },
   cardDescription: {
     margin: 0,
-    color: "var(--neutral-700)",
-    lineHeight: 1.5,
-    fontSize: "0.95rem",
+    color: "var(--neutral-500)",
+    lineHeight: "0.96rem",
+    fontSize: "0.75rem",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
   },
   cardMeta: {
     display: "flex",
@@ -1777,22 +1861,30 @@ const styles: Record<string, CSSProperties> = {
     gap: 4,
   },
   distance: {
-    color: "var(--text-primary)",
+    position: "absolute",
+    right: 0,
+    bottom: 0,
+    color: "var(--neutral-600)",
     fontWeight: 800,
-    fontSize: "0.96rem",
+    fontSize: "0.9rem",
   },
   reviewText: {
-    color: "var(--neutral-700)",
-    fontSize: "0.8rem",
+    position: "absolute",
+    left: 0,
+    bottom: 0,
+    color: "var(--neutral-600)",
+    textAlign: "left",
+    fontSize: "0.7rem",
+    paddingBottom: 2,
   },
   emptyState: {
     padding: "48px 20px",
+    margin: 16,
     textAlign: "center",
     borderRadius: 28,
     background: "rgba(255,255,255,0.88)",
     color: "var(--neutral-700)",
     border: "1px solid var(--border-soft)",
-    boxShadow: "var(--shadow-soft)",
   },
   emptyTitle: {
     margin: 0,
@@ -1811,28 +1903,6 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--neutral-700)",
     fontSize: "0.9rem",
     fontWeight: 700,
-  },
-  floatingScrollHandle: {
-    position: "fixed",
-    top: "calc(var(--app-safe-top) + 8px)",
-    left: "50%",
-    transform: "translateX(-50%)",
-    zIndex: 18,
-    width: 48,
-    height: 24,
-    display: "grid",
-    placeItems: "center",
-    border: "none",
-    borderRadius: 999,
-    background: "rgba(255,255,255,0.92)",
-    boxShadow: "0 8px 24px rgba(24,26,32,0.16)",
-    cursor: "pointer",
-  },
-  floatingScrollHandleBar: {
-    width: 32,
-    height: 4,
-    borderRadius: 999,
-    background: "rgba(5,181,187,0.52)",
   },
   modalOverlay: {
     position: "fixed",
@@ -2264,15 +2334,14 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   recentDeleteButton: {
-    width: 28,
-    height: 28,
     border: "none",
-    borderRadius: "50%",
-    background: "rgba(248,180,0,0.16)",
+    borderRadius: "25rem",
+    background: "rgba(248,180,0,0.5)",
     color: "var(--text-secondary)",
     fontSize: "1rem",
     lineHeight: 1,
     cursor: "pointer",
+    padding: "0.4rem 1rem",
   },
   searchEmpty: {
     margin: 0,

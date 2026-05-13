@@ -1,4 +1,4 @@
-import { removeToken } from "../../utils/tokens";
+import { notifyUnauthorized, removeToken } from "../../utils/tokens";
 import {
   API_BASE_URL,
   AUTHORIZATION_BEARER,
@@ -316,6 +316,7 @@ async function authRequest<T>(
       authorization: AUTHORIZATION_BEARER,
     });
     removeToken();
+    notifyUnauthorized();
   }
 
   if (response.status === 419) {
@@ -364,7 +365,6 @@ export async function withdrawUser(): Promise<Record<string, unknown> | string |
   });
 
   removeToken();
-  localStorage.removeItem("accessToken");
 
   return result;
 }
