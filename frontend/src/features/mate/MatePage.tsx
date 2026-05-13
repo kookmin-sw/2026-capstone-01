@@ -2547,7 +2547,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexWrap: "wrap",
     justifyContent: "center",
-    gap: 10,
+    gap: 8,
   },
   filterChip: {
     border: "1px solid #e4e4e4",
@@ -2555,7 +2555,7 @@ const styles: Record<string, CSSProperties> = {
     padding: "4px 12px",
     background: "#fff",
     color: "var(--neutral-700)",
-    fontSize: "0.8rem",
+    fontSize: "0.75rem",
     fontWeight: 600,
     cursor: "pointer",
   },
