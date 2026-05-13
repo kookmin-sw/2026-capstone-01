@@ -8,7 +8,9 @@ function toBearerToken(value?: string): string {
 }
 
 export const AUTHORIZATION_BEARER: string =
-  toBearerToken(import.meta.env.VITE_AUTHORIZATION_BEARER);
+  toBearerToken(
+    import.meta.env.VITE_AUTHORIZATION_BEARER || "krip3accesss1secret2token0"
+  );
 
 export const TOUR_PLACES_AUTHORIZATION_BEARER: string =
   toBearerToken(import.meta.env.VITE_TOUR_PLACES_AUTHORIZATION_BEARER) ||

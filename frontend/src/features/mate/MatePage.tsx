@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, CSSProperties, MouseEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   createTripMatePost,
   deleteDraft,
@@ -27,6 +27,7 @@ import {
   deleteFriendSearchHistoryAll,
   deleteFriendSearchHistoryOne,
   getFriendDetail,
+  getFriends,
   getFriendSearchHistory,
   searchFriendUsers,
   sendFriendRequest,
@@ -36,11 +37,12 @@ import {
 import { getRecommendationCandidates } from "../../api/recommendation";
 import {
   recommendTravelers,
+  type MatePreferenceProfile,
   type RecommendationCandidate,
   type RecommendedTraveler,
 } from "../../utils/mateRecommendation";
-import NotificationBell from "../../components/NotificationBell";
 import FeedPopup from "../../components/FeedPopup";
+import ChatPage from "../friend-chat/ChatPage";
 
 const COMPANION_FILTERS = ["all", "sole", "friend", "couple", "family"] as const;
 const COMPANION_OPTIONS: CompanionType[] = ["friend", "family", "couple", "sole"];
@@ -60,7 +62,7 @@ const GENDER_LABELS: Record<PreferredGender, string> = {
   female: "Female",
 };
 
-const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.svg";
+const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
 const EMPTY_FORM = {
   title: "",
@@ -75,6 +77,7 @@ const EMPTY_FORM = {
 };
 
 type Tab = "list" | "write";
+type MainTab = "mate" | "chat";
 type MateFriendState = {
   friendship_status: FriendshipStatus | null;
   is_requester: boolean | null;
@@ -83,6 +86,8 @@ type MateFriendState = {
 
 export default function MatePage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const locationState = location.state as { mainTab?: MainTab } | null;
   const searchRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const draftTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -91,6 +96,9 @@ export default function MatePage() {
   const suggestionRequestIdRef = useRef(0);
 
   const [tab, setTab] = useState<Tab>("list");
+  const [mainTab, setMainTab] = useState<MainTab>(
+    locationState?.mainTab === "chat" ? "chat" : "mate"
+  );
   const [posts, setPosts] = useState<TripMatePost[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -100,14 +108,12 @@ export default function MatePage() {
   const [userSearchLoading, setUserSearchLoading] = useState(false);
   const [userSearchError, setUserSearchError] = useState("");
   const [filter, setFilter] = useState<CompanionType | "all">("all");
-  const [currentRecommendationProfile, setCurrentRecommendationProfile] = useState<{
-    user_id?: string | null;
-    travel_styles?: string[];
-    nationality?: string;
-  }>({});
+  const [currentRecommendationProfile, setCurrentRecommendationProfile] =
+    useState<MatePreferenceProfile>({});
   const [recommendationCandidates, setRecommendationCandidates] = useState<
     RecommendationCandidate[]
   >([]);
+  const [acceptedFriendIds, setAcceptedFriendIds] = useState<Set<string>>(new Set());
 
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -295,6 +301,15 @@ export default function MatePage() {
         setCurrentRecommendationProfile({
           user_id: profile?.user_id ?? null,
           travel_styles: profile?.travel_styles ?? [],
+          food_preferences: profile?.food_preferences ?? [],
+          density_preference: profile?.density_preference,
+          budget_preference: profile?.budget_preference,
+          walking_preference: profile?.walking_preference,
+          transport_preferences: profile?.transport_preferences ?? [],
+          companion_preference: profile?.companion_preference,
+          time_preferences: profile?.time_preferences ?? [],
+          communication_preference: profile?.communication_preference,
+          planning_preference: profile?.planning_preference,
           nationality: profile?.nationality,
         });
       })
@@ -315,7 +330,16 @@ export default function MatePage() {
   }, []);
 
   useEffect(() => {
-    if (tab !== "write") {
+    loadAcceptedFriendIds()
+      .then((friendIds) => setAcceptedFriendIds(friendIds))
+      .catch((error) => {
+        console.warn("Failed to load accepted friends for recommendations", error);
+        setAcceptedFriendIds(new Set());
+      });
+  }, []);
+
+  useEffect(() => {
+    if (mainTab !== "mate" || tab !== "write") {
       return undefined;
     }
 
@@ -352,7 +376,7 @@ export default function MatePage() {
         clearInterval(draftTimer.current);
       }
     };
-  }, [tab, editingPostId]);
+  }, [mainTab, tab, editingPostId]);
 
   const filteredPosts = useMemo(
     () =>
@@ -374,8 +398,19 @@ export default function MatePage() {
     (suggestionLoading || suggestedUsers.length > 0 || visibleSearchHistory.length > 0);
 
   const mateRecommendations = useMemo(
-    () => recommendTravelers(currentRecommendationProfile, recommendationCandidates, 10),
-    [currentRecommendationProfile, recommendationCandidates]
+    () =>
+      recommendTravelers(
+        currentRecommendationProfile,
+        recommendationCandidates.filter(
+          (candidate) => !acceptedFriendIds.has(candidate.user_id)
+        ),
+        10
+      ),
+    [acceptedFriendIds, currentRecommendationProfile, recommendationCandidates]
+  );
+  const recommendationSourceTags = useMemo(
+    () => getMatePreferenceTags(currentRecommendationProfile),
+    [currentRecommendationProfile]
   );
 
   function resetEditor(): void {
@@ -391,6 +426,25 @@ export default function MatePage() {
     }
 
     setTab(nextTab);
+  }
+
+  function handleMainTabChange(nextTab: MainTab): void {
+    if (nextTab === "chat") {
+      if (editingPostId) {
+        resetEditor();
+      }
+      setTab("list");
+    }
+
+    setMainTab(nextTab);
+  }
+
+  function openChatGroupCreate(): void {
+    window.dispatchEvent(new Event("krip:chat-open-group-create"));
+  }
+
+  function openChatFriendManager(): void {
+    window.dispatchEvent(new Event("krip:chat-open-friend-manager"));
   }
 
   function handleSearch(keyword: string): void {
@@ -456,14 +510,24 @@ export default function MatePage() {
 
   async function handleAutoSaveDraft(showError = true): Promise<void> {
     if (editingPostId) return;
+    if (!showError && !canAutoSaveDraft(draftFormRef.current)) return;
+
+    const draftPayload = buildDraftPayload(
+      draftFormRef.current,
+      draftImageUrlsRef.current
+    );
+
+    if (!draftPayload) {
+      if (showError) {
+        window.alert("Write something before saving a draft.");
+      }
+      return;
+    }
 
     setDraftSaving(true);
     setDraftStatus("Saving draft...");
     try {
-      await saveDraft({
-        ...draftFormRef.current,
-        image_urls: draftImageUrlsRef.current,
-      });
+      await saveDraft(draftPayload);
       setDraftStatus("Draft saved");
     } catch (draftError) {
       setDraftStatus("");
@@ -476,6 +540,60 @@ export default function MatePage() {
         setDraftStatus("");
       }, 900);
     }
+  }
+
+  function canAutoSaveDraft(draftForm: typeof EMPTY_FORM): boolean {
+    return (
+      Boolean(draftForm.title.trim()) &&
+      draftForm.content.trim().length >= 10 &&
+      Boolean(draftForm.region.trim()) &&
+      Boolean(draftForm.travel_start_date) &&
+      Boolean(draftForm.travel_end_date) &&
+      Number.isFinite(Number(draftForm.preferred_age_min)) &&
+      Number.isFinite(Number(draftForm.preferred_age_max))
+    );
+  }
+
+  function buildDraftPayload(
+    draftForm: typeof EMPTY_FORM,
+    currentImageUrls: string[]
+  ): Parameters<typeof saveDraft>[0] | null {
+    const title = draftForm.title.trim();
+    const content = draftForm.content.trim();
+    const region = draftForm.region.trim();
+    const hasImages = currentImageUrls.length > 0;
+    const hasText =
+      Boolean(title) ||
+      Boolean(content) ||
+      Boolean(region) ||
+      Boolean(draftForm.travel_start_date) ||
+      Boolean(draftForm.travel_end_date);
+
+    if (!hasText && !hasImages) {
+      return null;
+    }
+
+    const payload: Parameters<typeof saveDraft>[0] = {
+      companion_type: draftForm.companion_type,
+      preferred_gender: draftForm.preferred_gender,
+      preferred_age_min: Number(draftForm.preferred_age_min),
+      preferred_age_max: Number(draftForm.preferred_age_max),
+    };
+
+    if (title) payload.title = title;
+    if (content) payload.content = content;
+    if (region) payload.region = region;
+    if (draftForm.travel_start_date) {
+      payload.travel_start_date = draftForm.travel_start_date;
+    }
+    if (draftForm.travel_end_date) {
+      payload.travel_end_date = draftForm.travel_end_date;
+    }
+    if (hasImages) {
+      payload.image_urls = currentImageUrls;
+    }
+
+    return payload;
   }
 
   async function handleLike(event: MouseEvent<HTMLButtonElement>, post: TripMatePost): Promise<void> {
@@ -493,6 +611,7 @@ export default function MatePage() {
 
     try {
       await toggleLike(post.post_id, post.is_liked);
+      window.dispatchEvent(new Event("krip:notification-inbox-updated"));
     } catch {
       setPosts((current) =>
         current.map((item) => (item.post_id === post.post_id ? post : item))
@@ -694,49 +813,76 @@ export default function MatePage() {
 
   return (
     <div style={styles.page}>
+      <style>
+        {`
+          .mate-recommendation-list::-webkit-scrollbar {
+            display: none;
+          }
+        `}
+      </style>
       <div style={styles.shell}>
         <header style={styles.header}>
           <div>
             <p style={styles.eyebrow}>Trip Mate</p>
-            <h1 style={styles.headerTitle}>Find Travel Companions</h1>
-            <p style={styles.headerCopy}>
-              Meet people planning similar routes, dates, and travel styles around Seoul.
-            </p>
+            <h1 style={styles.headerTitle}>{mainTab === "mate" ? "Mate" : "Chat"}</h1>
           </div>
           <div style={styles.headerActions}>
-            <NotificationBell />
-            <button
-              type="button"
-              style={styles.headerButton}
-              onClick={() => handleTabChange(tab === "list" ? "write" : "list")}
-            >
-              {tab === "list" ? "Write Post" : "View Posts"}
-            </button>
+            {mainTab === "mate" ? (
+              <button
+                type="button"
+                style={styles.headerButton}
+                onClick={() => handleTabChange(tab === "list" ? "write" : "list")}
+              >
+                {tab === "list" ? "Post" : "Mate"}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  style={styles.headerIconButton}
+                  onClick={openChatGroupCreate}
+                  aria-label="Create group chat"
+                >
+                  <img src="/icon-plus.svg" alt="" style={styles.headerIcon} />
+                </button>
+                <button
+                  type="button"
+                  style={styles.headerIconButton}
+                  onClick={openChatFriendManager}
+                  aria-label="Manage friends"
+                >
+                  <img src="/user-add-alt.png" alt="" style={styles.headerIcon} />
+                </button>
+              </>
+            )}
           </div>
         </header>
 
         <section style={styles.tabPanel}>
-          {(["list", "write"] as const).map((item) => (
+          {(["mate", "chat"] as const).map((item) => (
             <button
               key={item}
               type="button"
               style={{
                 ...styles.tabButton,
-                ...(tab === item ? styles.tabButtonActive : {}),
+                ...(mainTab === item ? styles.tabButtonActive : {}),
               }}
-              onClick={() => handleTabChange(item)}
+              onClick={() => handleMainTabChange(item)}
             >
-              {item === "list" ? "Browse" : editingPostId ? "Edit Post" : "New Post"}
+              {item === "mate" ? "Mate" : "Chat"}
             </button>
           ))}
         </section>
 
-        {tab === "list" ? (
+        {mainTab === "chat" ? (
+          <section style={styles.chatEmbed}>
+            <ChatPage embedded hideHeader />
+          </section>
+        ) : tab === "list" ? (
           <>
             <section style={styles.searchPanel}>
               <div style={styles.searchRow}>
                 <label style={styles.searchWrap}>
-                  <SearchIcon />
                   <input
                     ref={searchRef}
                     value={searchInput}
@@ -762,8 +908,9 @@ export default function MatePage() {
                   type="button"
                   style={styles.searchAction}
                   onMouseDown={() => handleSearch(searchInput)}
+                  aria-label="Search"
                 >
-                  Search
+                  <SearchIcon />
                 </button>
               </div>
 
@@ -896,13 +1043,13 @@ export default function MatePage() {
                   <h2 style={styles.recommendationTitle}>Travelers for you</h2>
                 </div>
                 <span style={styles.recommendationSource}>
-                  {currentRecommendationProfile.travel_styles?.length
-                    ? currentRecommendationProfile.travel_styles.join(" / ")
-                    : "No styles yet"}
+                  {recommendationSourceTags.length
+                    ? recommendationSourceTags.slice(0, 4).join(" / ")
+                    : "No preferences yet"}
                 </span>
               </div>
 
-              <div style={styles.recommendationList}>
+              <div className="mate-recommendation-list" style={styles.recommendationList}>
                 {mateRecommendations.length > 0 ? (
                   mateRecommendations.map((recommendation) => (
                     <button
@@ -1051,6 +1198,9 @@ export default function MatePage() {
                     ) : null}
 
                     <div style={styles.cardBody}>
+                      <span style={styles.dateTag}>
+                        {post.travel_start_date} - {post.travel_end_date}
+                      </span>
                       <h2 style={styles.cardTitle}>{post.title}</h2>
                       <p style={styles.cardDescription}>{post.content}</p>
                     </div>
@@ -1077,10 +1227,6 @@ export default function MatePage() {
                     ) : null}
 
                     <div style={styles.metaGrid}>
-                      <span style={styles.metaChip}>{post.region}</span>
-                      <span style={styles.metaChip}>
-                        {post.travel_start_date} - {post.travel_end_date}
-                      </span>
                       <span style={styles.metaChip}>
                         Ages {post.preferred_age_min}-{post.preferred_age_max}
                       </span>
@@ -1088,6 +1234,10 @@ export default function MatePage() {
                     </div>
 
                     <div style={styles.cardFooter}>
+                      <span style={styles.regionText}>
+                        <MapMarkerIcon />
+                        {post.region}
+                      </span>
                       <button
                         type="button"
                         style={{
@@ -1095,12 +1245,11 @@ export default function MatePage() {
                           ...(post.is_liked ? styles.likeButtonActive : {}),
                         }}
                         onClick={(event) => void handleLike(event, post)}
+                        aria-label={`${post.like_count} likes`}
                       >
-                        {post.is_liked ? "Liked" : "Like"} {post.like_count}
+                        <HeartIcon filled={post.is_liked} />
+                        <span>{post.like_count}</span>
                       </button>
-                      <span style={styles.createdText}>
-                        {new Date(post.created_at).toLocaleDateString()}
-                      </span>
                     </div>
                   </article>
                 ))
@@ -1546,13 +1695,12 @@ function RecommendedTravelerModal({
   onChat: () => void;
   onViewFeed: () => void;
 }) {
-  const profileEntries = Object.entries(traveler).filter(
-    ([key]) => key !== "similarity_score" && key !== "profile_image_url"
-  );
+  const profileEntries = getVisibleRecommendedProfileEntries(traveler);
 
   return (
     <div style={styles.modalOverlay} onClick={onClose}>
       <div style={styles.recommendedModalCard} onClick={(event) => event.stopPropagation()}>
+        <div style={styles.sheetHandle} />
         <div style={styles.recommendedModalHeader}>
           {traveler.profile_image_url ? (
             <img
@@ -1650,6 +1798,7 @@ function PostModal({
   return (
     <div style={styles.modalOverlay} onClick={onClose}>
       <div style={styles.modalCard} onClick={(event) => event.stopPropagation()}>
+        <div style={styles.sheetHandle} />
         <div style={styles.modalHero}>
           <div style={styles.modalHeroTop}>
             <span style={styles.modalCategory}>{COMPANION_LABELS[post.companion_type]}</span>
@@ -1746,10 +1895,136 @@ function formatProfileKey(key: string): string {
 }
 
 function formatProfileValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "-";
   if (Array.isArray(value)) return value.join(", ");
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+function getVisibleRecommendedProfileEntries(
+  traveler: RecommendedTraveler
+): Array<[string, unknown]> {
+  const displayKeys = [
+    "nationality",
+    "travel_styles",
+    "food_preferences",
+    "density_preference",
+    "budget_preference",
+    "walking_preference",
+    "transport_preferences",
+    "companion_preference",
+    "time_preferences",
+    "communication_preference",
+    "planning_preference",
+  ];
+
+  return displayKeys
+    .map((key) => [key, traveler[key]] as [string, unknown])
+    .filter(([, value]) => hasVisibleProfileValue(value));
+}
+
+function hasVisibleProfileValue(value: unknown): boolean {
+  if (value === null || value === undefined || value === "") return false;
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+async function loadAcceptedFriendIds(): Promise<Set<string>> {
+  const friendIds: Set<string> = new Set();
+  let cursor: string | undefined;
+
+  do {
+    const response = await getFriends(cursor);
+    response.items.forEach((friendship) => {
+      if (friendship.status === "accepted") {
+        friendIds.add(friendship.peer.user_id);
+      }
+    });
+    cursor = response.next_cursor ?? undefined;
+  } while (cursor);
+
+  return friendIds;
+}
+
+function getMatePreferenceTags(profile: {
+  travel_styles?: string[];
+  food_preferences?: string[];
+  density_preference?: string;
+  budget_preference?: string;
+  walking_preference?: string;
+  transport_preferences?: string[];
+  companion_preference?: string;
+  time_preferences?: string[];
+  communication_preference?: string;
+  planning_preference?: string;
+}): string[] {
+  const values = [
+    ...(profile.travel_styles ?? []),
+    ...(profile.food_preferences ?? []),
+    profile.density_preference,
+    profile.budget_preference,
+    profile.walking_preference,
+    ...(profile.transport_preferences ?? []),
+    profile.companion_preference,
+    ...(profile.time_preferences ?? []),
+    profile.communication_preference,
+    profile.planning_preference,
+  ];
+
+  return Array.from(
+    new Set(
+      values
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .map((value) => formatPreferenceLabel(value))
+    )
+  );
+}
+
+function formatPreferenceLabel(value: string): string {
+  const key = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const labelMap: Record<string, string> = {
+    activity: "Activity",
+    famous_attractions: "Famous Attractions",
+    healing: "Healing",
+    culture_history: "Culture & History",
+    shopping: "Shopping",
+    food_tour: "Food Tour",
+    photo_aesthetic: "Photo Aesthetic",
+    festival_event: "Festival & Event",
+    nature: "Nature",
+    traditional: "Traditional",
+    trekking: "Trekking",
+    hidden_gems: "Hidden Gems",
+    art_exhibition: "Art Exhibition",
+    theme_park: "Theme Park",
+    food_halal: "Halal",
+    food_vegetarian: "Vegetarian",
+    foodie: "Foodie",
+    cafe_lover: "Cafe Lover",
+    density_relaxed: "Relaxed",
+    density_packed: "Packed",
+    budget_saving: "Saving",
+    budget_moderate: "Moderate",
+    budget_premium: "Premium",
+    walking_low: "Low Walking",
+    walking_medium: "Medium Walking",
+    walking_high: "High Walking",
+    transport_public: "Public Transit",
+    transport_car: "Car",
+    transport_taxi: "Taxi",
+    companion_independent: "Independent",
+    companion_together: "Together",
+    companion_flexible: "Flexible",
+    daytime: "Daytime",
+    nightlife: "Nightlife",
+    night_view: "Night View",
+    communication_high: "High Communication",
+    communication_low: "Low Communication",
+    planner: "Planner",
+    spontaneous: "Spontaneous",
+    follower: "Follower",
+  };
+
+  return labelMap[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
@@ -1768,6 +2043,41 @@ function SearchIcon() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
         d="M10.5 18a7.5 7.5 0 1 1 5.303-12.803A7.5 7.5 0 0 1 10.5 18Zm0-13a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11Zm10 15l-4.35-4.35"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function MapMarkerIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 21s7-5.15 7-11a7 7 0 0 0-14 0c0 5.85 7 11 7 11Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M12 12.5a2.5 2.5 0 1 0 0-5a2.5 2.5 0 0 0 0 5Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function HeartIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} aria-hidden="true">
+      <path
+        d="M20.42 4.58a5.4 5.4 0 0 0-7.64 0L12 5.36l-.78-.78a5.4 5.4 0 0 0-7.64 7.64L12 20.64l8.42-8.42a5.4 5.4 0 0 0 0-7.64Z"
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -1877,9 +2187,11 @@ function toFriendlyValidationMessage(errorItem: {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
-    padding: "24px 16px 40px",
-    background: "transparent",
+    minHeight: "var(--app-viewport-height)",
+    padding:
+      "calc(24px + var(--app-safe-top)) 16px calc(40px + var(--app-bottom-nav-reserved))",
+    background:
+      "linear-gradient(180deg, #e4f7f7 0px, #e4f7f7 145px, #ffffff 145px, #ffffff 38%, #f2f3f5 100%)",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   shell: {
@@ -1932,56 +2244,79 @@ const styles: Record<string, CSSProperties> = {
     color: "#ffffff",
     fontWeight: 800,
     cursor: "pointer",
-    boxShadow: "0 12px 24px rgba(5,181,187,0.22)",
     flexShrink: 0,
   },
+  headerIconButton: {
+    position: "relative",
+    width: 42,
+    height: 42,
+    border: "1px solid rgba(5,181,187,0.18)",
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(255,255,255,0.92)",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  headerIcon: {
+    width: 24,
+    height: 24,
+    objectFit: "contain",
+  },
   tabPanel: {
+    position: "relative",
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 10,
-    padding: 8,
-    borderRadius: 22,
-    background: "rgba(255,255,255,0.84)",
-    border: "1px solid var(--border-soft)",
-    boxShadow: "var(--shadow-soft)",
+    width: "100vw",
+    marginLeft: "calc(50% - 50vw)",
+    marginRight: "calc(50% - 50vw)",
+    borderRadius: "22px 22px 0 0",
+    background: "#FFE397",
+    border: "none",
+    boxShadow: "0 -8px 12px rgba(30, 166, 211, 0.1)",
+    overflow: "hidden",
   },
   tabButton: {
     minHeight: 46,
     border: "none",
-    borderRadius: 16,
-    background: "transparent",
-    color: "var(--neutral-700)",
+    borderRadius: "22px 22px 0 0",
+    background: "#FFE397",
+    color: "#FFB900",
     fontWeight: 800,
     cursor: "pointer",
   },
   tabButtonActive: {
-    background: "linear-gradient(135deg, rgba(5,181,187,0.16), rgba(228,247,247,0.96))",
+    background: "#ffffff",
     color: "var(--text-primary)",
+  },
+  chatEmbed: {
+    margin: "-18px -16px calc(-40px - var(--app-bottom-nav-reserved))",
   },
   searchPanel: {
     position: "relative",
-    padding: 20,
-    borderRadius: 28,
-    background:
-      "linear-gradient(180deg, rgba(5,181,187,0.1), rgba(255,255,255,0.96) 44%)",
-    border: "1px solid rgba(5,181,187,0.14)",
-    boxShadow: "var(--shadow-soft)",
+    padding: 0,
+    borderRadius: 0,
+    background: "transparent",
+    border: "none",
+    boxShadow: "none",
   },
   searchRow: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
+    overflow: "hidden",
+    borderRadius: "3rem",
+    border: "1.5px solid #eaeaea",
+    background: "rgba(255,255,255,0.96)",
   },
   searchWrap: {
     flex: 1,
     display: "flex",
     alignItems: "center",
     gap: 10,
-    minHeight: 56,
-    padding: "0 14px",
-    borderRadius: 20,
-    border: "1.5px solid rgba(5,181,187,0.16)",
-    background: "rgba(255,255,255,0.92)",
+    padding: "0 1.3rem",
+    borderRadius: 0,
+    border: "none",
+    background: "transparent",
     color: "var(--neutral-700)",
   },
   searchInput: {
@@ -1990,17 +2325,22 @@ const styles: Record<string, CSSProperties> = {
     outline: "none",
     background: "transparent",
     color: "var(--text-primary)",
-    fontSize: "1rem",
+    fontSize: "0.8rem",
   },
   searchAction: {
+    width: 54,
     minHeight: 54,
-    border: "1px solid rgba(5,181,187,0.2)",
-    borderRadius: 18,
-    padding: "0 16px",
-    background: "linear-gradient(135deg, var(--brand-primary), #12c0c6)",
-    color: "#ffffff",
+    alignSelf: "stretch",
+    border: "none",
+    borderRadius: 0,
+    display: "grid",
+    placeItems: "center",
+    padding: 0,
+    background: "transparent",
+    color: "var(--brand-primary-deep)",
     fontWeight: 800,
     cursor: "pointer",
+    flexShrink: 0,
   },
   historyPanel: {
     position: "absolute",
@@ -2207,27 +2547,28 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexWrap: "wrap",
     justifyContent: "center",
-    gap: 10,
+    gap: 8,
   },
   filterChip: {
-    border: "1px solid rgba(248,180,0,0.18)",
+    border: "1px solid #e4e4e4",
     borderRadius: 999,
-    padding: "12px 18px",
-    background: "rgba(255,255,255,0.86)",
+    padding: "4px 12px",
+    background: "#fff",
     color: "var(--neutral-700)",
-    fontWeight: 800,
+    fontSize: "0.75rem",
+    fontWeight: 600,
     cursor: "pointer",
   },
   filterChipActive: {
-    background: "linear-gradient(135deg, rgba(248,180,0,0.2), rgba(255,233,179,0.92))",
-    color: "var(--text-primary)",
-    boxShadow: "0 12px 24px rgba(248,180,0,0.14)",
+    border: "1px solid #10c0c0",
+    background: "#10c0c0",
+    color: "#fff",
   },
   recommendationPanel: {
     padding: "14px 16px",
     borderRadius: 22,
     background: "rgba(255,255,255,0.72)",
-    border: "1px solid rgba(5,181,187,0.12)",
+    border: "1px solid #eaeaea",
   },
   recommendationHeader: {
     display: "flex",
@@ -2281,6 +2622,8 @@ const styles: Record<string, CSSProperties> = {
     gap: 10,
     overflowX: "auto",
     paddingBottom: 2,
+    scrollbarWidth: "none",
+    msOverflowStyle: "none",
   },
   recommendationItem: {
     display: "flex",
@@ -2288,6 +2631,7 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     gap: 8,
     minWidth: 82,
+    flex: "0 0 auto",
     padding: "8px 6px",
     border: "none",
     background: "transparent",
@@ -2350,7 +2694,6 @@ const styles: Record<string, CSSProperties> = {
     padding: 18,
     borderRadius: 28,
     background: "rgba(255,255,255,0.92)",
-    border: "1px solid var(--border-soft)",
     boxShadow: "var(--shadow-soft)",
     cursor: "pointer",
   },
@@ -2454,11 +2797,18 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     gap: 8,
   },
+  dateTag: {
+    alignSelf: "flex-start",
+    color: "var(--neutral-500)",
+    fontSize: "0.7rem",
+    fontWeight: 600,
+    marginBottom: 8,
+  },
   cardTitle: {
     margin: 0,
     color: "var(--text-primary)",
     fontSize: "1.2rem",
-    lineHeight: 1.2,
+    lineHeight: 1,
   },
   cardDescription: {
     margin: 0,
@@ -2517,19 +2867,30 @@ const styles: Record<string, CSSProperties> = {
     gap: 12,
     marginTop: 16,
   },
+  regionText: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    minWidth: 0,
+    color: "var(--neutral-700)",
+    fontSize: "0.84rem",
+    fontWeight: 600,
+  },
   likeButton: {
-    border: "1px solid rgba(5,181,187,0.18)",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    border: "none",
     borderRadius: 999,
-    padding: "9px 13px",
-    background: "rgba(255,255,255,0.9)",
+    padding: "6px 0",
+    background: "transparent",
     color: "var(--neutral-700)",
     fontWeight: 800,
     cursor: "pointer",
+    flexShrink: 0,
   },
   likeButtonActive: {
-    borderColor: "rgba(248,180,0,0.26)",
-    background: "var(--brand-secondary-soft)",
-    color: "var(--text-primary)",
+    color: "#ef4444",
   },
   createdText: {
     color: "var(--neutral-700)",
@@ -2674,7 +3035,7 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid rgba(5,181,187,0.18)",
     borderRadius: 999,
     padding: "10px 14px",
-    background: "rgba(255,255,255,0.86)",
+    background: "#fff",
     color: "var(--neutral-700)",
     fontWeight: 700,
     cursor: "pointer",
@@ -2767,7 +3128,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "flex-end",
     justifyContent: "center",
-    padding: "16px 16px 0",
+    padding: "calc(16px + var(--app-safe-top)) 16px 0",
     background: "rgba(24,26,32,0.42)",
     animation: "fadeInOverlay 220ms ease-out",
   },
@@ -2789,7 +3150,7 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: "30px 30px 0 0",
     background: "var(--surface-panel)",
     boxShadow: "0 28px 72px rgba(24,26,32,0.18)",
-    padding: 20,
+    padding: "20px 20px calc(20px + var(--app-safe-bottom))",
     display: "flex",
     flexDirection: "column",
     gap: 18,
@@ -2955,7 +3316,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: 18,
+    padding: "calc(18px + var(--app-safe-top)) 18px calc(18px + var(--app-safe-bottom))",
     background: "rgba(8,12,16,0.82)",
     cursor: "zoom-out",
   },
@@ -2968,8 +3329,8 @@ const styles: Record<string, CSSProperties> = {
   },
   lightboxClose: {
     position: "fixed",
-    top: 18,
-    right: 18,
+    top: "calc(18px + var(--app-safe-top))",
+    right: "calc(18px + var(--app-safe-right))",
     width: 42,
     height: 42,
     border: "1px solid rgba(255,255,255,0.32)",
@@ -2992,11 +3353,11 @@ const styles: Record<string, CSSProperties> = {
     animation: "slideUpModal 280ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
   sheetHandle: {
-    width: 56,
-    height: 6,
+    width: 48,
+    height: 4,
     borderRadius: 999,
     background: "rgba(5,181,187,0.24)",
-    margin: "4px auto 6px",
+    margin: "4px auto 8px",
   },
   sheetTitle: {
     margin: 0,
