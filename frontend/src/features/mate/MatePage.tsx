@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, CSSProperties, MouseEvent } from "react";
+import type { ChangeEvent, CSSProperties, MouseEvent, RefObject } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   createTripMatePost,
@@ -88,7 +88,9 @@ export default function MatePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const locationState = location.state as { mainTab?: MainTab } | null;
-  const searchRef = useRef<HTMLInputElement>(null);
+  const staticSearchRef = useRef<HTMLInputElement>(null);
+  const headerStackRef = useRef<HTMLDivElement>(null);
+  const lastScrollYRef = useRef(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const draftTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const draftFormRef = useRef(EMPTY_FORM);
@@ -117,6 +119,7 @@ export default function MatePage() {
 
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [chatSearchInput, setChatSearchInput] = useState("");
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [suggestedUsers, setSuggestedUsers] = useState<FriendSearchUser[]>([]);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
@@ -146,11 +149,62 @@ export default function MatePage() {
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [imageUploading, setImageUploading] = useState(false);
+  const [fixedHeaderHeight, setFixedHeaderHeight] = useState(0);
+  const [headerVisible, setHeaderVisible] = useState(true);
 
   useEffect(() => {
     draftFormRef.current = form;
     draftImageUrlsRef.current = imageUrls;
   }, [form, imageUrls]);
+
+  useEffect(() => {
+    const header = headerStackRef.current;
+    if (!header) return;
+
+    const syncHeaderHeight = () => {
+      setFixedHeaderHeight(header.getBoundingClientRect().height);
+    };
+
+    syncHeaderHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", syncHeaderHeight);
+      return () => window.removeEventListener("resize", syncHeaderHeight);
+    }
+
+    const observer = new ResizeObserver(syncHeaderHeight);
+    observer.observe(header);
+    window.addEventListener("resize", syncHeaderHeight);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", syncHeaderHeight);
+    };
+  }, [mainTab, tab]);
+
+  useEffect(() => {
+    lastScrollYRef.current = window.scrollY;
+    setHeaderVisible(true);
+
+    const handleScroll = () => {
+      const nextScrollY = Math.max(0, window.scrollY || document.documentElement.scrollTop);
+      const delta = nextScrollY - lastScrollYRef.current;
+      const revealAfter = Math.max(120, fixedHeaderHeight - 24);
+
+      if (nextScrollY <= 12) {
+        setHeaderVisible(true);
+      } else if (delta < -6 && nextScrollY > revealAfter) {
+        setHeaderVisible(true);
+      } else if (delta > 8) {
+        setHeaderVisible(false);
+      }
+
+      lastScrollYRef.current = nextScrollY;
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [fixedHeaderHeight, mainTab, tab]);
 
   async function loadSearchHistory(): Promise<void> {
     try {
@@ -464,7 +518,7 @@ export default function MatePage() {
     ]);
     setSearchHistory((current) => current.filter((item) => item !== term));
     setShowHistory(true);
-    searchRef.current?.focus();
+    staticSearchRef.current?.focus();
   }
 
   async function handleClearSearchHistory(): Promise<void> {
@@ -811,6 +865,190 @@ export default function MatePage() {
     }
   }
 
+  const renderMateSearchPanel = (inputRef: RefObject<HTMLInputElement | null>) => (
+    <section style={styles.searchPanel}>
+      <div style={styles.searchRow}>
+        <label style={styles.searchWrap}>
+          <input
+            ref={inputRef}
+            value={searchInput}
+            onChange={(event) => {
+              setSearchInput(event.target.value);
+              setShowHistory(true);
+            }}
+            onFocus={() => {
+              setShowHistory(true);
+              void loadSearchHistory();
+            }}
+            onBlur={() => window.setTimeout(() => setShowHistory(false), 220)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                handleSearch(searchInput);
+              }
+            }}
+            placeholder="Search by region or keyword"
+            style={styles.searchInput}
+          />
+        </label>
+        <button
+          type="button"
+          style={styles.searchAction}
+          onMouseDown={() => handleSearch(searchInput)}
+          aria-label="Search"
+        >
+          <SearchIcon />
+        </button>
+      </div>
+
+      {hasSearchSuggestions ? (
+        <div style={styles.historyPanel}>
+          <div style={styles.historyHeader}>
+            <span style={styles.historyTitle}>
+              {searchInput.trim() ? "Suggestions" : "Recent Searches"}
+            </span>
+            {visibleSearchHistory.length > 0 ? (
+              <button
+                type="button"
+                style={styles.linkButton}
+                onMouseDown={() => void handleClearSearchHistory()}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+          {suggestionLoading ? <p style={styles.suggestionHint}>Searching users...</p> : null}
+          {suggestedUsers.length > 0 ? (
+            <div style={styles.historyList}>
+              {suggestedUsers.map((user) => (
+                <button
+                  key={user.user_id}
+                  type="button"
+                  style={styles.suggestionUserItem}
+                  onMouseDown={() => handleSearch(user.user_name)}
+                >
+                  <img
+                    src={user.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
+                    alt=""
+                    style={styles.suggestionAvatar}
+                  />
+                  <span style={styles.suggestionUserText}>
+                    <strong style={styles.suggestionName}>{user.user_name}</strong>
+                    <span style={styles.suggestionMeta}>{user.user_id}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div style={styles.historyList}>
+            {visibleSearchHistory.map((term) => (
+              <div key={term} style={styles.historyItem}>
+                <button
+                  type="button"
+                  style={styles.historyTerm}
+                  onMouseDown={() => handleSearch(term)}
+                >
+                  {term}
+                </button>
+                <button
+                  type="button"
+                  style={styles.iconButton}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void handleDeleteSearchHistory(term);
+                  }}
+                  aria-label={`Delete ${term}`}
+                >
+                  x
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+
+  const renderChatSearchPanel = (inputRef: RefObject<HTMLInputElement | null>) => (
+    <section style={styles.searchPanel}>
+      <label style={styles.searchRow}>
+        <span style={styles.searchWrap}>
+          <input
+            ref={inputRef}
+            type="search"
+            value={chatSearchInput}
+            onChange={(event) => setChatSearchInput(event.target.value)}
+            placeholder="Search"
+            style={styles.searchInput}
+          />
+        </span>
+        <span style={styles.searchAction} aria-hidden="true">
+          <SearchIcon />
+        </span>
+      </label>
+    </section>
+  );
+
+  const renderHeaderStack = (inputRef: RefObject<HTMLInputElement | null>) => (
+    <>
+      <header style={styles.header}>
+        <div>
+          <p style={styles.eyebrow}>Trip Mate</p>
+          <h1 style={styles.headerTitle}>{mainTab === "mate" ? "Mate" : "Chat"}</h1>
+        </div>
+        <div style={styles.headerActions}>
+          {mainTab === "mate" ? (
+            <button
+              type="button"
+              style={styles.headerButton}
+              onClick={() => handleTabChange(tab === "list" ? "write" : "list")}
+            >
+              {tab === "list" ? "Post" : "Mate"}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                style={styles.headerIconButton}
+                onClick={openChatGroupCreate}
+                aria-label="Create group chat"
+              >
+                <img src="/icon-plus.svg" alt="" style={styles.headerIcon} />
+              </button>
+              <button
+                type="button"
+                style={styles.headerIconButton}
+                onClick={openChatFriendManager}
+                aria-label="Manage friends"
+              >
+                <img src="/user-add-alt.png" alt="" style={styles.headerIcon} />
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      <section style={styles.tabPanel}>
+        {(["mate", "chat"] as const).map((item) => (
+          <button
+            key={item}
+            type="button"
+            style={{
+              ...styles.tabButton,
+              ...(mainTab === item ? styles.tabButtonActive : {}),
+            }}
+            onClick={() => handleMainTabChange(item)}
+          >
+            {item === "mate" ? "Mate" : "Chat"}
+          </button>
+        ))}
+      </section>
+
+      {mainTab === "mate" && tab === "list" ? renderMateSearchPanel(inputRef) : null}
+      {mainTab === "chat" ? renderChatSearchPanel(inputRef) : null}
+    </>
+  );
+
   return (
     <div style={styles.page}>
       <style>
@@ -821,169 +1059,30 @@ export default function MatePage() {
         `}
       </style>
       <div style={styles.shell}>
-        <header style={styles.header}>
-          <div>
-            <p style={styles.eyebrow}>Trip Mate</p>
-            <h1 style={styles.headerTitle}>{mainTab === "mate" ? "Mate" : "Chat"}</h1>
-          </div>
-          <div style={styles.headerActions}>
-            {mainTab === "mate" ? (
-              <button
-                type="button"
-                style={styles.headerButton}
-                onClick={() => handleTabChange(tab === "list" ? "write" : "list")}
-              >
-                {tab === "list" ? "Post" : "Mate"}
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  style={styles.headerIconButton}
-                  onClick={openChatGroupCreate}
-                  aria-label="Create group chat"
-                >
-                  <img src="/icon-plus.svg" alt="" style={styles.headerIcon} />
-                </button>
-                <button
-                  type="button"
-                  style={styles.headerIconButton}
-                  onClick={openChatFriendManager}
-                  aria-label="Manage friends"
-                >
-                  <img src="/user-add-alt.png" alt="" style={styles.headerIcon} />
-                </button>
-              </>
-            )}
-          </div>
-        </header>
+        <div
+          ref={headerStackRef}
+          style={{
+            ...styles.fixedHeader,
+            ...(headerVisible ? styles.fixedHeaderVisible : {}),
+          }}
+        >
+          {renderHeaderStack(staticSearchRef)}
+        </div>
 
-        <section style={styles.tabPanel}>
-          {(["mate", "chat"] as const).map((item) => (
-            <button
-              key={item}
-              type="button"
-              style={{
-                ...styles.tabButton,
-                ...(mainTab === item ? styles.tabButtonActive : {}),
-              }}
-              onClick={() => handleMainTabChange(item)}
-            >
-              {item === "mate" ? "Mate" : "Chat"}
-            </button>
-          ))}
-        </section>
+        <div style={{ height: fixedHeaderHeight }} aria-hidden="true" />
 
         {mainTab === "chat" ? (
           <section style={styles.chatEmbed}>
-            <ChatPage embedded hideHeader />
+            <ChatPage
+              embedded
+              hideHeader
+              hideSearch
+              searchQuery={chatSearchInput}
+              onSearchQueryChange={setChatSearchInput}
+            />
           </section>
         ) : tab === "list" ? (
           <>
-            <section style={styles.searchPanel}>
-              <div style={styles.searchRow}>
-                <label style={styles.searchWrap}>
-                  <input
-                    ref={searchRef}
-                    value={searchInput}
-                    onChange={(event) => {
-                      setSearchInput(event.target.value);
-                      setShowHistory(true);
-                    }}
-                    onFocus={() => {
-                      setShowHistory(true);
-                      void loadSearchHistory();
-                    }}
-                    onBlur={() => window.setTimeout(() => setShowHistory(false), 220)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        handleSearch(searchInput);
-                      }
-                    }}
-                    placeholder="Search by region or keyword"
-                    style={styles.searchInput}
-                  />
-                </label>
-                <button
-                  type="button"
-                  style={styles.searchAction}
-                  onMouseDown={() => handleSearch(searchInput)}
-                  aria-label="Search"
-                >
-                  <SearchIcon />
-                </button>
-              </div>
-
-              {hasSearchSuggestions ? (
-                <div style={styles.historyPanel}>
-                  <div style={styles.historyHeader}>
-                    <span style={styles.historyTitle}>
-                      {searchInput.trim() ? "Suggestions" : "Recent Searches"}
-                    </span>
-                    {visibleSearchHistory.length > 0 ? (
-                      <button
-                        type="button"
-                        style={styles.linkButton}
-                        onMouseDown={() => void handleClearSearchHistory()}
-                      >
-                        Clear
-                      </button>
-                    ) : null}
-                  </div>
-                  {suggestionLoading ? (
-                    <p style={styles.suggestionHint}>Searching users...</p>
-                  ) : null}
-                  {suggestedUsers.length > 0 ? (
-                    <div style={styles.historyList}>
-                      {suggestedUsers.map((user) => (
-                        <button
-                          key={user.user_id}
-                          type="button"
-                          style={styles.suggestionUserItem}
-                          onMouseDown={() => handleSearch(user.user_name)}
-                        >
-                          <img
-                            src={user.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
-                            alt=""
-                            style={styles.suggestionAvatar}
-                          />
-                          <span style={styles.suggestionUserText}>
-                            <strong style={styles.suggestionName}>{user.user_name}</strong>
-                            <span style={styles.suggestionMeta}>{user.user_id}</span>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div style={styles.historyList}>
-                    {visibleSearchHistory.map((term) => (
-                      <div key={term} style={styles.historyItem}>
-                        <button
-                          type="button"
-                          style={styles.historyTerm}
-                          onMouseDown={() => handleSearch(term)}
-                        >
-                          {term}
-                        </button>
-                        <button
-                          type="button"
-                          style={styles.iconButton}
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            void handleDeleteSearchHistory(term);
-                          }}
-                          aria-label={`Delete ${term}`}
-                        >
-                          x
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </section>
-
             {searchQuery ? (
               <section style={styles.userSearchPanel}>
                 <div style={styles.userSearchHeader}>
@@ -2188,8 +2287,7 @@ function toFriendlyValidationMessage(errorItem: {
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
-    padding:
-      "calc(24px + var(--app-safe-top)) 16px calc(40px + var(--app-bottom-nav-reserved))",
+    padding: "0 16px calc(40px + var(--app-bottom-nav-reserved))",
     background:
       "linear-gradient(180deg, #e4f7f7 0px, #e4f7f7 145px, #ffffff 145px, #ffffff 38%, #f2f3f5 100%)",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
@@ -2202,12 +2300,37 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     gap: 18,
   },
+  fixedHeader: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 30,
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+    padding: "calc(24px + var(--app-safe-top)) 16px 12px",
+    background:
+      "linear-gradient(180deg, #e4f7f7 0px, #e4f7f7 121px, #ffffff 121px, #ffffff 100%)",
+    boxShadow: "0 8px 18px rgba(33, 33, 33, 0.06)",
+    opacity: 0,
+    pointerEvents: "none",
+    transform: "translateY(calc(-100% - 16px))",
+    transition: "transform 240ms ease, opacity 180ms ease",
+  },
+  fixedHeaderVisible: {
+    opacity: 1,
+    pointerEvents: "auto",
+    transform: "translateY(0)",
+  },
   header: {
+    width: "100%",
+    maxWidth: 760,
+    margin: "0 auto",
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 16,
-    paddingTop: 8,
   },
   eyebrow: {
     margin: 0,
@@ -2294,6 +2417,9 @@ const styles: Record<string, CSSProperties> = {
   },
   searchPanel: {
     position: "relative",
+    width: "100%",
+    maxWidth: 760,
+    margin: "0 auto",
     padding: 0,
     borderRadius: 0,
     background: "transparent",

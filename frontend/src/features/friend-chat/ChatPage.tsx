@@ -39,9 +39,15 @@ const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 export default function ChatPage({
   embedded = false,
   hideHeader = false,
+  hideSearch = false,
+  searchQuery: controlledSearchQuery,
+  onSearchQueryChange,
 }: {
   embedded?: boolean;
   hideHeader?: boolean;
+  hideSearch?: boolean;
+  searchQuery?: string;
+  onSearchQueryChange?: (value: string) => void;
 }) {
   const navigate = useNavigate();
   const {
@@ -73,7 +79,7 @@ export default function ChatPage({
   const [error, setError] = useState("");
   const [currentUserName, setCurrentUserName] = useState<string | null>(null);
   const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [internalSearchQuery, setInternalSearchQuery] = useState("");
   const [isFriendManagerOpen, setIsFriendManagerOpen] = useState(false);
   const [friendManagerTab, setFriendManagerTab] = useState<FriendManagerTab>("friend");
   const [friendSearchQuery, setFriendSearchQuery] = useState("");
@@ -120,6 +126,8 @@ export default function ChatPage({
     () => chatRooms.map((room) => toChatRow(room, resolveDisplayName)),
     [chatRooms, resolveDisplayName]
   );
+  const searchQuery = controlledSearchQuery ?? internalSearchQuery;
+  const setSearchQuery = onSearchQueryChange ?? setInternalSearchQuery;
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const filteredChatRows = useMemo(
     () =>
@@ -391,16 +399,18 @@ export default function ChatPage({
           </header>
         )}
 
-        <label style={styles.searchWrap}>
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search"
-            style={styles.searchInput}
-          />
-          <img src="/icon-search.svg" alt="" style={styles.searchIconImage} />
-        </label>
+        {hideSearch ? null : (
+          <label style={styles.searchWrap}>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search"
+              style={styles.searchInput}
+            />
+            <img src="/icon-search.svg" alt="" style={styles.searchIconImage} />
+          </label>
+        )}
 
         {notice ? <div style={styles.notice}>{notice}</div> : null}
         {error ? <div style={styles.error}>{error}</div> : null}
@@ -418,14 +428,22 @@ export default function ChatPage({
               >
                 <Avatar name={chat.name} imageUrl={chat.imageUrl} />
                 <span style={styles.rowMain}>
-                  <strong style={styles.rowTitle}>{chat.name}</strong>
+                  <strong style={styles.rowTitle}>
+                    {chat.name}
+                    {chat.memberCount ? (
+                      <span style={styles.rowTitleMeta}>{chat.memberCount}</span>
+                    ) : null}
+                  </strong>
                   <span style={styles.rowSubtitle}>{chat.preview}</span>
                 </span>
-                {chat.unreadCount > 0 ? (
-                  <span style={styles.unreadBadge}>
-                    {chat.unreadCount >= 999 ? "999+" : chat.unreadCount}
-                  </span>
-                ) : null}
+                <span style={styles.chatRowMeta}>
+                  <span style={styles.chatRowTime}>{chat.time}</span>
+                  {chat.unreadCount > 0 ? (
+                    <span style={styles.unreadBadge}>
+                      {chat.unreadCount >= 999 ? "999+" : chat.unreadCount}
+                    </span>
+                  ) : null}
+                </span>
               </button>
             ))
           ) : (
@@ -944,6 +962,8 @@ function toChatRow(
   subtitle: string;
   preview: string;
   unreadCount: number;
+  memberCount: number | null;
+  time: string;
 } {
   const name =
     room.type === "direct"
@@ -958,6 +978,8 @@ function toChatRow(
     subtitle,
     preview: renderLastMessage(room.last_message, resolveDisplayName),
     unreadCount: room.unread_count,
+    memberCount: room.type === "group" ? room.members?.length ?? null : null,
+    time: formatChatTime(room.effective_last_at || room.last_message_at || room.last_message?.created_at || ""),
   };
 }
 
@@ -1024,6 +1046,19 @@ function formatTargetNames(names: string[]): string {
   if (names.length === 1) return names[0];
   return `${names[0]} and ${names.length - 1} others`;
 }
+
+function formatChatTime(value: string): string {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function getErrorStatus(error: unknown): number | undefined {
   const apiError = error as { response?: { status?: number } };
   return apiError.response?.status;
@@ -1034,7 +1069,7 @@ const styles: Record<string, CSSProperties> = {
     minHeight: "var(--app-viewport-height)",
     padding: "calc(20px + var(--app-safe-top)) 0 34px",
     background: "#ffffff",
-    fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
+    fontFamily: "'Pretendard Variable', 'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   shell: {
     width: "100%",
@@ -1042,14 +1077,14 @@ const styles: Record<string, CSSProperties> = {
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
-    gap: 12,
+    gap: 10,
   },
   header: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    minHeight: 42,
+    minHeight: 48,
     padding: "0 16px",
   },
   embeddedHeader: {
@@ -1079,9 +1114,9 @@ const styles: Record<string, CSSProperties> = {
   },
   title: {
     margin: 0,
-    color: "#171717",
+    color: "#222222",
     fontSize: "1.06rem",
-    fontWeight: 900,
+    fontWeight: 800,
     lineHeight: 1,
   },
   backButton: {
@@ -1129,22 +1164,22 @@ const styles: Record<string, CSSProperties> = {
   },
   addButtonDot: {
     position: "absolute",
-    top: 5,
+    top: 2,
     right: 2,
-    width: 6,
-    height: 6,
+    width: 7,
+    height: 7,
     borderRadius: "50%",
-    background: "#ffb300",
+    background: "#01c0c0",
   },
   searchWrap: {
     margin: "0 17px",
     minHeight: 44,
     borderRadius: 999,
-    background: "#f5f5f5",
+    background: "#f6f6f6",
     display: "flex",
     alignItems: "center",
     gap: 12,
-    padding: "0 18px 0 22px",
+    padding: "0 16px",
   },
   searchInput: {
     flex: 1,
@@ -1225,6 +1260,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 0,
+    paddingTop: 4,
   },
   stack: {
     display: "flex",
@@ -1232,17 +1268,18 @@ const styles: Record<string, CSSProperties> = {
     gap: 14,
   },
   panel: {
-    padding: 16,
-    borderRadius: 20,
+    padding: "8px 0",
+    borderRadius: 0,
     background: "#ffffff",
-    border: "1px solid #eeeeee",
+    border: "none",
+    borderTop: "1px solid #f0f0f0",
   },
   sectionHeader: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    marginBottom: 12,
+    margin: "8px 16px 10px",
   },
   sectionTitle: {
     margin: 0,
@@ -1268,18 +1305,19 @@ const styles: Record<string, CSSProperties> = {
   friendList: {
     display: "flex",
     flexDirection: "column",
-    gap: 12,
+    gap: 0,
   },
   friendCard: {
     display: "flex",
-    flexDirection: "column",
-    alignItems: "stretch",
+    flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
-    padding: 12,
-    borderRadius: 14,
+    gap: 8,
+    padding: "10px 16px",
+    borderRadius: 0,
     background: "#ffffff",
-    border: "1px solid #f0f0f0",
+    border: "none",
+    borderBottom: "1px solid #f0f0f0",
   },
   peerSummary: {
     display: "flex",
@@ -1293,7 +1331,8 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     gap: 12,
     width: "100%",
-    padding: "13px 17px",
+    minHeight: 76,
+    padding: "10px 17px",
     borderRadius: 0,
     background: "#ffffff",
     border: "none",
@@ -1325,15 +1364,36 @@ const styles: Record<string, CSSProperties> = {
     flex: 1,
   },
   rowTitle: {
-    color: "#171717",
+    color: "#222222",
     fontSize: "1.06rem",
     lineHeight: 1.1,
+    fontWeight: 700,
+  },
+  rowTitleMeta: {
+    marginLeft: 4,
+    color: "#848484",
+    fontSize: "0.94rem",
+    fontWeight: 400,
   },
   rowSubtitle: {
-    color: "#8c8c8c",
-    fontSize: "0.88rem",
+    color: "#848484",
+    fontSize: "0.875rem",
     overflow: "hidden",
     textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  chatRowMeta: {
+    minWidth: 46,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 6,
+    flexShrink: 0,
+  },
+  chatRowTime: {
+    color: "#848484",
+    fontSize: "0.688rem",
     whiteSpace: "nowrap",
   },
   userId: {
@@ -1348,17 +1408,19 @@ const styles: Record<string, CSSProperties> = {
   actionRow: {
     display: "flex",
     flexWrap: "wrap",
-    justifyContent: "flex-start",
-    gap: 8,
+    justifyContent: "flex-end",
+    gap: 4,
+    flexShrink: 0,
   },
   primaryButton: {
-    border: "1px solid rgba(5,181,187,0.2)",
-    borderRadius: 16,
-    minHeight: 42,
-    padding: "0 14px",
-    background: "linear-gradient(135deg, var(--brand-primary), #12c0c6)",
-    color: "#ffffff",
-    fontWeight: 800,
+    border: "none",
+    borderRadius: 999,
+    minHeight: 36,
+    padding: "0 12px",
+    background: "#01c0c0",
+    color: "#fbfbfb",
+    fontWeight: 600,
+    fontSize: "0.8125rem",
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
@@ -1367,24 +1429,26 @@ const styles: Record<string, CSSProperties> = {
     cursor: "not-allowed",
   },
   secondaryButton: {
-    border: "1px solid rgba(5,181,187,0.18)",
-    borderRadius: 16,
-    minHeight: 42,
-    padding: "0 14px",
-    background: "rgba(255,255,255,0.88)",
-    color: "var(--text-secondary)",
-    fontWeight: 800,
+    border: "none",
+    borderRadius: 999,
+    minHeight: 36,
+    padding: "0 12px",
+    background: "#f6f6f6",
+    color: "#848484",
+    fontWeight: 600,
+    fontSize: "0.8125rem",
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
   dangerButton: {
-    border: "1px solid rgba(220,38,38,0.18)",
-    borderRadius: 16,
-    minHeight: 42,
-    padding: "0 14px",
-    background: "rgba(255,255,255,0.88)",
-    color: "#dc2626",
-    fontWeight: 800,
+    border: "none",
+    borderRadius: 999,
+    minHeight: 36,
+    padding: "0 12px",
+    background: "#f6f6f6",
+    color: "#b70000",
+    fontWeight: 600,
+    fontSize: "0.8125rem",
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
@@ -1408,16 +1472,18 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
   },
   unreadBadge: {
-    display: "inline-grid",
-    placeItems: "center",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     minWidth: 20,
+    width: 20,
     height: 20,
-    padding: "0 6px",
-    borderRadius: 999,
-    background: "#ffb300",
+    padding: "0 4px",
+    borderRadius: 10,
+    background: "#ffb900",
     color: "#ffffff",
-    fontSize: "0.9rem",
-    fontWeight: 900,
+    fontSize: "0.75rem",
+    fontWeight: 700,
   },
   emptyCard: {
     padding: 22,
@@ -1481,38 +1547,37 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   managerTabs: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 8,
-    padding: 4,
-    borderRadius: 16,
-    background: "#f4f4f4",
+    display: "flex",
   },
   managerTabButton: {
+    flex: 1,
     minHeight: 40,
     border: "none",
-    borderRadius: 12,
+    borderBottom: "2px solid #eaeaea",
     background: "transparent",
-    color: "#7a7a7a",
-    fontWeight: 900,
+    color: "#dadada",
+    fontWeight: 700,
+    fontSize: "0.875rem",
     cursor: "pointer",
+    paddingBottom: 8,
   },
   managerTabButtonActive: {
-    background: "#ffffff",
-    color: "#171717",
-    boxShadow: "0 8px 18px rgba(15,23,42,0.08)",
+    borderBottomColor: "#01c0c0",
+    color: "#01c0c0",
   },
   managerTabBadge: {
-    display: "inline-grid",
-    placeItems: "center",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     minWidth: 18,
     height: 18,
-    marginLeft: 6,
+    marginLeft: 5,
     padding: "0 5px",
     borderRadius: 999,
-    background: "#04bfbf",
+    background: "#01c0c0",
     color: "#ffffff",
     fontSize: "0.68rem",
+    fontWeight: 700,
   },
   closeIcon: {
     width: 18,

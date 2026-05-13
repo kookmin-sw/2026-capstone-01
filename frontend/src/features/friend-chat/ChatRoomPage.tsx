@@ -48,11 +48,14 @@ export default function ChatRoomPage() {
   const [selectedInviteIds, setSelectedInviteIds] = useState<string[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [leaveLoading, setLeaveLoading] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
   const [isLeaveConfirmOpen, setIsLeaveConfirmOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const [incomingMessageNotice, setIncomingMessageNotice] =
     useState<ChatMessage | null>(null);
 
@@ -77,15 +80,14 @@ export default function ChatRoomPage() {
     members.forEach((member) => profiles.set(member.user_id, member));
     return profiles;
   }, [members]);
-  const memberSummary =
-    room?.type === "group"
-      ? members.length > 0
-        ? `${members.length} members`
-        : membersLoading
-          ? "Loading members"
-          : "Group chat"
-      : connectionState;
+  const messageSearchResultCount = useMemo(() => {
+    const query = messageSearchQuery.trim().toLowerCase();
+    if (!query) return 0;
 
+    return messages.filter((message) =>
+      renderMessageContent(message).toLowerCase().includes(query)
+    ).length;
+  }, [messageSearchQuery, messages]);
   useEffect(() => {
     let cancelled = false;
 
@@ -334,7 +336,7 @@ export default function ChatRoomPage() {
   async function handleLeaveGroup(): Promise<void> {
     if (!roomId || room?.type !== "group") return;
 
-    setInviteLoading(true);
+    setLeaveLoading(true);
     setActionMessage("");
     setErrorMessage("");
     try {
@@ -343,7 +345,7 @@ export default function ChatRoomPage() {
     } catch (error) {
       setErrorMessage(toErrorMessage(error, "Failed to leave group."));
     } finally {
-      setInviteLoading(false);
+      setLeaveLoading(false);
       setIsLeaveConfirmOpen(false);
     }
   }
@@ -360,46 +362,83 @@ export default function ChatRoomPage() {
 
   function openFeedPopup(userId?: string | null): void {
     if (userId) {
+      setInfoOpen(false);
       setFeedPopupUserId(userId);
     }
   }
 
   return (
-    <div style={styles.page}>
+    <div
+      style={{
+        ...styles.page,
+        ...(room?.type === "group" ? styles.groupPage : {}),
+      }}
+    >
       <header style={styles.header}>
         <button
           type="button"
           style={styles.backButton}
           onClick={() => navigate("/mate", { state: { mainTab: "chat" } })}
+          aria-label="Back"
         >
-          Back
-        </button>
-        <button
-          type="button"
-          style={{
-            ...styles.avatar,
-            ...styles.avatarButton,
-            ...(!roomProfileUserId ? styles.disabledAvatarButton : {}),
-          }}
-          onClick={() => openFeedPopup(roomProfileUserId)}
-          disabled={!roomProfileUserId}
-          aria-label={`${roomName} feed`}
-        >
-          <img src={roomProfileImageUrl} alt={roomName} style={styles.avatarImage} />
+          <BackIcon />
         </button>
         <span style={styles.headerText}>
-          <strong style={styles.roomName}>{roomName}</strong>
-          <span style={styles.connectionText}>{memberSummary}</span>
+          <button
+            type="button"
+            style={{
+              ...styles.roomNameButton,
+              ...(!roomProfileUserId ? styles.disabledRoomNameButton : {}),
+            }}
+            onClick={() => openFeedPopup(roomProfileUserId)}
+            disabled={!roomProfileUserId}
+          >
+            <strong style={styles.roomName}>{roomName}</strong>
+            {room?.type === "group" ? (
+              <span style={styles.groupMemberCount}>{members.length || ""}</span>
+            ) : null}
+          </button>
         </span>
-        <button
-          type="button"
-          style={styles.infoButton}
-          onClick={() => setInfoOpen(true)}
-          aria-label="Open chat info"
-        >
-          <img src="/icon-menu.svg" alt="" style={styles.infoIcon} />
-        </button>
+        <span style={styles.headerActions}>
+          <button
+            type="button"
+            style={styles.searchButton}
+            onClick={() => setIsSearchOpen((current) => !current)}
+            aria-label="Search messages"
+          >
+            <SearchIcon />
+          </button>
+          <button
+            type="button"
+            style={styles.infoButton}
+            onClick={() => setInfoOpen(true)}
+            aria-label="Open chat info"
+          >
+            <img src="/icon-menu.svg" alt="" style={styles.infoIcon} />
+          </button>
+        </span>
       </header>
+
+      {isSearchOpen ? (
+        <label style={styles.messageSearchWrap}>
+          <input
+            type="search"
+            value={messageSearchQuery}
+            onChange={(event) => setMessageSearchQuery(event.target.value)}
+            placeholder="Search messages"
+            style={styles.messageSearchInput}
+          />
+          <span style={styles.messageSearchCount}>
+            {messageSearchQuery.trim() ? `${messageSearchResultCount}` : ""}
+          </span>
+        </label>
+      ) : null}
+
+      <div style={styles.dateDivider}>
+        <span style={styles.dateLine} />
+        <span style={styles.dateText}>{formatChatDate(messages[0]?.created_at)}</span>
+        <span style={styles.dateLine} />
+      </div>
 
       <main ref={messageListRef} style={styles.messageList}>
         {errorMessage ? <div style={styles.error}>{errorMessage}</div> : null}
@@ -417,7 +456,7 @@ export default function ChatRoomPage() {
             {roomPageState.isLoadingOlderMessages ? "Loading..." : "Load earlier messages"}
           </button>
         ) : null}
-        {messages.map((message) => {
+        {messages.map((message, messageIndex) => {
           if (isRoomNoticeMessage(message)) {
             return (
               <div
@@ -432,6 +471,17 @@ export default function ChatRoomPage() {
           }
 
           const mine = Boolean(currentUserId && message.sender_id === currentUserId);
+          const previousMessage = messages[messageIndex - 1];
+          const showAvatar =
+            !mine &&
+            (!previousMessage ||
+              previousMessage.sender_id !== message.sender_id ||
+              isRoomNoticeMessage(previousMessage));
+          const isSearchMatch =
+            Boolean(messageSearchQuery.trim()) &&
+            renderMessageContent(message)
+              .toLowerCase()
+              .includes(messageSearchQuery.trim().toLowerCase());
           return (
             <div
               key={message.client_msg_id || message.message_id}
@@ -451,24 +501,56 @@ export default function ChatRoomPage() {
                   <img
                     src={getMessageAvatarUrl(message)}
                     alt={getMessageSenderName(message)}
-                    style={styles.messageAvatar}
+                    style={{
+                      ...styles.messageAvatar,
+                      ...(showAvatar ? {} : styles.hiddenMessageAvatar),
+                    }}
                   />
                 </button>
               ) : null}
-              <div
-                style={{
-                  ...styles.bubble,
-                  ...(mine ? styles.bubbleMine : {}),
-                  ...(message.deleted_at ? styles.deletedBubble : {}),
-                }}
-              >
-                {renderMessageContent(message)}
-              </div>
-              <span style={styles.time}>
-                {formatTime(message.created_at)}
-                {message.status === "sending" ? " - sending" : ""}
-                {message.status === "failed" ? " - failed" : ""}
-                {message.edited_at && !message.deleted_at ? " - edited" : ""}
+              <span style={styles.messageContentGroup}>
+                {!mine && room?.type === "group" && showAvatar ? (
+                  <span style={styles.senderName}>{getMessageSenderName(message)}</span>
+                ) : null}
+                <span style={styles.bubbleLine}>
+                  {!mine ? (
+                    <div
+                      style={{
+                        ...styles.bubble,
+                        ...(room?.type === "group" ? styles.groupReceivedBubble : {}),
+                        ...(isSearchMatch ? styles.searchMatchedBubble : {}),
+                      }}
+                    >
+                      {renderMessageContent(message)}
+                    </div>
+                  ) : (
+                    <>
+                      <span style={styles.time}>
+                        {formatTime(message.created_at)}
+                        {message.status === "sending" ? " - sending" : ""}
+                        {message.status === "failed" ? " - failed" : ""}
+                        {message.edited_at && !message.deleted_at ? " - edited" : ""}
+                      </span>
+                      <div
+                        style={{
+                          ...styles.bubble,
+                          ...styles.bubbleMine,
+                          ...(isSearchMatch ? styles.searchMatchedBubbleMine : {}),
+                        }}
+                      >
+                        {renderMessageContent(message)}
+                      </div>
+                    </>
+                  )}
+                  {!mine ? (
+                    <span style={styles.time}>
+                      {formatTime(message.created_at)}
+                      {message.status === "sending" ? " - sending" : ""}
+                      {message.status === "failed" ? " - failed" : ""}
+                      {message.edited_at && !message.deleted_at ? " - edited" : ""}
+                    </span>
+                  ) : null}
+                </span>
               </span>
             </div>
           );
@@ -503,7 +585,7 @@ export default function ChatRoomPage() {
             if (event.key === "Enter") handleSend();
           }}
           maxLength={2000}
-          placeholder="Write a message"
+          placeholder="Type a message"
           style={styles.input}
         />
         <button
@@ -514,8 +596,12 @@ export default function ChatRoomPage() {
           }}
           onClick={handleSend}
           disabled={!input.trim() || connectionState === "closed"}
+          aria-label={connectionState === "closed" ? "Offline" : "Send"}
+          title={connectionState === "ready" ? "Send" : connectionState === "closed" ? "Offline" : "Queued"}
         >
-          {connectionState === "ready" ? "Send" : connectionState === "closed" ? "Offline" : "Queue"}
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M7 12V2M3 6l4-4 4 4" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </button>
       </footer>
 
@@ -523,18 +609,16 @@ export default function ChatRoomPage() {
         <div style={styles.infoBackdrop} onClick={() => setInfoOpen(false)}>
           <aside style={styles.infoPanel} onClick={(event) => event.stopPropagation()}>
             <div style={styles.infoHeader}>
-              <div>
-                <p style={styles.infoEyebrow}>Chat Info</p>
-                <h2 style={styles.infoTitle}>{roomName}</h2>
-              </div>
               <button
                 type="button"
                 style={styles.infoCloseButton}
                 onClick={() => setInfoOpen(false)}
-                aria-label="Close chat info"
+                aria-label="Back to chat"
               >
-                <img src="/icon-close.svg" alt="" style={styles.infoCloseIcon} />
+                <BackIcon />
               </button>
+              <h2 style={styles.infoTitle}>{roomName}</h2>
+              <span style={styles.infoHeaderSpacer} />
             </div>
 
             <section style={styles.infoSection}>
@@ -544,6 +628,16 @@ export default function ChatRoomPage() {
                   <span style={styles.infoCount}>{members.length}</span>
                 ) : null}
               </div>
+              {room?.type === "group" ? (
+                <button
+                  type="button"
+                  style={styles.infoPrimaryButton}
+                  onClick={() => void openInvitePanel()}
+                >
+                  <span style={styles.inviteIcon}>+</span>
+                  Invite
+                </button>
+              ) : null}
               {membersLoading && members.length === 0 ? (
                 <p style={styles.mutedText}>Loading members...</p>
               ) : members.length > 0 ? (
@@ -562,7 +656,6 @@ export default function ChatRoomPage() {
                       />
                       <span style={styles.rowMain}>
                         <strong style={styles.memberRowName}>{member.user_name}</strong>
-                        <span style={styles.userId}>{member.user_id}</span>
                       </span>
                     </button>
                   ))}
@@ -577,18 +670,11 @@ export default function ChatRoomPage() {
                 <div style={styles.infoActions}>
                   <button
                     type="button"
-                    style={styles.infoPrimaryButton}
-                    onClick={() => void openInvitePanel()}
-                  >
-                    Invite
-                  </button>
-                  <button
-                    type="button"
                     style={styles.infoDangerButton}
                     onClick={() => setIsLeaveConfirmOpen(true)}
-                    disabled={inviteLoading}
+                    disabled={leaveLoading}
                   >
-                    {inviteLoading ? "Leaving..." : "Leave"}
+                    {leaveLoading ? "Leaving..." : "Leave Chat"}
                   </button>
                 </div>
 
@@ -624,7 +710,6 @@ export default function ChatRoomPage() {
                               />
                               <span style={styles.rowMain}>
                                 <strong style={styles.inviteFriendName}>{friend.user_name}</strong>
-                                <span style={styles.userId}>{friend.user_id}</span>
                               </span>
                             </label>
                           );
@@ -668,7 +753,7 @@ export default function ChatRoomPage() {
           message="You will stop receiving messages from this group."
           confirmLabel="Leave"
           destructive
-          busy={inviteLoading}
+          busy={leaveLoading}
           onConfirm={() => void handleLeaveGroup()}
           onCancel={() => setIsLeaveConfirmOpen(false)}
         />
@@ -764,6 +849,46 @@ function formatTime(value: string): string {
   });
 }
 
+function formatChatDate(value?: string): string {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleDateString([], {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  });
+}
+
+function BackIcon() {
+  return (
+    <svg width="11" height="20" viewBox="0 0 11 20" fill="none" aria-hidden="true">
+      <path
+        d="M9.5 1.5 1.5 10l8 8.5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+      <circle cx="9.5" cy="9.5" r="7" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M15 15l4.5 4.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function toErrorMessage(error: unknown, fallback: string): string {
   const apiError = error as {
     response?: { data?: { detail?: string; message?: string } };
@@ -777,28 +902,33 @@ const styles: Record<string, CSSProperties> = {
     height: "var(--app-viewport-height)",
     display: "flex",
     flexDirection: "column",
-    background: "transparent",
-    fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
+    background: "linear-gradient(to bottom, #f2ffff 0%, #f2ffff 66%, #fffbf1 100%)",
+    fontFamily: "'Pretendard Variable', 'Nunito', 'Apple SD Gothic Neo', sans-serif",
     overflow: "hidden",
+  },
+  groupPage: {
+    background: "#ffffff",
   },
   header: {
     zIndex: 5,
     flexShrink: 0,
     display: "flex",
     alignItems: "center",
-    gap: 12,
-    padding: "calc(14px + var(--app-safe-top)) 16px 14px",
-    background: "rgba(255,255,255,0.94)",
-    borderBottom: "1px solid var(--border-soft)",
-    backdropFilter: "blur(14px)",
+    justifyContent: "space-between",
+    gap: 10,
+    minHeight: 56,
+    padding: "calc(18px + var(--app-safe-top)) 16px 8px",
+    background: "transparent",
+    borderBottom: "none",
+    position: "relative",
   },
   backButton: {
-    border: "1px solid rgba(5,181,187,0.18)",
-    borderRadius: 14,
-    padding: "9px 12px",
-    background: "#ffffff",
-    color: "var(--text-secondary)",
-    fontWeight: 800,
+    width: 34,
+    height: 40,
+    border: "none",
+    padding: 4,
+    background: "transparent",
+    color: "#222222",
     cursor: "pointer",
   },
   avatar: {
@@ -824,26 +954,71 @@ const styles: Record<string, CSSProperties> = {
   },
   headerText: {
     minWidth: 0,
-    display: "flex",
-    flexDirection: "column",
-    gap: 2,
-    flex: 1,
-  },
-  roomName: {
-    color: "var(--text-primary)",
-  },
-  connectionText: {
-    color: "var(--neutral-700)",
-    fontSize: "0.72rem",
-  },
-  infoButton: {
-    width: 40,
-    height: 40,
-    border: "1px solid rgba(5,181,187,0.18)",
-    borderRadius: "50%",
     display: "grid",
     placeItems: "center",
-    background: "#ffffff",
+    position: "absolute",
+    left: 76,
+    right: 76,
+    bottom: 15,
+    pointerEvents: "none",
+  },
+  roomNameButton: {
+    maxWidth: "100%",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    border: "none",
+    background: "transparent",
+    padding: 0,
+    cursor: "pointer",
+    pointerEvents: "auto",
+  },
+  disabledRoomNameButton: {
+    cursor: "default",
+  },
+  roomName: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: "#222222",
+    fontSize: "1.0625rem",
+    fontWeight: 700,
+  },
+  groupMemberCount: {
+    color: "#848484",
+    fontSize: "1.0625rem",
+    fontWeight: 400,
+  },
+  searchButton: {
+    width: 34,
+    height: 40,
+    border: "none",
+    padding: "5px 2px 0",
+    background: "transparent",
+    color: "#222222",
+    cursor: "pointer",
+    flexShrink: 0,
+    display: "grid",
+    placeItems: "center",
+  },
+  headerActions: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 8,
+    width: 76,
+    flexShrink: 0,
+  },
+  infoButton: {
+    width: 34,
+    height: 40,
+    border: "none",
+    borderRadius: 0,
+    display: "grid",
+    placeItems: "center",
+    background: "transparent",
     cursor: "pointer",
     flexShrink: 0,
   },
@@ -851,6 +1026,50 @@ const styles: Record<string, CSSProperties> = {
     width: 22,
     height: 22,
     objectFit: "contain",
+  },
+  messageSearchWrap: {
+    minHeight: 42,
+    margin: "0 17px 8px",
+    borderRadius: 999,
+    background: "#f6f6f6",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "0 14px",
+    flexShrink: 0,
+  },
+  messageSearchInput: {
+    flex: 1,
+    minWidth: 0,
+    border: "none",
+    outline: "none",
+    background: "transparent",
+    color: "#222222",
+    fontSize: "0.9rem",
+  },
+  messageSearchCount: {
+    minWidth: 18,
+    color: "#01c0c0",
+    fontSize: "0.78rem",
+    fontWeight: 800,
+    textAlign: "right",
+  },
+  dateDivider: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "8px 16px 12px",
+    flexShrink: 0,
+  },
+  dateLine: {
+    flex: 1,
+    height: 1,
+    background: "#dadada",
+  },
+  dateText: {
+    color: "#b8b8b8",
+    fontSize: "0.75rem",
+    whiteSpace: "nowrap",
   },
   inviteButton: {
     border: "1px solid rgba(5,181,187,0.2)",
@@ -907,10 +1126,11 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 0,
     display: "flex",
     flexDirection: "column",
-    gap: 12,
+    gap: 4,
     overflowY: "auto",
     overscrollBehavior: "contain",
-    padding: "16px 16px 16px",
+    padding: "8px 0 14px",
+    scrollbarWidth: "none",
   },
   error: {
     padding: "12px 14px",
@@ -1015,9 +1235,11 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "flex-end",
     gap: 8,
+    padding: "4px 16px",
   },
   messageRowMine: {
     flexDirection: "row-reverse",
+    justifyContent: "flex-start",
   },
   roomNoticeRow: {
     alignSelf: "center",
@@ -1032,16 +1254,19 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.45,
   },
   messageAvatar: {
-    width: 30,
-    height: 30,
+    width: 40,
+    height: 40,
     borderRadius: "50%",
     objectFit: "cover",
     flexShrink: 0,
-    boxShadow: "0 6px 14px rgba(24,26,32,0.08)",
+    boxShadow: "none",
+  },
+  hiddenMessageAvatar: {
+    visibility: "hidden",
   },
   messageAvatarButton: {
-    width: 30,
-    height: 30,
+    width: 40,
+    height: 40,
     border: "none",
     borderRadius: "50%",
     padding: 0,
@@ -1049,39 +1274,68 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
     flexShrink: 0,
   },
+  messageContentGroup: {
+    minWidth: 0,
+    maxWidth: "calc(100% - 48px)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  },
+  senderName: {
+    marginLeft: 2,
+    color: "#848484",
+    fontSize: "0.75rem",
+    lineHeight: 1.2,
+  },
+  bubbleLine: {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: 4,
+  },
   bubble: {
-    maxWidth: "min(72%, 420px)",
-    padding: "11px 14px",
-    borderRadius: "18px 18px 18px 6px",
+    maxWidth: 216,
+    padding: "10px 20px",
+    borderRadius: "25px 25px 25px 5px",
     background: "#ffffff",
-    color: "var(--text-secondary)",
-    boxShadow: "var(--shadow-soft)",
+    color: "#000000",
+    boxShadow: "none",
     overflowWrap: "anywhere",
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
+    fontSize: "0.9375rem",
+    lineHeight: "20px",
+  },
+  groupReceivedBubble: {
+    borderRadius: "5px 25px 25px 25px",
+    background: "#f6f6f6",
   },
   bubbleMine: {
-    borderRadius: "18px 18px 6px 18px",
-    background: "linear-gradient(135deg, var(--brand-primary), #12c0c6)",
+    borderRadius: "25px 25px 5px 25px",
+    background: "#01c0c0",
     color: "#ffffff",
+    fontWeight: 500,
   },
-  deletedBubble: {
-    opacity: 0.62,
-    fontStyle: "italic",
+  searchMatchedBubble: {
+    outline: "2px solid rgba(255,185,0,0.75)",
+  },
+  searchMatchedBubbleMine: {
+    outline: "2px solid rgba(255,185,0,0.95)",
   },
   time: {
-    color: "var(--neutral-500)",
-    fontSize: "0.72rem",
+    color: "#aaaaaa",
+    fontSize: "0.68rem",
+    whiteSpace: "nowrap",
   },
   composer: {
     zIndex: 20,
     flexShrink: 0,
-    display: "grid",
-    gridTemplateColumns: "1fr auto",
-    gap: 10,
-    padding: "12px 16px calc(12px + var(--app-safe-bottom))",
-    background: "rgba(255,255,255,0.96)",
-    borderTop: "1px solid var(--border-soft)",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "10px 16px calc(10px + var(--app-safe-bottom))",
+    background: "rgba(255,255,255,0.9)",
+    borderTop: "1px solid rgba(0,0,0,0.06)",
+    backdropFilter: "blur(8px)",
   },
   incomingNotice: {
     position: "fixed",
@@ -1125,21 +1379,31 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
   },
   input: {
-    minHeight: 44,
-    border: "1px solid rgba(5,181,187,0.16)",
+    flex: 1,
+    minWidth: 0,
+    minHeight: 40,
+    border: "none",
     borderRadius: 999,
     padding: "0 16px",
     outline: "none",
-    color: "var(--text-primary)",
+    background: "#ffffff",
+    color: "#222222",
+    fontSize: "0.9375rem",
   },
   sendButton: {
     border: "none",
-    borderRadius: 999,
-    padding: "0 18px",
-    background: "var(--brand-primary)",
+    borderRadius: "50%",
+    width: 32,
+    height: 32,
+    minWidth: 32,
+    padding: 0,
+    background: "#01c0c0",
     color: "#ffffff",
-    fontWeight: 900,
     cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   sendButtonDisabled: {
     opacity: 0.5,
@@ -1150,46 +1414,56 @@ const styles: Record<string, CSSProperties> = {
     inset: 0,
     zIndex: 80,
     display: "flex",
-    justifyContent: "flex-end",
-    background: "rgba(24,26,32,0.28)",
+    justifyContent: "center",
+    background: "#ffffff",
   },
   infoPanel: {
-    width: "min(390px, 92vw)",
+    width: "min(393px, 100vw)",
     height: "var(--app-viewport-height)",
     display: "flex",
     flexDirection: "column",
-    gap: 16,
+    gap: 0,
     overflowY: "auto",
-    padding: "calc(20px + var(--app-safe-top)) 16px calc(20px + var(--app-safe-bottom))",
+    padding: "calc(18px + var(--app-safe-top)) 0 calc(20px + var(--app-safe-bottom))",
     background: "#ffffff",
-    boxShadow: "-24px 0 54px rgba(24,26,32,0.18)",
+    boxShadow: "none",
   },
   infoHeader: {
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 12,
+    display: "grid",
+    gridTemplateColumns: "44px minmax(0, 1fr) 44px",
+    alignItems: "center",
+    justifyContent: "stretch",
+    gap: 10,
+    minHeight: 56,
+    padding: "0 16px",
   },
   infoEyebrow: {
-    margin: 0,
-    color: "var(--brand-primary-deep)",
-    fontSize: "0.72rem",
-    fontWeight: 900,
-    textTransform: "uppercase",
+    display: "none",
   },
   infoTitle: {
-    margin: "4px 0 0",
-    color: "var(--text-primary)",
-    fontSize: "1.25rem",
+    margin: 0,
+    color: "#222222",
+    fontSize: "1.0625rem",
     lineHeight: 1.2,
+    fontWeight: 700,
+    textAlign: "center",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   infoCloseButton: {
-    width: 38,
-    height: 38,
+    width: 36,
+    height: 40,
     border: "none",
-    borderRadius: "50%",
-    background: "var(--surface-muted)",
+    borderRadius: 0,
+    background: "transparent",
+    color: "#222222",
     cursor: "pointer",
+  },
+  infoHeaderSpacer: {
+    width: 36,
+    height: 40,
+    display: "block",
   },
   infoCloseIcon: {
     width: 18,
@@ -1199,79 +1473,107 @@ const styles: Record<string, CSSProperties> = {
   infoSection: {
     display: "flex",
     flexDirection: "column",
-    gap: 10,
+    gap: 0,
+    paddingTop: 10,
   },
   infoSectionHeader: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
+    justifyContent: "flex-start",
+    gap: 4,
+    padding: "16px 16px 4px",
   },
   infoSectionTitle: {
     margin: 0,
-    color: "var(--text-primary)",
-    fontSize: "0.98rem",
+    color: "#222222",
+    fontSize: "0.9375rem",
+    fontWeight: 700,
   },
   infoCount: {
-    minWidth: 24,
-    height: 24,
-    display: "grid",
-    placeItems: "center",
-    borderRadius: 999,
-    background: "var(--brand-primary-soft)",
-    color: "var(--brand-primary-deep)",
-    fontSize: "0.75rem",
-    fontWeight: 900,
+    minWidth: 0,
+    height: "auto",
+    display: "inline",
+    borderRadius: 0,
+    background: "transparent",
+    color: "#848484",
+    fontSize: "0.9375rem",
+    fontWeight: 700,
   },
   memberList: {
     display: "flex",
     flexDirection: "column",
-    gap: 8,
+    gap: 0,
   },
   memberRow: {
     width: "100%",
     display: "flex",
     alignItems: "center",
-    gap: 10,
-    padding: 10,
-    border: "1px solid var(--border-soft)",
-    borderRadius: 16,
+    gap: 8,
+    minHeight: 64,
+    padding: "10px 16px",
+    border: "none",
+    borderBottom: "1px solid #f0f0f0",
+    borderRadius: 0,
     background: "#ffffff",
     textAlign: "left",
     cursor: "pointer",
   },
   memberAvatarLarge: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     borderRadius: "50%",
     objectFit: "cover",
     flexShrink: 0,
   },
   memberRowName: {
-    color: "var(--text-primary)",
-    fontSize: "0.9rem",
+    color: "#222222",
+    fontSize: "1rem",
+    fontWeight: 600,
   },
   infoActions: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 8,
+    display: "flex",
+    flexDirection: "column",
+    gap: 0,
   },
   infoPrimaryButton: {
-    minHeight: 44,
+    minHeight: 64,
     border: "none",
-    borderRadius: 14,
-    background: "var(--brand-primary)",
-    color: "#ffffff",
-    fontWeight: 900,
+    borderBottom: "1px solid #f0f0f0",
+    borderRadius: 0,
+    background: "#ffffff",
+    color: "#000000",
+    fontWeight: 600,
+    fontSize: "1rem",
     cursor: "pointer",
+    textAlign: "left",
+    padding: "0 16px",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  inviteIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: "50%",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#eaeaea",
+    color: "#01c0c0",
+    fontSize: "1.35rem",
+    lineHeight: 1,
+    flexShrink: 0,
   },
   infoDangerButton: {
-    minHeight: 44,
-    border: "1px solid rgba(220,38,38,0.18)",
-    borderRadius: 14,
-    background: "rgba(220,38,38,0.08)",
-    color: "#b91c1c",
-    fontWeight: 900,
+    minHeight: 52,
+    border: "none",
+    borderRadius: 0,
+    background: "#ffffff",
+    color: "#b70000",
+    fontWeight: 500,
+    fontSize: "1rem",
     cursor: "pointer",
+    textAlign: "left",
+    padding: "0 16px",
   },
 };
