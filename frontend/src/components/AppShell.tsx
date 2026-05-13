@@ -10,12 +10,17 @@ type NavIconSize = {
   height: number;
 };
 
+const DEFAULT_NAV_ICON_SIZE: NavIconSize = {
+  width: 28,
+  height: 28,
+};
+
 const TAB_ITEMS = [
-  { to: "/home", label: "Home", icon: "home", iconSize: { width: 22, height: 23 } },
-  { to: "/plan", label: "Plan", icon: "plan", iconSize: { width: 21, height: 24 } },
-  { to: "/menu", label: "Menu", icon: "menu", iconSize: { width: 20, height: 24 } },
-  { to: "/mate", label: "Mate", icon: "mate", iconSize: { width: 21, height: 23 } },
-  { to: "/my", label: "My Page", icon: "my", iconSize: { width: 20, height: 23 } },
+  { to: "/home", label: "Home", icon: "home", iconSize: { width: 24, height: 24 } },
+  { to: "/plan", label: "Plan", icon: "calendar", iconSize: DEFAULT_NAV_ICON_SIZE },
+  { to: "/menu", label: "Menu", icon: "menu", iconSize: { width: 24, height: 24 } },
+  { to: "/mate", label: "Mate", icon: "mate", iconSize: { width: 24, height: 24 } },
+  { to: "/my", label: "My Page", icon: "my", iconSize: DEFAULT_NAV_ICON_SIZE },
 ] as const;
 
 const TAB_ROOT_PATHS = TAB_ITEMS.map((item) => item.to);
@@ -107,7 +112,7 @@ function NavIcon({
       {name === "home" ? (
         <path d="M10 30.5 32 11l22 19.5V55a4 4 0 0 1-4 4H39V43a4 4 0 0 0-4-4h-6a4 4 0 0 0-4 4v16H14a4 4 0 0 1-4-4V30.5Z" />
       ) : null}
-      {name === "plan" ? (
+      {name === "calendar" ? (
         <>
           <rect x="11" y="14" width="42" height="42" rx="8" />
           <rect x="11" y="22" width="42" height="5" />
@@ -149,10 +154,8 @@ function getNavIconAsset(
   active: boolean
 ): string | null {
   if (name === "home") return active ? "/home_active.svg" : "/home.svg";
-  if (name === "plan") return active ? "/plan_active.svg" : "/plan.svg";
   if (name === "menu") return active ? "/menu_active.svg" : "/menu.svg";
   if (name === "mate") return active ? "/mate_active.svg" : "/mate.svg";
-  if (name === "my") return active ? "/my_active.svg" : "/my.svg";
   return null;
 }
 

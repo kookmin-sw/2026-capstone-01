@@ -105,6 +105,8 @@ export default function NotificationBell({
   }
 
   async function handleHideNotification(notificationId: string): Promise<void> {
+    if (!notificationId) return;
+
     setActionId(notificationId);
 
     try {

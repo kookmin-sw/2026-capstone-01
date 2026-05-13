@@ -1,7 +1,7 @@
 ﻿import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate,} from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import type { NavigateFunction } from "react-router-dom";
 import AppShell from "./components/AppShell";
 import LoginPage from "./pages/LoginPage";
@@ -135,7 +135,6 @@ type ChatToastState = {
 
 const GESTURE_TAB_PATHS = ["/home", "/plan", "/menu", "/mate", "/my"] as const;
 const MIN_HORIZONTAL_SWIPE_PX: number = 76;
-const MIN_VERTICAL_REFRESH_SWIPE_PX: number = 92;
 const ACTIVITY_TOAST_POLL_INTERVAL_MS: number = 5000;
 
 type TouchPoint = {
@@ -261,14 +260,6 @@ function PageGestureController() {
 
       if (absoluteDeltaX > absoluteDeltaY && absoluteDeltaX >= MIN_HORIZONTAL_SWIPE_PX) {
         moveTabBySwipe(deltaX, location.pathname, navigate);
-        return;
-      }
-
-      if (
-        deltaY <= -MIN_VERTICAL_REFRESH_SWIPE_PX &&
-        absoluteDeltaY > absoluteDeltaX * 1.35
-      ) {
-        refreshCurrentPage();
       }
     }
 
@@ -368,6 +359,7 @@ function isAuthFreePath(pathname: string): boolean {
     pathname === "/" ||
     pathname === "/login" ||
     pathname.startsWith("/register") ||
+    pathname.startsWith("/share/") ||
     pathname === "/withdrawal-pending"
   );
 }
@@ -404,20 +396,6 @@ function moveTabBySwipe(
   if (!nextPath) return;
 
   navigate(nextPath);
-}
-
-/**
- * ?섏씠吏蹂??덈줈怨좎묠 ?대깽?몃? ?곗꽑 蹂대궡怨? 泥섎━?먭? ?놁쑝硫??꾩옱 臾몄꽌瑜??덈줈怨좎묠?쒕떎.
- */
-function refreshCurrentPage(): void {
-  const refreshEvent: CustomEvent = new CustomEvent("krip:page-refresh", {
-    cancelable: true,
-  });
-  const shouldReloadDocument: boolean = window.dispatchEvent(refreshEvent);
-
-  if (shouldReloadDocument) {
-    window.location.reload();
-  }
 }
 
 type AppToastState = AppToastDetail & {
@@ -519,6 +497,38 @@ function WithdrawalPendingRedirect() {
   return null;
 }
 
+function UnauthorizedRedirect() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const locationRef = useRef(location);
+
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
+
+  useEffect(() => {
+    function handleUnauthorized(): void {
+      const currentLocation = locationRef.current;
+      if (isAuthFreePath(currentLocation.pathname)) return;
+
+      navigate("/login", {
+        replace: true,
+        state: {
+          from: `${currentLocation.pathname}${currentLocation.search}${currentLocation.hash}`,
+        },
+      });
+    }
+
+    window.addEventListener("krip:unauthorized", handleUnauthorized);
+
+    return () => {
+      window.removeEventListener("krip:unauthorized", handleUnauthorized);
+    };
+  }, [navigate]);
+
+  return null;
+}
+
 export default function App() {
   useEffect(() => {
     void requestPermission();
@@ -554,6 +564,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <WithdrawalPendingRedirect />
+        <UnauthorizedRedirect />
         <PageGestureController />
         <ActivityNotificationToastWatcher />
         <AppToast />

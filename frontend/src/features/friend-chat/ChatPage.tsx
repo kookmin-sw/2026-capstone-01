@@ -27,6 +27,7 @@ import {
 } from "../../api/friend";
 import { useChat } from "./ChatProvider";
 import { reportChatNetworkError } from "../../utils/chatDiagnostics";
+import ConfirmToast from "../../components/ConfirmToast";
 import FeedPopup from "../../components/FeedPopup";
 import { navigateBackOrFallback } from "../../utils/navigation";
 
@@ -82,6 +83,7 @@ export default function ChatPage({
   const [isGroupCreateOpen, setIsGroupCreateOpen] = useState(false);
   const [groupTitle, setGroupTitle] = useState("");
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
+  const [isGroupCreateConfirmOpen, setIsGroupCreateConfirmOpen] = useState(false);
 
   const pendingCount = receivedRequests.length;
   const displayNamesById = useMemo(() => {
@@ -305,7 +307,13 @@ export default function ChatPage({
       setError(toErrorMessage(groupError, "Failed to create group chat."));
     } finally {
       setActionId("");
+      setIsGroupCreateConfirmOpen(false);
     }
+  }
+
+  function requestCreateGroupChat(): void {
+    if (!groupTitle.trim() || selectedGroupMemberIds.length === 0 || actionId) return;
+    setIsGroupCreateConfirmOpen(true);
   }
 
   function toggleGroupMember(userId: string): void {
@@ -745,7 +753,7 @@ export default function ChatPage({
                   selectedGroupMemberIds.length === 0 ||
                   actionId === "create-group"
                 }
-                onClick={() => void handleCreateGroupChat()}
+                onClick={requestCreateGroupChat}
               >
                 {actionId === "create-group"
                   ? "Creating..."
@@ -753,6 +761,17 @@ export default function ChatPage({
               </button>
             </section>
           </div>
+        ) : null}
+
+        {isGroupCreateConfirmOpen ? (
+          <ConfirmToast
+            title="Create this group chat?"
+            message={`${selectedGroupMemberIds.length} friend(s) will be added to "${groupTitle.trim()}".`}
+            confirmLabel="Create"
+            busy={actionId === "create-group"}
+            onConfirm={() => void handleCreateGroupChat()}
+            onCancel={() => setIsGroupCreateConfirmOpen(false)}
+          />
         ) : null}
 
         {feedPopupUserId ? (

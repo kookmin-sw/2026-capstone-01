@@ -10,6 +10,7 @@ import {
   type ChatRoom,
   type ChatUserProfile,
 } from "../../api/chat";
+import ConfirmToast from "../../components/ConfirmToast";
 import FeedPopup from "../../components/FeedPopup";
 import { useChat } from "./ChatProvider";
 
@@ -51,6 +52,7 @@ export default function ChatRoomPage() {
   const [infoOpen, setInfoOpen] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
+  const [isLeaveConfirmOpen, setIsLeaveConfirmOpen] = useState(false);
   const [incomingMessageNotice, setIncomingMessageNotice] =
     useState<ChatMessage | null>(null);
 
@@ -342,6 +344,7 @@ export default function ChatRoomPage() {
       setErrorMessage(toErrorMessage(error, "Failed to leave group."));
     } finally {
       setInviteLoading(false);
+      setIsLeaveConfirmOpen(false);
     }
   }
 
@@ -415,6 +418,19 @@ export default function ChatRoomPage() {
           </button>
         ) : null}
         {messages.map((message) => {
+          if (isRoomNoticeMessage(message)) {
+            return (
+              <div
+                key={message.client_msg_id || message.message_id}
+                style={styles.roomNoticeRow}
+              >
+                <span style={styles.roomNoticeText}>
+                  {renderMessageContent(message)}
+                </span>
+              </div>
+            );
+          }
+
           const mine = Boolean(currentUserId && message.sender_id === currentUserId);
           return (
             <div
@@ -569,7 +585,7 @@ export default function ChatRoomPage() {
                   <button
                     type="button"
                     style={styles.infoDangerButton}
-                    onClick={() => void handleLeaveGroup()}
+                    onClick={() => setIsLeaveConfirmOpen(true)}
                     disabled={inviteLoading}
                   >
                     {inviteLoading ? "Leaving..." : "Leave"}
@@ -645,6 +661,18 @@ export default function ChatRoomPage() {
           onClose={() => setFeedPopupUserId(null)}
         />
       ) : null}
+
+      {isLeaveConfirmOpen ? (
+        <ConfirmToast
+          title="Leave this group chat?"
+          message="You will stop receiving messages from this group."
+          confirmLabel="Leave"
+          destructive
+          busy={inviteLoading}
+          onConfirm={() => void handleLeaveGroup()}
+          onCancel={() => setIsLeaveConfirmOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -707,20 +735,24 @@ function renderMessagePreview(message: ChatMessage): string {
 }
 
 function renderMessageContent(message: ChatMessage): string {
-  if (message.deleted_at) return "Deleted message.";
+  if (message.deleted_at) return "Message was deleted.";
   if (message.type === "system") return renderSystemMessage(message.content);
   if (typeof message.content === "string") return message.content;
   return "";
+}
+
+function isRoomNoticeMessage(message: ChatMessage): boolean {
+  return Boolean(message.deleted_at) || message.type === "system";
 }
 
 function renderSystemMessage(content: unknown): string {
   if (!content || typeof content !== "object") return "System message";
 
   const action = (content as { action?: string }).action;
-  if (action === "created") return "Chat room created.";
-  if (action === "join") return "Member joined.";
-  if (action === "leave") return "Member left.";
-  if (action === "kick") return "Member removed.";
+  if (action === "created") return "Chat room was created.";
+  if (action === "join") return "A member joined the chat.";
+  if (action === "leave") return "A member left the chat.";
+  if (action === "kick") return "A member was removed from the chat.";
   return "System message";
 }
 
@@ -986,6 +1018,18 @@ const styles: Record<string, CSSProperties> = {
   },
   messageRowMine: {
     flexDirection: "row-reverse",
+  },
+  roomNoticeRow: {
+    alignSelf: "center",
+    maxWidth: "86%",
+    padding: "4px 10px",
+    textAlign: "center",
+  },
+  roomNoticeText: {
+    color: "var(--neutral-700)",
+    fontSize: "0.78rem",
+    fontWeight: 800,
+    lineHeight: 1.45,
   },
   messageAvatar: {
     width: 30,
