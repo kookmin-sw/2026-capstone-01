@@ -1741,7 +1741,6 @@ function UserSearchCard({
           <span style={styles.userResultStyles}>
             {user.travel_styles.length > 0 ? user.travel_styles.join(" / ") : "No styles"}
           </span>
-          <span style={styles.userResultId}>{user.user_id}</span>
         </div>
       </div>
       <div style={styles.userResultActions}>
