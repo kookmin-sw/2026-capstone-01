@@ -167,13 +167,16 @@ def create_app() -> FastAPI:
     ])
 
 
+    # PROD 에서는 Swagger / ReDoc / OpenAPI 스키마를 모두 비활성화하여 API 명세 노출을 차단.
+    # docs_url=None 이면 FastAPI 가 해당 라우트를 등록하지 않아 404 반환된다.
+    # openapi_url=None 시 Swagger 도 동작 불가하므로 셋이 함께 토글된다.
     app = FastAPI(
         title="Krip API",
         description="Krip 서버",
         version="0.1.0",
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url=None if settings.is_production else "/docs",
+        redoc_url=None if settings.is_production else "/redoc",
+        openapi_url=None if settings.is_production else "/openapi.json",
         lifespan=lifespan,
     )
 
@@ -209,6 +212,25 @@ def create_app() -> FastAPI:
 
     # 헬스체크 — `/api` prefix 우회. k8s probe / Watchdog / blackbox 가 직접 `/health`, `/health/deep`, `/ready` 호출.
     app.include_router(health_router)
+
+    # Swagger Authorize 버튼 (DEV 한정) — BearerTokenMiddleware 가 Starlette 미들웨어라
+    # OpenAPI 스키마에 노출되지 않아 `/docs` 에서 토큰 입력 칸이 없다. securitySchemes 만
+    # 얹어 Swagger UI 가 Authorize 버튼을 렌더하도록 한다. 실제 검증은 미들웨어가 그대로 수행.
+    # PROD 에서는 패치하지 않아 명세 노출을 최소화한다.
+    if not settings.is_production:
+        _default_openapi = app.openapi
+
+        def _openapi_with_bearer():
+            schema = _default_openapi()
+            schema.setdefault("components", {}).setdefault("securitySchemes", {})["BearerAuth"] = {
+                "type": "http",
+                "scheme": "bearer",
+                "description": "settings.ACCESS_TOKEN 값을 입력. DEV 환경에서만 노출.",
+            }
+            schema["security"] = [{"BearerAuth": []}]
+            return schema
+
+        app.openapi = _openapi_with_bearer
 
     app.container = container
 
