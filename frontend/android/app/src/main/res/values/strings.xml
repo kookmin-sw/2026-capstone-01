@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Krip</string>
+    <string name="title_activity_main">Krip</string>
+    <string name="package_name">com.krip.app</string>
+    <string name="custom_url_scheme">com.krip.app</string>
+</resources>

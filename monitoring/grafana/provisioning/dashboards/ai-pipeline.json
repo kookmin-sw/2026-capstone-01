@@ -1,0 +1,139 @@
+{
+  "title": "AI 파이프라인",
+  "uid": "krip-ai-pipeline",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "time": {"from": "now-3h", "to": "now"},
+  "refresh": "30s",
+  "tags": ["krip", "ai"],
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "menu_ocr 모델 로드 시간",
+      "type": "stat",
+      "description": "startup 시점 1회 측정. Gemini 클라이언트 초기화 + 검증.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 30}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "ai_model_load_duration_seconds{model=\"menu_ocr\"}", "legendFormat": "menu_ocr", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "title": "papago 모델 로드 시간",
+      "type": "stat",
+      "description": "Naver Papago HTTP 클라이언트 준비 시간.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 2}, {"color": "red", "value": 10}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "ai_model_load_duration_seconds{model=\"papago\"}", "legendFormat": "papago", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "title": "tour_planner 모델 로드 시간",
+      "type": "stat",
+      "description": "LangGraph 오케스트레이터 + 도구 / 데이터 사전 로드. AI 모델 중 가장 무거움.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 30}, {"color": "red", "value": 60}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "ai_model_load_duration_seconds{model=\"tour_planner\"}", "legendFormat": "tour_planner", "refId": "A"}]
+    },
+    {
+      "id": 4,
+      "title": "AI inference 처리율 (분당)",
+      "type": "stat",
+      "description": "전체 AI 추론 호출 비율. 운영 부하 큰 그림.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "ops", "decimals": 2}},
+      "options": {"colorMode": "value", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "sum(rate(ai_inference_total[1m]))", "legendFormat": "ops", "refId": "A"}]
+    },
+    {
+      "id": 10,
+      "title": "AI inference 처리 시간 p95 (모델별)",
+      "type": "timeseries",
+      "description": "service 단위 추론 시간. tour_planner 는 LangGraph multi-turn 이라 보통 더 길다.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 5},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le, model) (rate(ai_inference_duration_seconds_bucket[5m])))", "legendFormat": "p95 {{model}}", "refId": "A"},
+        {"expr": "histogram_quantile(0.99, sum by (le, model) (rate(ai_inference_duration_seconds_bucket[5m])))", "legendFormat": "p99 {{model}}", "refId": "B"}
+      ]
+    },
+    {
+      "id": 11,
+      "title": "AI inference 결과 (모델 × result)",
+      "type": "timeseries",
+      "description": "분당 추론 처리율을 model 과 result (ok / error / other) 로 분리. error 가 0 이 아니면 도메인 service 측 예외 발생 신호.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 5},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (model, result) (rate(ai_inference_total[1m]))", "legendFormat": "{{model}} / {{result}}", "refId": "A"}]
+    },
+    {
+      "id": 20,
+      "title": "외부 AI provider 처리 시간 p95",
+      "type": "timeseries",
+      "description": "Gemini / Papago 외부 API 호출 latency. Gemini callback (llm_manager.py) + Papago 의 ai_external_call (papago_translator/v1/model.py) 양쪽에서 발화.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, provider) (rate(ai_external_call_duration_seconds_bucket[5m])))", "legendFormat": "p95 {{provider}}", "refId": "A"}]
+    },
+    {
+      "id": 21,
+      "title": "Gemini 토큰 사용량 (provider × model × kind)",
+      "type": "timeseries",
+      "description": "Flash 와 Pro 의 비용 차이 17배 — model 라벨로 분리해 청구 가시화. GeminiInstrumentationHandler._record_token_usage (llm_manager.py) 가 LangChain on_llm_end 콜백에서 추출.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (provider, model, kind) (rate(ai_token_usage_total[5m]))", "legendFormat": "{{provider}} / {{model}} / {{kind}}", "refId": "A"}]
+    },
+    {
+      "id": 22,
+      "title": "외부 AI provider 결과 (provider × result)",
+      "type": "timeseries",
+      "description": "Gemini / Papago 외부 API 호출 결과. ai_external_call (papago_translator/v1/model.py) + GeminiInstrumentationHandler (llm_manager.py 의 on_llm_end/on_llm_error) 양쪽에서 발화. error 비율이 갑자기 튀면 rate limit / quota 초과 / 외부 사고 신호.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 23},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (provider, result) (rate(ai_external_call_total[1m]))", "legendFormat": "{{provider}} / {{result}}", "refId": "A"}]
+    }
+  ]
+}
