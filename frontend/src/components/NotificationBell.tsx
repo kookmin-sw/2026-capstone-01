@@ -15,7 +15,11 @@ type NotificationRealtimeEventDetail = {
   notification?: InboxNotification;
 };
 
-export default function NotificationBell() {
+export default function NotificationBell({
+  buttonStyle,
+}: {
+  buttonStyle?: CSSProperties;
+}) {
   const navigate = useNavigate();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -161,7 +165,7 @@ export default function NotificationBell() {
     <>
       <button
         type="button"
-        style={styles.notificationButton}
+        style={{ ...styles.notificationButton, ...buttonStyle }}
         onClick={() => {
           setIsOpen(true);
           setTab("activity");

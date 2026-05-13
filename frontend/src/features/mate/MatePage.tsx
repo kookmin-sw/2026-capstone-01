@@ -439,6 +439,14 @@ export default function MatePage() {
     setMainTab(nextTab);
   }
 
+  function openChatGroupCreate(): void {
+    window.dispatchEvent(new Event("krip:chat-open-group-create"));
+  }
+
+  function openChatFriendManager(): void {
+    window.dispatchEvent(new Event("krip:chat-open-friend-manager"));
+  }
+
   function handleSearch(keyword: string): void {
     const nextKeyword = keyword.trim();
     if (!nextKeyword) return;
@@ -805,14 +813,21 @@ export default function MatePage() {
 
   return (
     <div style={styles.page}>
+      <style>
+        {`
+          .mate-recommendation-list::-webkit-scrollbar {
+            display: none;
+          }
+        `}
+      </style>
       <div style={styles.shell}>
-        {mainTab === "mate" ? (
-          <header style={styles.header}>
-            <div>
-              <p style={styles.eyebrow}>Trip Mate</p>
-              <h1 style={styles.headerTitle}>Mate</h1>
-            </div>
-            <div style={styles.headerActions}>
+        <header style={styles.header}>
+          <div>
+            <p style={styles.eyebrow}>Trip Mate</p>
+            <h1 style={styles.headerTitle}>{mainTab === "mate" ? "Mate" : "Chat"}</h1>
+          </div>
+          <div style={styles.headerActions}>
+            {mainTab === "mate" ? (
               <button
                 type="button"
                 style={styles.headerButton}
@@ -820,9 +835,28 @@ export default function MatePage() {
               >
                 {tab === "list" ? "Post" : "Mate"}
               </button>
-            </div>
-          </header>
-        ) : null}
+            ) : (
+              <>
+                <button
+                  type="button"
+                  style={styles.headerIconButton}
+                  onClick={openChatGroupCreate}
+                  aria-label="Create group chat"
+                >
+                  <img src="/icon-plus.svg" alt="" style={styles.headerIcon} />
+                </button>
+                <button
+                  type="button"
+                  style={styles.headerIconButton}
+                  onClick={openChatFriendManager}
+                  aria-label="Manage friends"
+                >
+                  <img src="/user-add-alt.png" alt="" style={styles.headerIcon} />
+                </button>
+              </>
+            )}
+          </div>
+        </header>
 
         <section style={styles.tabPanel}>
           {(["mate", "chat"] as const).map((item) => (
@@ -842,14 +876,13 @@ export default function MatePage() {
 
         {mainTab === "chat" ? (
           <section style={styles.chatEmbed}>
-            <ChatPage embedded />
+            <ChatPage embedded hideHeader />
           </section>
         ) : tab === "list" ? (
           <>
             <section style={styles.searchPanel}>
               <div style={styles.searchRow}>
                 <label style={styles.searchWrap}>
-                  <SearchIcon />
                   <input
                     ref={searchRef}
                     value={searchInput}
@@ -875,8 +908,9 @@ export default function MatePage() {
                   type="button"
                   style={styles.searchAction}
                   onMouseDown={() => handleSearch(searchInput)}
+                  aria-label="Search"
                 >
-                  Search
+                  <SearchIcon />
                 </button>
               </div>
 
@@ -1015,7 +1049,7 @@ export default function MatePage() {
                 </span>
               </div>
 
-              <div style={styles.recommendationList}>
+              <div className="mate-recommendation-list" style={styles.recommendationList}>
                 {mateRecommendations.length > 0 ? (
                   mateRecommendations.map((recommendation) => (
                     <button
@@ -1164,6 +1198,9 @@ export default function MatePage() {
                     ) : null}
 
                     <div style={styles.cardBody}>
+                      <span style={styles.dateTag}>
+                        {post.travel_start_date} - {post.travel_end_date}
+                      </span>
                       <h2 style={styles.cardTitle}>{post.title}</h2>
                       <p style={styles.cardDescription}>{post.content}</p>
                     </div>
@@ -1190,10 +1227,6 @@ export default function MatePage() {
                     ) : null}
 
                     <div style={styles.metaGrid}>
-                      <span style={styles.metaChip}>{post.region}</span>
-                      <span style={styles.metaChip}>
-                        {post.travel_start_date} - {post.travel_end_date}
-                      </span>
                       <span style={styles.metaChip}>
                         Ages {post.preferred_age_min}-{post.preferred_age_max}
                       </span>
@@ -1201,6 +1234,10 @@ export default function MatePage() {
                     </div>
 
                     <div style={styles.cardFooter}>
+                      <span style={styles.regionText}>
+                        <MapMarkerIcon />
+                        {post.region}
+                      </span>
                       <button
                         type="button"
                         style={{
@@ -1208,12 +1245,11 @@ export default function MatePage() {
                           ...(post.is_liked ? styles.likeButtonActive : {}),
                         }}
                         onClick={(event) => void handleLike(event, post)}
+                        aria-label={`${post.like_count} likes`}
                       >
-                        {post.is_liked ? "Liked" : "Like"} {post.like_count}
+                        <HeartIcon filled={post.is_liked} />
+                        <span>{post.like_count}</span>
                       </button>
-                      <span style={styles.createdText}>
-                        {new Date(post.created_at).toLocaleDateString()}
-                      </span>
                     </div>
                   </article>
                 ))
@@ -2016,6 +2052,41 @@ function SearchIcon() {
   );
 }
 
+function MapMarkerIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 21s7-5.15 7-11a7 7 0 0 0-14 0c0 5.85 7 11 7 11Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M12 12.5a2.5 2.5 0 1 0 0-5a2.5 2.5 0 0 0 0 5Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function HeartIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} aria-hidden="true">
+      <path
+        d="M20.42 4.58a5.4 5.4 0 0 0-7.64 0L12 5.36l-.78-.78a5.4 5.4 0 0 0-7.64 7.64L12 20.64l8.42-8.42a5.4 5.4 0 0 0 0-7.64Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
 function toErrorMessage(error: unknown, fallback: string): string {
   const apiError = error as {
     response?: {
@@ -2119,7 +2190,8 @@ const styles: Record<string, CSSProperties> = {
     minHeight: "var(--app-viewport-height)",
     padding:
       "calc(24px + var(--app-safe-top)) 16px calc(40px + var(--app-bottom-nav-reserved))",
-    background: "transparent",
+    background:
+      "linear-gradient(180deg, #e4f7f7 0px, #e4f7f7 145px, #ffffff 145px, #ffffff 38%, #f2f3f5 100%)",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   shell: {
@@ -2172,30 +2244,49 @@ const styles: Record<string, CSSProperties> = {
     color: "#ffffff",
     fontWeight: 800,
     cursor: "pointer",
-    boxShadow: "0 12px 24px rgba(5,181,187,0.22)",
     flexShrink: 0,
   },
+  headerIconButton: {
+    position: "relative",
+    width: 42,
+    height: 42,
+    border: "1px solid rgba(5,181,187,0.18)",
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(255,255,255,0.92)",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  headerIcon: {
+    width: 24,
+    height: 24,
+    objectFit: "contain",
+  },
   tabPanel: {
+    position: "relative",
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 10,
-    padding: 8,
-    borderRadius: 22,
-    background: "rgba(255,255,255,0.84)",
-    border: "1px solid var(--border-soft)",
-    boxShadow: "var(--shadow-soft)",
+    width: "100vw",
+    marginLeft: "calc(50% - 50vw)",
+    marginRight: "calc(50% - 50vw)",
+    borderRadius: "22px 22px 0 0",
+    background: "#FFE397",
+    border: "none",
+    boxShadow: "0 -8px 12px rgba(30, 166, 211, 0.1)",
+    overflow: "hidden",
   },
   tabButton: {
     minHeight: 46,
     border: "none",
-    borderRadius: 16,
-    background: "transparent",
-    color: "var(--neutral-700)",
+    borderRadius: "22px 22px 0 0",
+    background: "#FFE397",
+    color: "#FFB900",
     fontWeight: 800,
     cursor: "pointer",
   },
   tabButtonActive: {
-    background: "linear-gradient(135deg, rgba(5,181,187,0.16), rgba(228,247,247,0.96))",
+    background: "#ffffff",
     color: "var(--text-primary)",
   },
   chatEmbed: {
@@ -2203,28 +2294,29 @@ const styles: Record<string, CSSProperties> = {
   },
   searchPanel: {
     position: "relative",
-    padding: 20,
-    borderRadius: 28,
-    background:
-      "linear-gradient(180deg, rgba(5,181,187,0.1), rgba(255,255,255,0.96) 44%)",
-    border: "1px solid rgba(5,181,187,0.14)",
-    boxShadow: "var(--shadow-soft)",
+    padding: 0,
+    borderRadius: 0,
+    background: "transparent",
+    border: "none",
+    boxShadow: "none",
   },
   searchRow: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
+    overflow: "hidden",
+    borderRadius: "3rem",
+    border: "1.5px solid #eaeaea",
+    background: "rgba(255,255,255,0.96)",
   },
   searchWrap: {
     flex: 1,
     display: "flex",
     alignItems: "center",
     gap: 10,
-    minHeight: 56,
-    padding: "0 14px",
-    borderRadius: 20,
-    border: "1.5px solid rgba(5,181,187,0.16)",
-    background: "rgba(255,255,255,0.92)",
+    padding: "0 1.3rem",
+    borderRadius: 0,
+    border: "none",
+    background: "transparent",
     color: "var(--neutral-700)",
   },
   searchInput: {
@@ -2233,17 +2325,22 @@ const styles: Record<string, CSSProperties> = {
     outline: "none",
     background: "transparent",
     color: "var(--text-primary)",
-    fontSize: "1rem",
+    fontSize: "0.8rem",
   },
   searchAction: {
+    width: 54,
     minHeight: 54,
-    border: "1px solid rgba(5,181,187,0.2)",
-    borderRadius: 18,
-    padding: "0 16px",
-    background: "linear-gradient(135deg, var(--brand-primary), #12c0c6)",
-    color: "#ffffff",
+    alignSelf: "stretch",
+    border: "none",
+    borderRadius: 0,
+    display: "grid",
+    placeItems: "center",
+    padding: 0,
+    background: "transparent",
+    color: "var(--brand-primary-deep)",
     fontWeight: 800,
     cursor: "pointer",
+    flexShrink: 0,
   },
   historyPanel: {
     position: "absolute",
@@ -2453,24 +2550,25 @@ const styles: Record<string, CSSProperties> = {
     gap: 10,
   },
   filterChip: {
-    border: "1px solid rgba(248,180,0,0.18)",
+    border: "1px solid #e4e4e4",
     borderRadius: 999,
-    padding: "12px 18px",
-    background: "rgba(255,255,255,0.86)",
+    padding: "4px 12px",
+    background: "#fff",
     color: "var(--neutral-700)",
-    fontWeight: 800,
+    fontSize: "0.8rem",
+    fontWeight: 600,
     cursor: "pointer",
   },
   filterChipActive: {
-    background: "linear-gradient(135deg, rgba(248,180,0,0.2), rgba(255,233,179,0.92))",
-    color: "var(--text-primary)",
-    boxShadow: "0 12px 24px rgba(248,180,0,0.14)",
+    border: "1px solid #10c0c0",
+    background: "#10c0c0",
+    color: "#fff",
   },
   recommendationPanel: {
     padding: "14px 16px",
     borderRadius: 22,
     background: "rgba(255,255,255,0.72)",
-    border: "1px solid rgba(5,181,187,0.12)",
+    border: "1px solid #eaeaea",
   },
   recommendationHeader: {
     display: "flex",
@@ -2524,6 +2622,8 @@ const styles: Record<string, CSSProperties> = {
     gap: 10,
     overflowX: "auto",
     paddingBottom: 2,
+    scrollbarWidth: "none",
+    msOverflowStyle: "none",
   },
   recommendationItem: {
     display: "flex",
@@ -2531,6 +2631,7 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     gap: 8,
     minWidth: 82,
+    flex: "0 0 auto",
     padding: "8px 6px",
     border: "none",
     background: "transparent",
@@ -2593,7 +2694,6 @@ const styles: Record<string, CSSProperties> = {
     padding: 18,
     borderRadius: 28,
     background: "rgba(255,255,255,0.92)",
-    border: "1px solid var(--border-soft)",
     boxShadow: "var(--shadow-soft)",
     cursor: "pointer",
   },
@@ -2697,11 +2797,18 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     gap: 8,
   },
+  dateTag: {
+    alignSelf: "flex-start",
+    color: "var(--neutral-500)",
+    fontSize: "0.7rem",
+    fontWeight: 600,
+    marginBottom: 8,
+  },
   cardTitle: {
     margin: 0,
     color: "var(--text-primary)",
     fontSize: "1.2rem",
-    lineHeight: 1.2,
+    lineHeight: 1,
   },
   cardDescription: {
     margin: 0,
@@ -2760,19 +2867,30 @@ const styles: Record<string, CSSProperties> = {
     gap: 12,
     marginTop: 16,
   },
+  regionText: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    minWidth: 0,
+    color: "var(--neutral-700)",
+    fontSize: "0.84rem",
+    fontWeight: 600,
+  },
   likeButton: {
-    border: "1px solid rgba(5,181,187,0.18)",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    border: "none",
     borderRadius: 999,
-    padding: "9px 13px",
-    background: "rgba(255,255,255,0.9)",
+    padding: "6px 0",
+    background: "transparent",
     color: "var(--neutral-700)",
     fontWeight: 800,
     cursor: "pointer",
+    flexShrink: 0,
   },
   likeButtonActive: {
-    borderColor: "rgba(248,180,0,0.26)",
-    background: "var(--brand-secondary-soft)",
-    color: "var(--text-primary)",
+    color: "#ef4444",
   },
   createdText: {
     color: "var(--neutral-700)",
@@ -2917,7 +3035,7 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid rgba(5,181,187,0.18)",
     borderRadius: 999,
     padding: "10px 14px",
-    background: "rgba(255,255,255,0.86)",
+    background: "#fff",
     color: "var(--neutral-700)",
     fontWeight: 700,
     cursor: "pointer",

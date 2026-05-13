@@ -37,8 +37,10 @@ const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
 export default function ChatPage({
   embedded = false,
+  hideHeader = false,
 }: {
   embedded?: boolean;
+  hideHeader?: boolean;
 }) {
   const navigate = useNavigate();
   const {
@@ -126,6 +128,25 @@ export default function ChatPage({
   );
   useEffect(() => {
     void refreshAll();
+  }, []);
+
+  useEffect(() => {
+    function openGroupCreate(): void {
+      setIsGroupCreateOpen(true);
+    }
+
+    function openFriendManager(): void {
+      setFriendManagerTab("friend");
+      setIsFriendManagerOpen(true);
+    }
+
+    window.addEventListener("krip:chat-open-group-create", openGroupCreate);
+    window.addEventListener("krip:chat-open-friend-manager", openFriendManager);
+
+    return () => {
+      window.removeEventListener("krip:chat-open-group-create", openGroupCreate);
+      window.removeEventListener("krip:chat-open-friend-manager", openFriendManager);
+    };
   }, []);
 
   async function loadReceived(cursor?: string, append = false): Promise<void> {
@@ -320,42 +341,47 @@ export default function ChatPage({
   return (
     <div style={styles.page}>
       <div style={styles.shell}>
-        <header style={styles.header}>
-          {embedded ? (
-            <span style={styles.backButtonSpacer} />
-          ) : (
-            <button
-              type="button"
-              style={styles.backButton}
-              onClick={() => navigateBackOrFallback(navigate, "/home")}
-            >
-              <img src="/icon-back.svg" alt="" style={styles.headerIcon} />
-            </button>
-          )}
-          <h1 style={styles.title}>Chat</h1>
-          <div style={styles.headerIconGroup}>
-            <button
-              type="button"
-              style={styles.friendManagerButton}
-              onClick={() => setIsGroupCreateOpen(true)}
-              aria-label="Create group chat"
-            >
-              <img src="/icon-plus.svg" alt="" style={styles.friendManagerIcon} />
-            </button>
-            <button
-              type="button"
-              style={styles.friendManagerButton}
-              onClick={() => {
-                setFriendManagerTab("friend");
-                setIsFriendManagerOpen(true);
-              }}
-              aria-label="Manage friends"
-            >
-              <img src="/user-add-alt.png" alt="" style={styles.friendManagerIcon} />
-              {pendingCount > 0 ? <span style={styles.addButtonDot} /> : null}
-            </button>
-          </div>
-        </header>
+        {hideHeader ? null : (
+          <header style={embedded ? styles.embeddedHeader : styles.header}>
+            {embedded ? (
+              <div style={styles.embeddedTitleBlock}>
+                <p style={styles.eyebrow}>Trip Mate</p>
+                <h1 style={styles.embeddedTitle}>Chat</h1>
+              </div>
+            ) : (
+              <button
+                type="button"
+                style={styles.backButton}
+                onClick={() => navigateBackOrFallback(navigate, "/home")}
+              >
+                <img src="/icon-back.svg" alt="" style={styles.headerIcon} />
+              </button>
+            )}
+            {embedded ? null : <h1 style={styles.title}>Chat</h1>}
+            <div style={styles.headerIconGroup}>
+              <button
+                type="button"
+                style={styles.friendManagerButton}
+                onClick={() => setIsGroupCreateOpen(true)}
+                aria-label="Create group chat"
+              >
+                <img src="/icon-plus.svg" alt="" style={styles.friendManagerIcon} />
+              </button>
+              <button
+                type="button"
+                style={styles.friendManagerButton}
+                onClick={() => {
+                  setFriendManagerTab("friend");
+                  setIsFriendManagerOpen(true);
+                }}
+                aria-label="Manage friends"
+              >
+                <img src="/user-add-alt.png" alt="" style={styles.friendManagerIcon} />
+                {pendingCount > 0 ? <span style={styles.addButtonDot} /> : null}
+              </button>
+            </div>
+          </header>
+        )}
 
         <label style={styles.searchWrap}>
           <input
@@ -1006,6 +1032,31 @@ const styles: Record<string, CSSProperties> = {
     gap: 12,
     minHeight: 42,
     padding: "0 16px",
+  },
+  embeddedHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+    padding: "8px 16px 0",
+  },
+  embeddedTitleBlock: {
+    minWidth: 0,
+  },
+  eyebrow: {
+    margin: 0,
+    color: "var(--brand-primary-deep)",
+    fontSize: "0.78rem",
+    fontWeight: 800,
+    letterSpacing: "0.14em",
+    textTransform: "uppercase",
+  },
+  embeddedTitle: {
+    margin: "6px 0 8px",
+    color: "var(--text-primary)",
+    fontSize: "clamp(1.9rem, 5vw, 2.4rem)",
+    fontWeight: 900,
+    lineHeight: 1.05,
   },
   title: {
     margin: 0,

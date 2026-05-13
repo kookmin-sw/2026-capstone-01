@@ -994,7 +994,7 @@ export default function HomePage() {
             <h1 style={styles.headerTitle}>Explore Nearby Places</h1>
           </div>
           <div style={styles.headerActions}>
-            <NotificationBell></NotificationBell>
+            <NotificationBell buttonStyle={styles.myPageButton} />
             <button
               type="button"
               style={styles.myPageButton}
