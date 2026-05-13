@@ -11,7 +11,7 @@ WithdrawService 의 의존성:
 `@transactional` 메서드들 (`request_withdraw`, `_purge_rdb`, `_set_active`) 은 FakeUnitOfWork
 + mock_session 으로 트랜잭션 인터페이스만 충족. 실제 DB 비접근.
 """
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -73,6 +73,18 @@ def invalidate_cache_mock():
 
 
 @pytest.fixture
+def user_purge_cache_service_mock():
+    """chat 도메인 UserPurgeCacheService mock — withdraw 의 cross-domain 훅.
+
+    실제 클래스 import 없이 duck typing — block_cache_service 와 동일 패턴.
+    """
+    mock = MagicMock(name="user_purge_cache_service")
+    mock.revoke_all_sessions = AsyncMock(return_value=None)
+    mock.cleanup_user_data = AsyncMock(return_value=None)
+    return mock
+
+
+@pytest.fixture
 def service(
     monkeypatch, mock_session,
     user_repo_mock,
@@ -81,6 +93,7 @@ def service(
     inbox_service_mock,
     beanie_stubs,
     invalidate_cache_mock,
+    user_purge_cache_service_mock,
 ):
     """모든 외부 의존성을 mock 으로 치환한 WithdrawService.
 
@@ -116,6 +129,7 @@ def service(
     return WithdrawService(
         uow=FakeUnitOfWork(mock_session),
         inbox_service=inbox_service_mock,
+        user_purge_cache_service=user_purge_cache_service_mock,
     )
 
 

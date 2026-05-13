@@ -121,3 +121,63 @@ class TestTerminate:
 
         # zrem 은 sessions 에서 session_id 제거
         p.zrem.assert_called_once_with(sessions_key("U_A"), "WS_1")
+
+
+# ──────────────────────────────────────────────────────────────────
+# revoke_all_sessions — 회원 탈퇴 등 전수 강제 종료
+# ──────────────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestRevokeAllSessions:
+    """Tests for SessionService.revoke_all_sessions."""
+
+    async def test_returns_zero_when_user_has_no_active_sessions(
+        self, service, redis_mock, fanout_mock,
+    ):
+        """오프라인 유저 — 빈 ZSET → 0 반환, 부수효과 없음."""
+        redis_mock.zrange = AsyncMock(return_value=[])
+
+        count = await service.revoke_all_sessions(user_id="U_A")
+
+        assert count == 0
+        fanout_mock.fan_out_to_session.assert_not_awaited()
+        # pipeline 도 호출 안 됨 (early return)
+        for p in redis_mock._pipes:
+            assert not p.delete.called
+
+    async def test_emits_session_revoked_event_for_each_session(
+        self, service, redis_mock, fanout_mock,
+    ):
+        """각 세션마다 session_revoked 이벤트 직송. node_channel 모드에선 ws_route 라우팅."""
+        redis_mock.zrange = AsyncMock(return_value=["WS_1", "WS_2", "WS_3"])
+
+        count = await service.revoke_all_sessions(user_id="U_A")
+
+        assert count == 3
+        assert fanout_mock.fan_out_to_session.await_count == 3
+        for idx, c in enumerate(fanout_mock.fan_out_to_session.call_args_list):
+            sid = f"WS_{idx + 1}"
+            assert c.args[0] == sid
+            assert c.args[1] == {"type": "session_revoked", "session_id": sid}
+
+    async def test_pipeline_deletes_sess_ws_route_and_sessions_zset(
+        self, service, redis_mock,
+    ):
+        """한 pipeline 안에서 모든 sess: / ws_route: + sessions:{uid} 통째로 DEL."""
+        redis_mock.zrange = AsyncMock(return_value=["WS_1", "WS_2"])
+
+        await service.revoke_all_sessions(user_id="U_A")
+
+        # 마지막 pipeline 이 revoke 처리 — fanout 호출 뒤
+        revoke_pipe = redis_mock._pipes[-1]
+        revoke_pipe.execute.assert_awaited()
+
+        # delete 인자 모음 — 단일 DEL 에 (sess, ws_route) 2개 묶이는 케이스 + sessions DEL
+        all_delete_args = [
+            arg for c in revoke_pipe.delete.call_args_list for arg in c.args
+        ]
+        assert sess_key("WS_1") in all_delete_args
+        assert sess_key("WS_2") in all_delete_args
+        assert ws_route_key("WS_1") in all_delete_args
+        assert ws_route_key("WS_2") in all_delete_args
+        assert sessions_key("U_A") in all_delete_args
