@@ -29,6 +29,7 @@ from app.domain.chat.service.fanout import FanoutService
 from app.domain.chat.service.message_history import MessageHistoryService
 from app.domain.chat.service.room import RoomService
 from app.domain.chat.service.session import SessionService
+from app.domain.chat.service.user_purge_cache import UserPurgeCacheService
 from app.domain.notification.service.fcm import FcmService
 from app.domain.notification.service.mute import MuteService
 from app.domain.notification.service.inbox import InboxService
@@ -70,9 +71,8 @@ class Container(containers.DeclarativeContainer):
     signup_service = providers.Factory(SignupService, uow=uow)
     register_service = providers.Factory(RegisterService, uow=uow)
     profile_service = providers.Factory(ProfileService, uow=uow)
-    withdraw_service = providers.Factory(
-        WithdrawService, uow=uow, inbox_service=inbox_service,
-    )
+    # withdraw_service 는 chat 의 user_purge_cache_service 에 의존하므로
+    # chat 인프라 선언 뒤로 이동 (아래 user_block_service 패턴과 동일).
     tripmate_post_draft_service = providers.Factory(TripmatePostDraftService)
     tripmate_post_service = providers.Factory(
         TripmatePostService,
@@ -104,6 +104,21 @@ class Container(containers.DeclarativeContainer):
     # 채팅 — 인프라 (Singleton: 프로세스 내 전역 상태 유지)
     fanout_service = providers.Singleton(FanoutService)
     session_service = providers.Singleton(SessionService, fanout_service=fanout_service)
+
+    # 회원 탈퇴 cleanup 훅 — auth 도메인의 WithdrawService 가 의존. block_cache_service 와
+    # 동일 패턴 (cross-domain anti-corruption layer).
+    user_purge_cache_service = providers.Factory(
+        UserPurgeCacheService, session_service=session_service,
+    )
+
+    # auth — 회원 탈퇴 시 chat 세션 / 데이터 cleanup 훅 의존. friend ← chat 처럼 의존
+    # 그래프상 chat 인프라 뒤에 배치.
+    withdraw_service = providers.Factory(
+        WithdrawService,
+        uow=uow,
+        inbox_service=inbox_service,
+        user_purge_cache_service=user_purge_cache_service,
+    )
 
     # 알림 (FCM) — message_service 가 의존하므로 그보다 먼저 선언.
     fcm_service = providers.Factory(FcmService, uow=uow)

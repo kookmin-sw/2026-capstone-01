@@ -139,6 +139,43 @@ class SessionService:
         await pipe.execute()
 
 
+    async def revoke_all_sessions(self, user_id: str) -> int:
+        """유저의 모든 활성 세션 강제 종료 — 회원 탈퇴 등 외부 정책 호출용.
+
+        `_enforce_session_limit` 의 한도 초과 revoke 와 동일 절차이며 전수 종료라는 점만
+        다르다. 각 세션에 `session_revoked` 직송 → Redis 키 3종 정리. `sessions:{uid}`
+        ZSET 은 비어지므로 통째로 DEL 해 잔여 빈 키 누수 방지.
+
+        TTL(90s) 만료를 기다리지 않고 즉시 정리해 INACTIVE 전환 직후 송수신 윈도우를 닫는다.
+
+        Returns:
+            revoke 처리된 세션 수 (오프라인 유저 0).
+        """
+        redis = await get_redis_client()
+        session_ids = await redis.zrange(sessions_key(user_id), 0, -1)
+        if not session_ids:
+            return 0
+
+        # session_revoked 이벤트 — node_channel 모드에선 ws_route 로 타깃 노드 라우팅.
+        # WS 핸들러는 수신 시 자가 close 처리.
+        for sid in session_ids:
+            await self._fanout.fan_out_to_session(
+                sid, {"type": "session_revoked", "session_id": sid},
+            )
+
+        pipe = redis.pipeline(transaction=True)
+        for sid in session_ids:
+            pipe.delete(sess_key(sid), ws_route_key(sid))
+        pipe.delete(sessions_key(user_id))
+        await pipe.execute()
+
+        logger.info(
+            "전체 세션 revoke (회원 탈퇴 등): user_id={}, revoked_count={}",
+            user_id, len(session_ids),
+        )
+        return len(session_ids)
+
+
     # ──────────────────── 내부 — 한도 초과 처리 ────────────────────
 
     async def _enforce_session_limit(self, user_id: str) -> None:
