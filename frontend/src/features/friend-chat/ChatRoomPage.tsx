@@ -10,6 +10,7 @@ import {
   type ChatRoom,
   type ChatUserProfile,
 } from "../../api/chat";
+import { getMyProfile } from "../../api/auth/auth";
 import ConfirmToast from "../../components/ConfirmToast";
 import FeedPopup from "../../components/FeedPopup";
 import { useChat } from "./ChatProvider";
@@ -54,6 +55,7 @@ export default function ChatRoomPage() {
   const [actionMessage, setActionMessage] = useState("");
   const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
   const [isLeaveConfirmOpen, setIsLeaveConfirmOpen] = useState(false);
+  const [isInviteConfirmOpen, setIsInviteConfirmOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const [incomingMessageNotice, setIncomingMessageNotice] =
@@ -152,8 +154,39 @@ export default function ChatRoomPage() {
       }
 
       if (room.type === "direct") {
-        setMembers(room.peer ? [room.peer] : []);
+        // Direct chat: the members API (/api/chat/rooms/{id}/members) only supports
+        // group rooms and returns 400 for direct chats. Build the list manually instead.
+        const peerMembers: ChatUserProfile[] = room.peer ? [room.peer] : [];
+        // Show peer immediately while we fetch the current user's own profile
+        if (!cancelled) setMembers(peerMembers);
+
+        setMembersLoading(true);
+        try {
+          const myProfile = await getMyProfile();
+          if (!cancelled && myProfile) {
+            const selfMember: ChatUserProfile = {
+              user_id: myProfile.user_id || currentUserId || "",
+              user_name: myProfile.user_name || "Me",
+              profile_image_url:
+                myProfile.profile_image_url ||
+                myProfile.profileImageUrl ||
+                myProfile.image_url ||
+                myProfile.imageUrl ||
+                DEFAULT_PROFILE_IMAGE_URL,
+            };
+            setMembers([...peerMembers, selfMember]);
+          }
+        } catch {
+          // Non-fatal: peer is already shown
+        } finally {
+          if (!cancelled) setMembersLoading(false);
+        }
         return;
+      }
+
+      // Group chat: populate from cached data first, then refresh via API
+      if (room.members && room.members.length > 0) {
+        setMembers(room.members);
       }
 
       setMembersLoading(true);
@@ -164,6 +197,7 @@ export default function ChatRoomPage() {
         }
       } catch (error) {
         if (!cancelled) {
+          // Non-fatal: cached data above is already shown
           setErrorMessage(toErrorMessage(error, "Failed to load members."));
         }
       } finally {
@@ -356,8 +390,9 @@ export default function ChatRoomPage() {
   }
 
   function getMessageSenderName(message: ChatMessage): string {
-    if (room?.type !== "group" || !message.sender_id) return roomName;
-    return memberProfilesById.get(message.sender_id)?.user_name || roomName;
+    if (room?.type === "direct") return room.peer?.user_name || "Unknown User";
+    if (!message.sender_id) return "Unknown User";
+    return memberProfilesById.get(message.sender_id)?.user_name || "Unknown User";
   }
 
   function openFeedPopup(userId?: string | null): void {
@@ -509,7 +544,7 @@ export default function ChatRoomPage() {
                 </button>
               ) : null}
               <span style={styles.messageContentGroup}>
-                {!mine && room?.type === "group" && showAvatar ? (
+                {!mine && showAvatar ? (
                   <span style={styles.senderName}>{getMessageSenderName(message)}</span>
                 ) : null}
                 <span style={styles.bubbleLine}>
@@ -726,7 +761,11 @@ export default function ChatRoomPage() {
                           ? styles.sendButtonDisabled
                           : {}),
                       }}
-                      onClick={() => void handleInviteMembers()}
+                      onClick={() => {
+                        if (selectedInviteIds.length > 0 && !inviteLoading) {
+                          setIsInviteConfirmOpen(true);
+                        }
+                      }}
                       disabled={selectedInviteIds.length === 0 || inviteLoading}
                     >
                       {inviteLoading ? "Inviting..." : `Invite ${selectedInviteIds.length || ""}`.trim()}
@@ -756,6 +795,20 @@ export default function ChatRoomPage() {
           busy={leaveLoading}
           onConfirm={() => void handleLeaveGroup()}
           onCancel={() => setIsLeaveConfirmOpen(false)}
+        />
+      ) : null}
+
+      {isInviteConfirmOpen ? (
+        <ConfirmToast
+          title="Invite to this group chat?"
+          message={`${selectedInviteIds.length} friend(s) will be added to "${roomName}".`}
+          confirmLabel="Invite"
+          busy={inviteLoading}
+          onConfirm={() => {
+            setIsInviteConfirmOpen(false);
+            void handleInviteMembers();
+          }}
+          onCancel={() => setIsInviteConfirmOpen(false)}
         />
       ) : null}
     </div>
@@ -843,7 +896,7 @@ function renderSystemMessage(content: unknown): string {
 
 function formatTime(value: string): string {
   if (!value) return "";
-  return new Date(value).toLocaleTimeString([], {
+  return new Date(value).toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -853,7 +906,7 @@ function formatChatDate(value?: string): string {
   const date = value ? new Date(value) : new Date();
   if (Number.isNaN(date.getTime())) return "";
 
-  return date.toLocaleDateString([], {
+  return date.toLocaleDateString("en-US", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

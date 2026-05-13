@@ -1043,7 +1043,7 @@ function formatChatTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
 
-  return date.toLocaleTimeString([], {
+  return date.toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -1358,7 +1358,7 @@ const styles: Record<string, CSSProperties> = {
   rowTitle: {
     color: "#222222",
     fontSize: "1.06rem",
-    lineHeight: 1.1,
+    lineHeight: 1.35,
     fontWeight: 700,
     overflow: "hidden",
     textOverflow: "ellipsis",
@@ -1373,6 +1373,7 @@ const styles: Record<string, CSSProperties> = {
   rowSubtitle: {
     color: "#848484",
     fontSize: "0.875rem",
+    lineHeight: 1.35,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
