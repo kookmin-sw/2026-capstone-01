@@ -3,6 +3,7 @@ from pymongo import ReturnDocument, ASCENDING
 from datetime import datetime, timezone
 
 from app.domain.tripmate.model.tripmate_search_history import TripmateSearchHistory
+from app.core.instrumentation import measure_mongo_op
 
 
 MAX_SEARCH_HISTORY = 10
@@ -12,6 +13,7 @@ class TripmateSearchHistoryRepository:
 
     # ──────────────────── Create ────────────────────
 
+    @measure_mongo_op("update", "tripmate_search_history")
     async def save(self, user_id: str, search_name: str) -> TripmateSearchHistory:
         """검색어 저장
 
@@ -51,6 +53,7 @@ class TripmateSearchHistoryRepository:
 
     # ──────────────────── Read ────────────────────
 
+    @measure_mongo_op("find", "tripmate_search_history")
     async def find_by_user_id(self, user_id: str) -> List[TripmateSearchHistory]:
         """유저의 검색 기록 조회 (최신순, 최대 10개)"""
         return await TripmateSearchHistory.find(
@@ -59,6 +62,7 @@ class TripmateSearchHistoryRepository:
 
     # ──────────────────── Delete ────────────────────
 
+    @measure_mongo_op("delete", "tripmate_search_history")
     async def delete_one(self, user_id: str, search_name: str) -> None:
         """특정 검색어 1개 삭제"""
         doc = await TripmateSearchHistory.find_one(
@@ -67,6 +71,7 @@ class TripmateSearchHistoryRepository:
         if doc:
             await doc.delete()
 
+    @measure_mongo_op("delete", "tripmate_search_history")
     async def delete_all_by_user_id(self, user_id: str) -> None:
         """유저의 검색 기록 전체 삭제"""
         await TripmateSearchHistory.find(

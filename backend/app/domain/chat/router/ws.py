@@ -1,20 +1,23 @@
 """채팅 WebSocket 엔드포인트 — `/ws/chat`.
 
 WS 업그레이드 핸드셰이크는 `BaseHTTPMiddleware` 를 거치지 않으므로 인증을
-**이 모듈 내부에서 직접** 수행한다 (Origin 화이트리스트 + JWT 쿠키).
+**이 모듈 내부에서 직접** 수행한다 (Origin 화이트리스트 + JWT 쿠키 + status 가드).
 
 연결 플로우
     1. Origin 헤더 화이트리스트 검증 → 실패 시 close(4403)
     2. 쿠키 JWT 검증 → 실패 시 close(4001)
-    3. WS accept
-    4. SessionService.create_session — Redis 3키 + 세션 한도 체크
-    5. WS 컨텍스트 심기 (session_id / user_id / subscribed_rooms)
-    6. FanoutService.register_session + 방 목록 register_ws_to_room
-    7. `connected` 이벤트 송신
-    8. heartbeat 백그라운드 태스크 기동
-    9. op 수신 루프 (매 op 진입 시 `session_exists` 체크 — revoke 감지)
-    10. 종료 시: unregister_ws → Redis 정리 → WS close
+    3. status 가드 (INACTIVE / 미가입 차단) → 실패 시 close(4019)
+       `RegisterCheckMiddleware` 와 동일 검증을 `REGISTERED:{uid}` 캐시 공유로 수행.
+    4. WS accept
+    5. SessionService.create_session — Redis 3키 + 세션 한도 체크
+    6. WS 컨텍스트 심기 (session_id / user_id / subscribed_rooms)
+    7. FanoutService.register_session + 방 목록 register_ws_to_room
+    8. `connected` 이벤트 송신
+    9. heartbeat 백그라운드 태스크 기동
+    10. op 수신 루프 (매 op 진입 시 `session_exists` 체크 — revoke 감지)
+    11. 종료 시: unregister_ws → Redis 정리 → WS close
 """
+import uuid
 from pydantic import TypeAdapter, ValidationError
 import jwt
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -29,9 +32,23 @@ from app.domain.chat.service.message_history import MessageHistoryService
 from app.domain.chat.service.room import RoomService
 from app.domain.chat.service.session import SessionService
 from app.domain.chat.worker.reconcile import recover_unread_for_user
+from app.domain.auth.model.user import UserStatus
+from app.domain.auth.repository.user import UserRepository
 from app.config.setting import settings
 from app.container import Container
+from app.core.cache.key_category import KeyCategory
+from app.core.cache.redis_cache import get_redis_cache_manager
+from app.core.context import request_id_var
+from app.core.instrumentation import (
+    chat_message_send_timer,
+    chat_ws_connect_result,
+    chat_ws_connection_dec,
+    chat_ws_connection_inc,
+    chat_ws_op,
+    chat_ws_op_validation_failure,
+)
 from app.core.logger import get_logger
+from app.core.redis import RedisClient
 
 
 router = APIRouter()
@@ -45,6 +62,7 @@ HEARTBEAT_INTERVAL = 30       # Redis TTL 연장 주기 (초)
 # WS close codes
 CLOSE_AUTH_EXPIRED = 4001
 CLOSE_FORBIDDEN_ORIGIN = 4403
+CLOSE_WITHDRAWAL_PENDING = 4019    # HTTP 419 (탈퇴 유예) 와 매칭
 CLOSE_SERVICE_RESTART = 1012
 
 
@@ -68,67 +86,99 @@ async def ws_chat(
     origin = websocket.headers.get("origin")
     if not _is_allowed_origin(origin):
         logger.warning("WS 연결 거부 — 허용되지 않은 Origin: {}", origin)
+        chat_ws_connect_result("origin_denied")
         await websocket.close(code=CLOSE_FORBIDDEN_ORIGIN)
         return
 
     # 2. JWT 쿠키 검증
     auth = _verify_cookie_jwt(websocket)
     if auth is None:
+        chat_ws_connect_result("auth_expired")
         await websocket.close(code=CLOSE_AUTH_EXPIRED)
         return
     user_id, token_jti = auth
 
-    # 3. 업그레이드 수락
+    # 3. status 가드 — `RegisterCheckMiddleware` 가 WS 우회되므로 동등한 INACTIVE /
+    #    미가입 차단을 여기서 직접. REGISTERED 캐시 공유로 HTTP/WS 일관성 유지.
+    if not await _check_user_active(websocket, user_id):
+        logger.warning("WS 연결 거부 — INACTIVE / 미가입 유저: user_id={}", user_id)
+        chat_ws_connect_result("auth_inactive")
+        await websocket.close(code=CLOSE_WITHDRAWAL_PENDING)
+        return
+
+    # 4. 업그레이드 수락
     await websocket.accept()
 
-    # 4. Redis 세션 등록 + 한도 체크
+    # 5. Redis 세션 등록 + 한도 체크
     try:
         session_id = await session_svc.create_session(user_id, token_jti)
     except Exception as e:
         logger.exception("세션 생성 실패: user_id={}, err={}", user_id, e)
-        await websocket.send_json({"type": "server_error", "reason": "session_create_failed"})
-        await websocket.close(code=CLOSE_SERVICE_RESTART)
+        chat_ws_connect_result("session_failed")
+        # 이 시점에 클라가 이미 끊겼다면 send/close 자체가 disconnect 예외를 던질 수 있음.
+        # 아직 inc/register 전이라 cleanup 할 자원이 없으므로 조용히 흡수하고 반환.
+        try:
+            await websocket.send_json({"type": "server_error", "reason": "session_create_failed"})
+        except Exception:
+            pass
+        try:
+            await websocket.close(code=CLOSE_SERVICE_RESTART)
+        except Exception:
+            pass
         return
 
-    # 5. WS 컨텍스트 심기 (FanoutService duck typing 전제)
+    # 정상 연결 — accept + session 모두 통과.
+    chat_ws_connect_result("ok")
+    chat_ws_connection_inc()
+
+    # 6. WS 컨텍스트 심기 (FanoutService duck typing 전제)
     websocket.session_id = session_id  # type: ignore[attr-defined]
     websocket.user_id = user_id        # type: ignore[attr-defined]
     websocket.subscribed_rooms = set()  # type: ignore[attr-defined]
 
-    # 6. 세션/방 등록
-    fanout.register_session(websocket)
+    # 7~10 단계는 모두 단일 try 안에서 수행 — init 단계 (connected 송신·unread 동기화·
+    # heartbeat 생성) 중간에 클라가 끊겨도 finally cleanup 에 반드시 도달하도록 보장한다.
+    # 한 짝이라도 누락되면 metric counter / fanout dict / Redis 세션 키가 누수.
+    heartbeat_task: asyncio.Task | None = None
     try:
-        room_ids = await room_svc.list_user_room_ids(user_id)
-    except Exception as e:
-        logger.exception("방 목록 로드 실패: user_id={}, err={}", user_id, e)
-        room_ids = []
-    for rid in room_ids:
-        fanout.register_ws_to_room(websocket, rid)
+        # 7. 세션/방 등록
+        fanout.register_session(websocket)
+        try:
+            room_ids = await room_svc.list_user_room_ids(user_id)
+        except Exception as e:
+            logger.exception("방 목록 로드 실패: user_id={}, err={}", user_id, e)
+            room_ids = []
+        for rid in room_ids:
+            fanout.register_ws_to_room(websocket, rid)
 
-    # 7. connected 이벤트 — 클라가 session_id 를 수신해 향후 비교/로깅에 사용
-    await websocket.send_json({"type": "connected", "session_id": session_id})
+        # 8. connected 이벤트 — 클라가 session_id 를 수신해 향후 비교/로깅에 사용.
+        #    핸드셰이크 직후 즉시 close 하는 race 에서는 여기서 WebSocketDisconnect 가
+        #    발생하지만, 외곽 except 가 정상 종료로 흡수 + finally 가 cleanup 한다.
+        await websocket.send_json({"type": "connected", "session_id": session_id})
 
-    # 7-a. unread 초기 동기화 — Redis 에 값이 있으면 즉시 push, 없으면 백그라운드 복구.
-    #   복구 완료 시 `unread_synced` 를 뒤늦게라도 push 해 클라 UI 가 싱크되도록 한다.
-    #   recover 자체는 RDB + Mongo count 조합이라 느릴 수 있으므로 fire-and-forget.
-    try:
-        counts = await history_svc.get_unread_counts(user_id)
-        if counts:
-            await websocket.send_json({"type": "unread_synced", "counts": counts})
-        else:
-            # Redis 비어있음 → Phase 3 복구 경로. 태스크 참조는 _spawn_* 가 내부 set 에 보관.
-            _spawn_recover_unread(websocket, user_id)
-    except Exception as e:
-        logger.warning("unread 동기화 실패 (무시하고 진행): user_id={}, err={}", user_id, e)
+        # 8-a. unread 초기 동기화 — Redis 에 값이 있으면 즉시 push, 없으면 백그라운드 복구.
+        #   복구 완료 시 `unread_synced` 를 뒤늦게라도 push 해 클라 UI 가 싱크되도록 한다.
+        #   recover 자체는 RDB + Mongo count 조합이라 느릴 수 있으므로 fire-and-forget.
+        try:
+            counts = await history_svc.get_unread_counts(user_id)
+            if counts:
+                await websocket.send_json({"type": "unread_synced", "counts": counts})
+            else:
+                # Redis 비어있음 → Phase 3 복구 경로. 태스크 참조는 _spawn_* 가 내부 set 에 보관.
+                _spawn_recover_unread(websocket, user_id)
+        except WebSocketDisconnect:
+            # 외곽 except 에서 정상 종료 + finally cleanup 으로 위임.
+            raise
+        except Exception as e:
+            logger.warning("unread 동기화 실패 (무시하고 진행): user_id={}, err={!r}", user_id, e)
 
-    # 8. heartbeat 백그라운드 태스크
-    heartbeat_task = asyncio.create_task(
-        _heartbeat_loop(session_svc, session_id, user_id),
-        name=f"chat-hb-{session_id}",
-    )
+        # 9. heartbeat 백그라운드 태스크
+        heartbeat_task = asyncio.create_task(
+            _heartbeat_loop(session_svc, session_id, user_id),
+            name=f"chat-hb-{session_id}",
+        )
 
-    # 9. op 수신 루프
-    try:
+        # 10. op 수신 루프
         await _receive_loop(
             websocket=websocket,
             session_id=session_id,
@@ -140,12 +190,14 @@ async def ws_chat(
     except WebSocketDisconnect:
         logger.debug("WS 정상 종료: session_id={}", session_id)
     except Exception as e:
-        logger.exception("WS 수신 루프 예외: session_id={}, err={}", session_id, e)
+        logger.exception("WS 핸들러 예외: session_id={}, err={}", session_id, e)
     finally:
-        # 10. 종료 순서: ① 로컬 dict 먼저 → ② heartbeat 정리 대기 → ③ Redis 정리
+        # 11. 종료 순서: ① metric → ② 로컬 dict → ③ heartbeat 정리 대기 → ④ Redis 정리.
         # 각 단계는 서로 독립이므로 한 쪽 실패가 다음 단계를 막지 않도록 개별 try 로 격리한다.
         # cleanup path 는 본 요청 처리가 끝난 뒤이므로 warning 으로만 남기고 진행한다.
         # (CancelledError 는 BaseException 이라 `except Exception` 에 잡히지 않아 정상 전파됨)
+        chat_ws_connection_dec()
+
         try:
             fanout.unregister_ws(websocket)
         except Exception as e:
@@ -153,16 +205,18 @@ async def ws_chat(
                 "fanout unregister 실패 (무시): session_id={}, err={}", session_id, e,
             )
 
-        # heartbeat task 를 cancel 만 하고 반환하면 pending 상태로 GC 되어
-        # "Task was destroyed but it is pending!" 경고 노이즈 + 리소스 누수 위험.
-        # gather(return_exceptions=True) 로 CancelledError 소화까지 기다림 (bounded).
-        try:
-            heartbeat_task.cancel()
-            await asyncio.gather(heartbeat_task, return_exceptions=True)
-        except Exception as e:
-            logger.warning(
-                "heartbeat 정리 실패 (무시): session_id={}, err={}", session_id, e,
-            )
+        # heartbeat_task 가 None 이면 init 단계 disconnect 로 생성 전 — cancel 스킵.
+        # cancel 만 하고 반환하면 pending 상태로 GC 되어 "Task was destroyed but it is
+        # pending!" 경고 노이즈 + 리소스 누수 위험. gather(return_exceptions=True) 로
+        # CancelledError 소화까지 기다림 (bounded).
+        if heartbeat_task is not None:
+            try:
+                heartbeat_task.cancel()
+                await asyncio.gather(heartbeat_task, return_exceptions=True)
+            except Exception as e:
+                logger.warning(
+                    "heartbeat 정리 실패 (무시): session_id={}, err={}", session_id, e,
+                )
 
         try:
             await session_svc.terminate_session(session_id, user_id)
@@ -255,6 +309,56 @@ def _verify_cookie_jwt(websocket: WebSocket) -> tuple[str, str] | None:
     return str(user_id), str(token_jti)
 
 
+async def _check_user_active(websocket: WebSocket, user_id: str) -> bool:
+    """INACTIVE / 미가입 차단 — `RegisterCheckMiddleware` 와 동등한 가드.
+
+    WS 는 `BaseHTTPMiddleware` 를 거치지 않아 미들웨어의 status 검증이 우회된다. 같은
+    로직을 핸드셰이크에서 직접 수행하되, `REGISTERED:{uid}` 캐시 키를 **공유** 해
+    HTTP/WS 간 중복 DB 조회 방지 + 일관성 유지.
+
+    검증 항목 (미들웨어 line 280~308 과 동일):
+        - 유저 미존재 → 차단
+        - status == INACTIVE (탈퇴 유예) → 차단
+        - user.detail 없음 (2차 가입 미완료) → 차단
+        - 그 외 → 캐시 set 후 통과
+
+    Fail policy:
+        DB 장애 시 fail-closed (False 반환) — 의심스러우면 차단. 클라가 재시도하면 캐시
+        hit 으로 통과 가능하고 (양성 결과 캐싱), 영구 장애가 아니라면 자연 복구된다.
+
+    Returns:
+        True  — ACTIVE & 2차 가입 완료 (캐시 hit 또는 DB 양성)
+        False — INACTIVE / 미가입 / 미존재 / DB 장애
+    """
+    cache = get_redis_cache_manager()
+    cache_key = f"{KeyCategory.REGISTERED}:{user_id}"
+
+    if await cache.exists(cache_key):
+        return True
+
+    try:
+        container = websocket.app.container
+        async with container.uow() as session:
+            user_repo = UserRepository(session)
+            user = await user_repo.find_by_id_with_profile(user_id)
+    except Exception as e:
+        logger.warning(
+            "WS status 가드 — DB 조회 실패 (fail-closed): user_id={}, err={}",
+            user_id, type(e).__name__,
+        )
+        return False
+
+    if user is None:
+        return False
+    if user.status != UserStatus.ACTIVE:
+        return False
+    if user.detail is None:
+        return False
+
+    await cache.set_flag(cache_key, RedisClient.DEFAULT_CACHE_TTL)
+    return True
+
+
 # ──────────────────── op 수신 루프 ────────────────────
 
 async def _receive_loop(
@@ -276,43 +380,51 @@ async def _receive_loop(
             await websocket.close(code=CLOSE_AUTH_EXPIRED)
             return
 
-        # op 파싱
+        # op 단위 request_id contextvar 셋팅 — fanout publish 시 envelope 에 박힌다.
+        op_request_id = str(uuid.uuid4())
+        rid_token = request_id_var.set(op_request_id)
+
+        # op 파싱 — 실패 시 op 라벨이 unknown 으로 잡혀도 의미 살아있다.
+        op_label = raw.get("op", "unknown") if isinstance(raw, dict) else "unknown"
         try:
             req = _ClientRequestAdapter.validate_python(raw)
         except ValidationError as e:
             first_err = e.errors()[0] if e.errors() else {}
+            chat_ws_op_validation_failure(op_label)
             await websocket.send_json({
                 "type": "server_error",
                 "reason": f"invalid op: {first_err.get('msg', 'validation failed')}",
             })
+            request_id_var.reset(rid_token)
             continue
 
-        # 분기 처리
+        # 분기 처리 — chat_ws_op 가 result 카운트를 자동 처리한다.
         try:
-            if isinstance(req, SendOp):
-                await _handle_send(
-                    websocket=websocket,
-                    session_id=session_id,
-                    user_id=user_id,
-                    chat_svc=chat_svc,
-                    req=req,
-                )
-            elif isinstance(req, RefreshOp):
-                await _handle_refresh(
-                    websocket=websocket,
-                    session_id=session_id,
-                    user_id=user_id,
-                    session_svc=session_svc,
-                    req=req,
-                )
-            elif isinstance(req, ReadOp):
-                await _handle_read(
-                    websocket=websocket,
-                    session_id=session_id,
-                    user_id=user_id,
-                    room_svc=room_svc,
-                    req=req,
-                )
+            async with chat_ws_op(op_label):
+                if isinstance(req, SendOp):
+                    await _handle_send(
+                        websocket=websocket,
+                        session_id=session_id,
+                        user_id=user_id,
+                        chat_svc=chat_svc,
+                        req=req,
+                    )
+                elif isinstance(req, RefreshOp):
+                    await _handle_refresh(
+                        websocket=websocket,
+                        session_id=session_id,
+                        user_id=user_id,
+                        session_svc=session_svc,
+                        req=req,
+                    )
+                elif isinstance(req, ReadOp):
+                    await _handle_read(
+                        websocket=websocket,
+                        session_id=session_id,
+                        user_id=user_id,
+                        room_svc=room_svc,
+                        req=req,
+                    )
         except PermissionError as e:
             # read op 는 `read_failed` 이벤트로 실패 사유를 전달 — 다른 op 는
             # `server_error` 규약 유지.
@@ -339,6 +451,8 @@ async def _receive_loop(
         except UpstreamError as e:
             # 외부 저장소 지속 실패 — 연결은 유지, 클라가 재시도 가능
             await websocket.send_json({"type": "server_error", "reason": str(e)})
+        finally:
+            request_id_var.reset(rid_token)
 
 
 async def _handle_send(
@@ -350,14 +464,18 @@ async def _handle_send(
     req: SendOp,
 ) -> None:
     """`op=send` — MessageService.send_message 실행 후 ACK 직송."""
-    ack = await chat_svc.send_message(
-        sender_user_id=user_id,
-        sender_session_id=session_id,
-        room_id=req.room_id,
-        client_msg_id=req.client_msg_id,
-        msg_type=req.type,
-        content=req.content,
+    fanout_path = (
+        "cross_node" if settings.FANOUT_MODE == "node_channel" else "local"
     )
+    async with chat_message_send_timer(fanout_path):
+        ack = await chat_svc.send_message(
+            sender_user_id=user_id,
+            sender_session_id=session_id,
+            room_id=req.room_id,
+            client_msg_id=req.client_msg_id,
+            msg_type=req.type,
+            content=req.content,
+        )
     await websocket.send_json({
         "type": "message.sent",
         "client_msg_id": ack.client_msg_id,

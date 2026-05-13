@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.redis import RedisClient
 from app.core.logger import get_logger
+from app.core.metric import AUTH_FAILURES
 from app.core.cache.redis_cache import get_redis_cache_manager
 from app.core.cache.key_category import KeyCategory
 from app.config.setting import settings
@@ -23,6 +24,8 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
     # 인증을 건너뛸 경로
     EXCLUDE_PATHS: Sequence[str] = (
         "/health",
+        "/health/deep",      # EXCLUDE_PATHS 는 정확 매칭이라 deep 도 별도 명시한다.
+        "/ready",            # k8s readinessProbe 와 blackbox 내부 probe 가 호출한다.
         "/docs",
         "/redoc",
         "/openapi.json",
@@ -61,6 +64,7 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
         # Authorization 헤더 확인
         authorization = request.headers.get("Authorization")
         if not authorization:
+            AUTH_FAILURES.labels(kind="bearer_header_missing").inc()
             auth_logger.warning("Authorization 헤더 없음")
             return JSONResponse(
                 status_code=401,
@@ -70,6 +74,7 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
         # Bearer 형식 확인
         parts = authorization.split(" ", 1)
         if len(parts) != 2 or parts[0].lower() != "bearer":
+            AUTH_FAILURES.labels(kind="bearer_format_invalid").inc()
             auth_logger.warning("잘못된 Authorization 형식")
             return JSONResponse(
                 status_code=401,
@@ -80,6 +85,7 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
 
         # 토큰 검증 (타이밍 공격 방지)
         if not hmac.compare_digest(token, settings.ACCESS_TOKEN):
+            AUTH_FAILURES.labels(kind="bearer_token_invalid").inc()
             auth_logger.warning("유효하지 않은 Bearer Token 토큰")
             return JSONResponse(
                 status_code=401,
@@ -100,6 +106,8 @@ class LoginCookieMiddleware(BaseHTTPMiddleware):
     # 쿠키 검증을 건너뛸 경로
     EXCLUDE_PATHS: Sequence[str] = (
         "/health",
+        "/health/deep",      # EXCLUDE_PATHS 는 정확 매칭이라 deep 도 별도 명시한다.
+        "/ready",            # k8s readinessProbe 와 blackbox 내부 probe 가 호출한다.
         "/docs",
         "/redoc",
         "/openapi.json",
@@ -137,6 +145,7 @@ class LoginCookieMiddleware(BaseHTTPMiddleware):
 
         token = request.cookies.get(settings.USER_LOGIN_COOKIE_NAME)
         if token is None:
+            AUTH_FAILURES.labels(kind="cookie_missing").inc()
             cookie_logger.warning("로그인 쿠키 없음")
             return JSONResponse(
                 status_code=401,
@@ -151,18 +160,21 @@ class LoginCookieMiddleware(BaseHTTPMiddleware):
             )
             user_id = payload.get("user_id")
             if user_id is None:
+                AUTH_FAILURES.labels(kind="cookie_no_user_id").inc()
                 cookie_logger.warning("쿠키에 user_id 없음")
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "유효하지 않은 토큰입니다."},
                 )
         except jwt.ExpiredSignatureError:
+            AUTH_FAILURES.labels(kind="cookie_expired").inc()
             cookie_logger.warning("로그인 쿠키 만료")
             return JSONResponse(
                 status_code=401,
                 content={"detail": "토큰이 만료되었습니다."},
             )
         except jwt.InvalidTokenError:
+            AUTH_FAILURES.labels(kind="cookie_invalid").inc()
             cookie_logger.warning("유효하지 않은 로그인 쿠키")
             return JSONResponse(
                 status_code=401,
@@ -197,6 +209,8 @@ class RegisterCheckMiddleware(BaseHTTPMiddleware):
     # 검증을 건너뛸 경로
     EXCLUDE_PATHS: Sequence[str] = (
         "/health",
+        "/health/deep",      # EXCLUDE_PATHS 는 정확 매칭이라 deep 도 별도 명시한다.
+        "/ready",            # k8s readinessProbe 와 blackbox 내부 probe 가 호출한다.
         "/docs",
         "/redoc",
         "/openapi.json",
@@ -256,6 +270,7 @@ class RegisterCheckMiddleware(BaseHTTPMiddleware):
                 user_repo = UserRepository(session)
                 user = await user_repo.find_by_id_with_profile(user_id)
         except Exception as e:
+            AUTH_FAILURES.labels(kind="register_db_error").inc()
             reg_logger.error("DB 조회 실패: {}", e)
             return JSONResponse(
                 status_code=500,
@@ -263,6 +278,7 @@ class RegisterCheckMiddleware(BaseHTTPMiddleware):
             )
 
         if user is None:
+            AUTH_FAILURES.labels(kind="register_user_not_found").inc()
             reg_logger.warning("존재하지 않는 유저")
             return JSONResponse(
                 status_code=401,
@@ -273,6 +289,7 @@ class RegisterCheckMiddleware(BaseHTTPMiddleware):
         # 419 는 비표준이지만 "회원이 탈퇴 처리 중" 시그널로 프론트가 분기.
         from app.domain.auth.model.user import UserStatus
         if user.status == UserStatus.INACTIVE:
+            AUTH_FAILURES.labels(kind="register_withdrawal_pending").inc()
             reg_logger.warning("탈퇴 유예 중 유저 접근 차단")
             return JSONResponse(
                 status_code=WITHDRAWAL_PENDING_STATUS_CODE,
@@ -283,6 +300,7 @@ class RegisterCheckMiddleware(BaseHTTPMiddleware):
             )
 
         if user.detail is None:
+            AUTH_FAILURES.labels(kind="register_incomplete").inc()
             reg_logger.warning("2차 회원가입 미완료")
             return JSONResponse(
                 status_code=403,

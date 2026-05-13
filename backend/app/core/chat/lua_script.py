@@ -9,6 +9,8 @@ from redis.commands.core import AsyncScript
 from redis.asyncio import Redis
 from pathlib import Path
 
+from app.core.instrumentation import instrument_lua_script
+
 _LUA_DIR = Path(__file__).parent / "lua"
 
 
@@ -26,11 +28,23 @@ class LuaScripts:
         self.incr_with_ttl: Optional[AsyncScript] = None
 
     def load(self, hot_client: Redis) -> None:
-        """startup 에서 1회 호출. 파일 I/O 동기로 끝내고 Script 객체만 보유."""
-        self.incr_fast = hot_client.register_script(_read("incr_fast.lua"))
-        self.recover_and_incr = hot_client.register_script(_read("recover_and_incr.lua"))
-        self.force_jump = hot_client.register_script(_read("force_jump.lua"))
-        self.incr_with_ttl = hot_client.register_script(_read("incr_with_ttl.lua"))
+        """startup 에서 1회 호출. 파일 I/O 동기로 끝내고 Script 객체만 보유.
+
+        instrument_lua_script wrapper 로 감싸 호출 시 redis_lua_script_run_total 자동 카운트.
+        AsyncScript 의 EVALSHA / EVAL fallback 동작은 그대로 위임.
+        """
+        self.incr_fast = instrument_lua_script(
+            hot_client.register_script(_read("incr_fast.lua")), "incr_fast",
+        )
+        self.recover_and_incr = instrument_lua_script(
+            hot_client.register_script(_read("recover_and_incr.lua")), "recover_and_incr",
+        )
+        self.force_jump = instrument_lua_script(
+            hot_client.register_script(_read("force_jump.lua")), "force_jump",
+        )
+        self.incr_with_ttl = instrument_lua_script(
+            hot_client.register_script(_read("incr_with_ttl.lua")), "incr_with_ttl",
+        )
 
 
 lua_scripts = LuaScripts()

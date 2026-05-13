@@ -1,0 +1,171 @@
+{
+  "title": "워커 (Workers)",
+  "uid": "krip-workers",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "time": {"from": "now-3h", "to": "now"},
+  "refresh": "30s",
+  "tags": ["krip", "workers"],
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "reconcile — 마지막 tick 경과",
+      "type": "stat",
+      "description": "5분 주기. 15분 넘으면 정체, 30분 넘으면 위험.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 900}, {"color": "red", "value": 1800}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "time() - max(worker_last_tick_timestamp{worker=\"reconcile\"})", "legendFormat": "경과", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "title": "node_heartbeat — 마지막 tick 경과",
+      "type": "stat",
+      "description": "10초 주기. 1분 넘으면 정체, 3분 넘으면 위험. (FANOUT_MODE=in_process 면 동작 안 함)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 60}, {"color": "red", "value": 180}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "time() - max(worker_last_tick_timestamp{worker=\"node_heartbeat\"})", "legendFormat": "경과", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "title": "fanout_dispatch — 마지막 tick 경과",
+      "type": "stat",
+      "description": "envelope 1건 처리당 1 tick. 노드 채팅 활동에 비례.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 600}, {"color": "red", "value": 1800}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "time() - max(worker_last_tick_timestamp{worker=\"fanout_dispatch\"})", "legendFormat": "경과", "refId": "A"}]
+    },
+    {
+      "id": 4,
+      "title": "withdraw_purge — 마지막 사이클 경과",
+      "type": "stat",
+      "description": "매일 KST 04:00 발화. 25시간 넘으면 누락 의심 (시동 25시간 grace 후).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 86400}, {"color": "red", "value": 90000}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "time() - max(worker_last_tick_timestamp{worker=\"withdraw_purge\"})", "legendFormat": "경과", "refId": "A"}]
+    },
+    {
+      "id": 10,
+      "title": "tick 처리 시간 p95 (워커별)",
+      "type": "timeseries",
+      "description": "한 tick 이 끝나는 데 걸린 시간 p95. withdraw_purge 는 별도 Gauge 라 본 그래프 미포함.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 5},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, worker) (rate(worker_tick_duration_seconds_bucket[5m])))", "legendFormat": "{{worker}}", "refId": "A"}]
+    },
+    {
+      "id": 11,
+      "title": "tick 결과 (성공 / 실패)",
+      "type": "timeseries",
+      "description": "초당 tick 수를 result 별로. error 가 0 이 아니면 워커 내부에서 swallow 한 예외가 있다는 뜻.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 5},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 25, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (worker, result) (rate(worker_tick_total[5m]))", "legendFormat": "{{worker}} / {{result}}", "refId": "A"}]
+    },
+    {
+      "id": 20,
+      "title": "withdraw_purge — 직전 사이클 처리 시간",
+      "type": "timeseries",
+      "description": "탈퇴 30일 유예 끝난 사용자 영구 삭제 사이클 시간. 사용자 수에 비례, 사이클 1회당 한 점.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2, "pointSize": 6, "showPoints": "always"}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
+      "targets": [{"expr": "withdraw_purge_last_run_duration_seconds", "legendFormat": "node_id={{node_id}}", "refId": "A"}]
+    },
+    {
+      "id": 30,
+      "title": "이벤트 루프 lag p95",
+      "type": "stat",
+      "description": "1초 sleep 깨어남 지연 p95. 50ms 이상 주의 (이벤트 루프 포화), 200ms 이상 위험 (EventLoopLag 알림 임계).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 22},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 4,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.05}, {"color": "red", "value": 0.2}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(python_event_loop_lag_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "A"}]
+    },
+    {
+      "id": 31,
+      "title": "asyncio task 수",
+      "type": "stat",
+      "description": "len(asyncio.all_tasks()) 현재 값. 누수 시 누적 증가 (recover_unread / fanout dispatcher 등 미정리 의심).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 22},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 200}, {"color": "red", "value": 1000}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "value", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "python_asyncio_tasks", "legendFormat": "tasks", "refId": "A"}]
+    },
+    {
+      "id": 32,
+      "title": "이벤트 루프 lag 추이 (p95 / p99)",
+      "type": "timeseries",
+      "description": "lag 분포 시계열. 갑자기 튀면 어떤 task 가 sleep 양보 없이 CPU 점유 — 핫스팟 추적의 출발점.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 22},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(python_event_loop_lag_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "A"},
+        {"expr": "histogram_quantile(0.99, sum by (le) (rate(python_event_loop_lag_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "B"}
+      ]
+    }
+  ]
+}

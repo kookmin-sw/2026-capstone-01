@@ -24,6 +24,7 @@ from app.domain.auth.repository.withdrawal_request import WithdrawalRequestRepos
 from app.domain.auth.service.withdraw import WithdrawService
 from app.domain.notification.service.inbox import InboxService
 from app.database.session import UnitOfWork
+from app.core.instrumentation import withdraw_purge_run
 from app.core.logger import get_logger
 
 
@@ -163,7 +164,8 @@ async def _purge_loop(stop_event: asyncio.Event) -> None:
 
         # 발화 — 사이클 1 회.
         try:
-            await purge_due_withdrawals_once()
+            async with withdraw_purge_run():
+                await purge_due_withdrawals_once()
         except Exception as e:
             # 사이클 전역 실패는 다음 사이클로 흘려보냄. 단일 유저 실패는 위에서 이미 격리.
             logger.exception("withdraw purge 사이클 전역 실패 (계속 진행): {}", e)

@@ -41,6 +41,10 @@ async def withdraw(
     # 트랜잭션 commit 이후 캐시 무효화 — 중간 race(미커밋 ACTIVE 행 재캐싱) 차단.
     await invalidate_registered_cache(user_id)
 
+    # commit 이후 chat 활성 세션 강제 종료 — INACTIVE 전환 후 TTL(90s) 윈도우 동안의
+    # 송수신 risk 차단. 같은 race 이유로 트랜잭션 외부에서 호출.
+    await withdraw_service.revoke_user_chat_state(user_id)
+
     response = JSONResponse(
         content={
             "message": "회원 탈퇴 요청이 접수되었습니다. 30일 후 영구 삭제됩니다.",
