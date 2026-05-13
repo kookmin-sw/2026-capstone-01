@@ -1,0 +1,58 @@
+# Loki 설정
+#
+# 단일 인스턴스 monolithic 모드.
+# 멀티 테넌트는 미도입 — auth_enabled=false.
+# Promtail 의 tenant_id 라인은 그대로 두면 Loki 가 무시한다 (후일 진입 비용 0).
+#
+# 보존 정책:
+#   retention_period 14d
+#
+# 스키마: Loki 3.x 권장 v13/tsdb.
+# Storage: filesystem (단일 인스턴스 dev 적합).
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  log_level: info
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 336h                  # 14일
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h        # 7일보다 오래된 로그 거절
+  ingestion_rate_mb: 10
+  ingestion_burst_size_mb: 20
+  max_query_series: 5000
+  allow_structured_metadata: true
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  retention_delete_delay: 2h
+  delete_request_store: filesystem
+
+# 추후 alertmanager 추가 시 활성화.
+# ruler:
+#   alertmanager_url: http://alertmanager:9093

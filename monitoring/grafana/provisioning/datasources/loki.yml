@@ -1,0 +1,17 @@
+# Grafana Loki datasource
+#
+# 멀티테넌트 미도입 default 라 X-Scope-OrgID 헤더 미설정.
+# 도입 시 jsonData.httpHeaderName1 + secureJsonData.httpHeaderValue1 추가.
+
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    uid: loki                       # 대시보드 / Explore 에서 참조하는 키
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      timeout: 60
+      maxLines: 5000
