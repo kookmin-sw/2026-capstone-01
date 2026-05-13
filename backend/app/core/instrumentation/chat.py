@@ -32,7 +32,7 @@ from app.core.metric import (
 # ────────────────────────────────────────────────────────────────────
 
 # WS 연결 결과 enum. ws.py 의 4 분기에 매핑된다.
-CHAT_WS_CONNECT_RESULTS = ("ok", "origin_denied", "auth_expired", "session_failed", "other")
+CHAT_WS_CONNECT_RESULTS = ("ok", "origin_denied", "auth_expired", "auth_inactive", "session_failed", "other")
 
 # WS op 결과 enum. _classify_ws_op_error 와 일치.
 CHAT_WS_OP_RESULTS = ("ok", "permission_denied", "validation", "not_found", "upstream", "other")
