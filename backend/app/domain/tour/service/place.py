@@ -128,6 +128,7 @@ class PlaceService:
                 )
                 for r in (raw.get("reviews") or [])
             ],
+            photos=raw.get("photos") or [],
         )
 
     @staticmethod
