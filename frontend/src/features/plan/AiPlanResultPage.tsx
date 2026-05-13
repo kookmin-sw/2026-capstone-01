@@ -377,11 +377,11 @@ export default function AiPlanResultPage({
             <button type="button" onClick={onBack} style={styles.iconButton}>
               {"<"}
             </button>
-            <span style={styles.headerBadge}>AI Result</span>
+            <span style={styles.headerBadge}>AI Plan</span>
           </div>
 
           <div style={styles.titleBlock}>
-            <span style={styles.eyebrow}>Recommendation API V2</span>
+            <span style={styles.eyebrow}>Plan Result</span>
             <h1 style={styles.title}>Creating your itinerary</h1>
             <p style={styles.copy}>
               We are waiting for the recommendation server to finish the route.
@@ -426,34 +426,36 @@ export default function AiPlanResultPage({
           <button type="button" onClick={onBack} style={styles.iconButton}>
             {"<"}
           </button>
-          <span style={styles.headerBadge}>AI Result</span>
+          <span style={styles.headerBadge}>AI Plan</span>
         </div>
 
         <div style={styles.titleBlock}>
-          <span style={styles.eyebrow}>Recommendation API V2</span>
+          <span style={styles.eyebrow}>Plan result</span>
           <h1 style={styles.title}>{buildRouteTitle(preferences)}</h1>
           <p style={styles.copy}>{summary}</p>
         </div>
 
-        <div style={styles.summaryGrid}>
-          <div style={styles.summaryCard}>
+        <div style={styles.summaryTagGroup}>
+          <div style={styles.summaryGrid}>
+            <div style={styles.summaryCard}>
+              <span style={styles.summaryLabel}>Budget</span>
+              <strong style={styles.summaryValue}>
+                {budgetCategoryLabel(preferences.budgetCategory)}
+              </strong>
+            </div>
+            <div style={styles.summaryCard}>
+              <span style={styles.summaryLabel}>Companion</span>
+              <strong style={styles.summaryValue}>
+                {preferences.companion || "Not selected"}
+              </strong>
+            </div>
+          </div>
+          <div style={{ ...styles.summaryCard, ...styles.styleSummaryCard }}>
             <span style={styles.summaryLabel}>Travel Style</span>
-            <strong style={styles.summaryValue}>
+            <strong style={{ ...styles.summaryValue, ...styles.styleSummaryValue }}>
               {preferences.styles.length > 0
                 ? preferences.styles.join(" + ")
                 : "No style selected"}
-            </strong>
-          </div>
-          <div style={styles.summaryCard}>
-            <span style={styles.summaryLabel}>Budget</span>
-            <strong style={styles.summaryValue}>
-              {budgetCategoryLabel(preferences.budgetCategory)}
-            </strong>
-          </div>
-          <div style={styles.summaryCard}>
-            <span style={styles.summaryLabel}>Companion</span>
-            <strong style={styles.summaryValue}>
-              {preferences.companion || "Not selected"}
             </strong>
           </div>
         </div>
@@ -464,9 +466,6 @@ export default function AiPlanResultPage({
           <div style={styles.timelineHeader}>
             <div>
               <h2 style={styles.timelineTitle}>Timeline</h2>
-              <p style={styles.timelineRoute}>
-                Timeline, movements, and budget are rendered directly from `/api/tour/recommend` V2.
-              </p>
             </div>
             <span style={styles.timelineBadge}>Public Transit</span>
           </div>
@@ -587,7 +586,7 @@ const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
     padding: "calc(20px + var(--app-safe-top)) 16px 20px",
-    background: "linear-gradient(180deg, #f7ffff 0%, #fefdf7 100%)",
+    background: "#fff",
     fontFamily: '"Nunito", "Apple SD Gothic Neo", sans-serif',
   },
   phoneFrame: {
@@ -638,48 +637,56 @@ const styles: Record<string, CSSProperties> = {
   },
   title: {
     margin: 0,
-    fontSize: 28,
-    lineHeight: 1.15,
+    fontSize: "1.15rem",
+    lineHeight: "1.5rem",
     color: "#102223",
+    fontWeight: 900,
   },
   copy: {
     margin: 0,
-    color: "#486566",
-    fontSize: 14,
-    lineHeight: 1.6,
+    color: "#8b8b8b",
+    fontSize: "0.65rem",
+    lineHeight: 1.45,
+  },
+  summaryTagGroup: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 8,
   },
   summaryGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 10,
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
   },
   summaryCard: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-    padding: 16,
-    borderRadius: 18,
-    background: "#ffffff",
-    border: "1px solid #d9eeee",
+    display: "inline-flex",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    width: "fit-content",
+    padding: "7px 10px",
+    borderRadius: 999,
+    background: "#ecfbfb",
+    border: "none",
+  },
+  styleSummaryCard: {
+    background: "#FFF5D9",
   },
   summaryLabel: {
-    color: "#577171",
-    fontSize: 12,
-    fontWeight: 700,
+    display: "none",
   },
   summaryValue: {
-    color: "#102223",
-    fontSize: 14,
-    lineHeight: 1.5,
+    color: "#05AEAE",
+    fontSize: "0.6rem",
+    lineHeight: 1,
+    fontWeight: 800,
+  },
+  styleSummaryValue: {
+    color: "#936B00",
   },
   mapCard: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-    padding: 16,
-    borderRadius: 22,
-    background: "#ffffff",
-    border: "1px solid #dceeee",
+    margin: "0.8rem 0"
   },
   mapViewport: {
     position: "relative",
@@ -687,6 +694,7 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 18,
     overflow: "hidden",
     background: "#eef7f7",
+    marginBottom: 20,
   },
   mapCanvasGoogle: {
     position: "absolute",
@@ -707,7 +715,7 @@ const styles: Record<string, CSSProperties> = {
   mapLegend: {
     display: "flex",
     flexDirection: "column",
-    gap: 8,
+    gap: 12,
   },
   mapLegendItem: {
     display: "flex",
@@ -718,8 +726,8 @@ const styles: Record<string, CSSProperties> = {
     width: 22,
     height: 22,
     borderRadius: "50%",
-    background: "rgba(255,190,15,0.22)",
-    color: "#7a5400",
+    background: BRAND,
+    color: "#fff",
     display: "grid",
     placeItems: "center",
     fontSize: 12,
@@ -744,20 +752,14 @@ const styles: Record<string, CSSProperties> = {
   timelineTitle: {
     margin: 0,
     color: "#102223",
-    fontSize: 21,
-  },
-  timelineRoute: {
-    margin: "6px 0 0",
-    color: "#5d7576",
-    fontSize: 13,
-    lineHeight: 1.5,
+    fontSize: 16,
   },
   timelineBadge: {
     padding: "8px 10px",
     borderRadius: 999,
     background: "rgba(255,190,15,0.18)",
     color: "#7a5400",
-    fontSize: 12,
+    fontSize: 8,
     fontWeight: 800,
   },
   timelineList: {
@@ -781,8 +783,8 @@ const styles: Record<string, CSSProperties> = {
     width: 24,
     height: 24,
     borderRadius: "50%",
-    background: ACCENT,
-    color: "#533800",
+    background: BRAND,
+    color: "#fff",
     display: "grid",
     placeItems: "center",
     marginTop: 10,
@@ -790,11 +792,10 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 900,
   },
   timelineCard: {
-    padding: "14px 15px",
+    padding: "14px 16px",
     borderRadius: 18,
     background: "#ffffff",
-    border: "1px solid #dceeee",
-    boxShadow: "0 10px 24px rgba(16, 34, 35, 0.05)",
+    border: "1px solid #eaeaea",
   },
   timelineTitleRow: {
     display: "flex",
@@ -803,8 +804,8 @@ const styles: Record<string, CSSProperties> = {
     gap: 8,
   },
   timelineItemTitle: {
-    color: "#102223",
-    fontSize: 14,
+    color: "#222",
+    fontSize: "0.8rem",
   },
   ratingBadge: {
     padding: "5px 8px",
@@ -816,9 +817,9 @@ const styles: Record<string, CSSProperties> = {
   },
   timelineCopy: {
     margin: "8px 0 0",
-    color: "#557071",
-    lineHeight: 1.6,
-    fontSize: 13,
+    color: "#888",
+    lineHeight: 1.4,
+    fontSize: "0.7rem",
   },
   slotList: {
     display: "flex",
@@ -847,8 +848,8 @@ const styles: Record<string, CSSProperties> = {
   },
   dayRouteCluster: {
     color: BRAND,
-    fontSize: 12,
-    fontWeight: 800,
+    fontSize: "0.75rem",
+    fontWeight: 700,
   },
   loadingScreen: {
     display: "flex",
@@ -925,7 +926,8 @@ const styles: Record<string, CSSProperties> = {
     color: "#5d7576",
     fontSize: 12,
     fontWeight: 800,
-  },  stateCard: {
+  },  
+  stateCard: {
     padding: 18,
     borderRadius: 18,
     background: "#ffffff",
@@ -943,7 +945,7 @@ const styles: Record<string, CSSProperties> = {
   poiAddress: {
     margin: "8px 0 0",
     color: BRAND,
-    fontSize: 12,
+    fontSize: "0.65rem",
     fontWeight: 800,
   },
   poiMetaRow: {
@@ -951,28 +953,28 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: "wrap",
     gap: 8,
     marginTop: 10,
-    color: "#5d7576",
+    color: "#888",
     fontSize: 12,
     fontWeight: 700,
   },
   movementCard: {
-    margin: "8px 0 8px 92px",
+    margin: "8px 0 8px 102px",
     padding: "10px 12px",
     borderRadius: 14,
-    background: "rgba(1,192,192,0.1)",
-    color: "#0b6161",
+    background: "#f6f6f6",
+    color: "#555",
     fontSize: 12,
-    fontWeight: 800,
+    fontWeight: 500,
     lineHeight: 1.5,
   },
   daySummary: {
     margin: 0,
     padding: 14,
     borderRadius: 16,
-    background: "#f6fcfc",
-    color: "#486566",
+    background: "#f5f5f5",
+    color: "#333",
     lineHeight: 1.6,
-    fontSize: 13,
+    fontSize: 12,
   },
   budgetList: {
     display: "flex",
@@ -981,7 +983,7 @@ const styles: Record<string, CSSProperties> = {
     padding: 14,
     borderRadius: 16,
     background: "#ffffff",
-    border: "1px solid #dceeee",
+    border: "1px solid #eaeaea",
   },
   budgetItem: {
     display: "flex",
@@ -994,13 +996,12 @@ const styles: Record<string, CSSProperties> = {
   primaryAction: {
     minHeight: 56,
     border: "none",
-    borderRadius: 18,
-    background: `linear-gradient(135deg, ${BRAND} 0%, #11abab 100%)`,
+    borderRadius: "3rem",
+    background: "#10c0c0",
     color: "#ffffff",
     fontSize: 15,
-    fontWeight: 900,
+    fontWeight: 800,
     cursor: "pointer",
-    boxShadow: "0 16px 30px rgba(1, 192, 192, 0.24)",
   },
   saveMessage: {
     margin: 0,

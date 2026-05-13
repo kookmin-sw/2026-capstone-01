@@ -49,7 +49,7 @@ export default function LoginPage() {
     <div style={styles.wrapper}>
       <div style={styles.center}>
         <div style={styles.heroFrame}>
-          <img src="/krip_logo.png" alt="Krip login" style={styles.heroImage} />
+          <img src="/krip_icon.svg" alt="Krip login" style={styles.heroImage} />
           <div style={styles.bottom}>
             <button style={styles.googleBtn} onClick={handleGoogleLogin}>
               <GoogleIcon />
