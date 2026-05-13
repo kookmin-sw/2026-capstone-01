@@ -29,7 +29,11 @@ declare global {
     google?: {
       maps?: {
         Map: new (element: HTMLElement, options: Record<string, unknown>) => GoogleMap;
-        Marker: new (options: Record<string, unknown>) => GoogleMarker;
+        marker?: {
+          AdvancedMarkerElement: new (
+            options: Record<string, unknown>
+          ) => GoogleAdvancedMarker;
+        };
         Polyline: new (options: Record<string, unknown>) => GooglePolyline;
         LatLngBounds: new () => GoogleLatLngBounds;
       };
@@ -41,8 +45,8 @@ interface GoogleMap {
   fitBounds: (bounds: GoogleLatLngBounds) => void;
 }
 
-interface GoogleMarker {
-  setMap: (map: GoogleMap | null) => void;
+interface GoogleAdvancedMarker {
+  map?: GoogleMap | null;
 }
 
 interface GooglePolyline {
@@ -153,7 +157,7 @@ function GoogleMapPreview({ places }: { places: PlaceDetailV2[] }) {
   );
 
   useEffect(() => {
-    const markers: GoogleMarker[] = [];
+    const markers: GoogleAdvancedMarker[] = [];
     let polyline: GooglePolyline | null = null;
     let cancelled = false;
 
@@ -181,12 +185,26 @@ function GoogleMapPreview({ places }: { places: PlaceDetailV2[] }) {
           positionedPlaces.forEach((place, index) => {
             const position = place.location;
             bounds.extend(position);
+            const markerContent = document.createElement("div");
+
+            markerContent.style.width = "28px";
+            markerContent.style.height = "28px";
+            markerContent.style.borderRadius = "50%";
+            markerContent.style.background = BRAND;
+            markerContent.style.color = "#fff";
+            markerContent.style.display = "flex";
+            markerContent.style.alignItems = "center";
+            markerContent.style.justifyContent = "center";
+            markerContent.style.fontSize = "14px";
+            markerContent.style.fontWeight = "800";
+            markerContent.textContent = String(index + 1);
+
             markers.push(
-              new google.maps.Marker({
+              new google.maps.marker.AdvancedMarkerElement({
                 position,
                 map,
-                label: String(index + 1),
                 title: place.display_name,
+                content: markerContent,
               })
             );
           });
@@ -219,7 +237,9 @@ function GoogleMapPreview({ places }: { places: PlaceDetailV2[] }) {
 
     return () => {
       cancelled = true;
-      markers.forEach((marker) => marker.setMap(null));
+      markers.forEach((marker) => {
+        marker.map = null;
+      });
       polyline?.setMap(null);
     };
   }, [positionedPlaces]);
@@ -375,7 +395,7 @@ export default function AiPlanResultPage({
         <div style={styles.phoneFrame}>
           <div style={styles.headerRow}>
             <button type="button" onClick={onBack} style={styles.iconButton}>
-              {"<"}
+              <img src="/icon-back.svg" alt="Back" style={styles.backIcon} />
             </button>
             <span style={styles.headerBadge}>AI Plan</span>
           </div>
@@ -424,7 +444,7 @@ export default function AiPlanResultPage({
       <div style={styles.phoneFrame}>
         <div style={styles.headerRow}>
           <button type="button" onClick={onBack} style={styles.iconButton}>
-            {"<"}
+            <img src="/icon-back.svg" alt="Back" style={styles.backIcon} />
           </button>
           <span style={styles.headerBadge}>AI Plan</span>
         </div>
@@ -604,15 +624,21 @@ const styles: Record<string, CSSProperties> = {
     gap: 12,
   },
   iconButton: {
-    width: 42,
+    width: 20,
     height: 42,
-    borderRadius: 14,
-    border: "1px solid #d6eeee",
-    background: "#ffffff",
-    color: "#204444",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "none",
+    background: "transparent",
     fontSize: 18,
     fontWeight: 800,
     cursor: "pointer",
+  },
+  backIcon: {
+    width: 20,
+    height: 20,
+    display: "block",
   },
   headerBadge: {
     display: "inline-flex",
@@ -931,10 +957,11 @@ const styles: Record<string, CSSProperties> = {
     padding: 18,
     borderRadius: 18,
     background: "#ffffff",
-    border: "1px solid #dceeee",
-    color: "#516a6b",
+    border: "1px solid #eaeaea",
+    color: "#10c0c0",
     lineHeight: 1.6,
     fontSize: 13,
+    fontWeight: 800,
   },
   warningCard: {
     border: "1px solid rgba(255,190,15,0.65)",
@@ -963,9 +990,9 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 14,
     background: "#f6f6f6",
     color: "#555",
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: 500,
-    lineHeight: 1.5,
+    lineHeight: 1.4,
   },
   daySummary: {
     margin: 0,

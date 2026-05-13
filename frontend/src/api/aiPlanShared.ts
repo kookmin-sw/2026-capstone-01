@@ -1115,7 +1115,7 @@ export async function loadGoogleMapsApi(): Promise<typeof window.google | null> 
     script.defer = true;
     script.dataset.googleMapsSdk = "true";
     script.src =
-      `https://maps.googleapis.com/maps/api/js?key=${apiKey}&v=weekly&loading=async&callback=${callbackName}`;
+      `https://maps.googleapis.com/maps/api/js?key=${apiKey}&v=weekly&loading=async&libraries=marker&callback=${callbackName}`;
 
     callbackHost[callbackName] = () => {
       script.dataset.loaded = "true";

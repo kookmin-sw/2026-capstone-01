@@ -60,7 +60,11 @@ declare global {
     google?: {
       maps?: {
         Map: new (element: HTMLElement, options: Record<string, unknown>) => GoogleMap;
-        Marker: new (options: Record<string, unknown>) => GoogleMarker;
+        marker?: {
+          AdvancedMarkerElement: new (
+            options: Record<string, unknown>
+          ) => GoogleAdvancedMarker;
+        };
         Polyline: new (options: Record<string, unknown>) => GooglePolyline;
         LatLngBounds: new () => GoogleLatLngBounds;
       };
@@ -72,8 +76,8 @@ interface GoogleMap {
   fitBounds: (bounds: GoogleLatLngBounds) => void;
 }
 
-interface GoogleMarker {
-  setMap: (map: GoogleMap | null) => void;
+interface GoogleAdvancedMarker {
+  map?: GoogleMap | null;
 }
 
 interface GooglePolyline {
@@ -631,7 +635,7 @@ function MapPreview({ stops }: { stops: PlannedStop[] }) {
   );
 
   useEffect(() => {
-    const markers: GoogleMarker[] = [];
+    const markers: GoogleAdvancedMarker[] = [];
     let polyline: GooglePolyline | null = null;
     let cancelled = false;
 
@@ -661,12 +665,30 @@ function MapPreview({ stops }: { stops: PlannedStop[] }) {
           positionedStops.forEach((stop, index) => {
             const position = { lat: stop.latitude, lng: stop.longitude };
             bounds.extend(position);
+            const markerContent = document.createElement("div");
+
+            markerContent.style.width = "28px";
+            markerContent.style.height = "28px";
+            markerContent.style.borderRadius = "50%";
+            markerContent.style.background = "#10c0c0";
+            markerContent.style.color = "#fff";
+            markerContent.style.display = "flex";
+            markerContent.style.alignItems = "center";
+            markerContent.style.justifyContent = "center";
+            markerContent.style.fontSize = "14px";
+            markerContent.style.fontWeight = "800";
+            markerContent.style.border = "2px solid #fff";
+            markerContent.style.boxShadow =
+              "0 4px 10px rgba(16,192,192,0.35)";
+
+            markerContent.textContent = String(index + 1);
+
             markers.push(
-              new google.maps.Marker({
+              new google.maps.marker.AdvancedMarkerElement({
                 position,
                 map,
-                label: String(index + 1),
                 title: stop.name,
+                content: markerContent,
               })
             );
           });
@@ -702,7 +724,9 @@ function MapPreview({ stops }: { stops: PlannedStop[] }) {
 
     return () => {
       cancelled = true;
-      markers.forEach((marker) => marker.setMap(null));
+      markers.forEach((marker) => {
+        marker.map = null;
+      });
       polyline?.setMap(null);
     };
   }, [mapRef, positionedStops]);
@@ -1275,7 +1299,7 @@ export default function ManualPlanPage({
       <div style={styles.phoneFrame}>
         <div style={styles.topBar}>
           <button type="button" onClick={goBack} style={styles.iconButton}>
-            {"<"}
+            <img src="/icon-back.svg" alt="Back" style={styles.backIcon} />
           </button>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <strong style={styles.title}>
@@ -1784,12 +1808,20 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
   },
   iconButton: {
-    width: 0,
+    width: 42,
+    height: 42,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     border: "transparent",
     background: "transparent",
-    fontSize: 18,
-    fontWeight: 800,
+    padding: 0,
     cursor: "pointer",
+  },
+  backIcon: {
+    width: 20,
+    height: 20,
+    display: "block",
   },
   shareButton: {
     marginTop: 2,

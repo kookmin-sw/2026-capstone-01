@@ -11,15 +11,15 @@ type NavIconSize = {
 };
 
 const DEFAULT_NAV_ICON_SIZE: NavIconSize = {
-  width: 40,
-  height: 40,
+  width: 28,
+  height: 28,
 };
 
 const TAB_ITEMS = [
-  { to: "/home", label: "Home", icon: "home", iconSize: { width: 32, height: 32 } },
+  { to: "/home", label: "Home", icon: "home", iconSize: { width: 24, height: 24 } },
   { to: "/plan", label: "Plan", icon: "calendar", iconSize: DEFAULT_NAV_ICON_SIZE },
-  { to: "/menu", label: "Menu", icon: "menu", iconSize: { width: 32, height: 32 } },
-  { to: "/mate", label: "Mate", icon: "mate", iconSize: { width: 32, height: 32 } },
+  { to: "/menu", label: "Menu", icon: "menu", iconSize: { width: 24, height: 24 } },
+  { to: "/mate", label: "Mate", icon: "mate", iconSize: { width: 24, height: 24 } },
   { to: "/my", label: "My Page", icon: "my", iconSize: DEFAULT_NAV_ICON_SIZE },
 ] as const;
 
