@@ -2312,7 +2312,6 @@ const styles: Record<string, CSSProperties> = {
     padding: "calc(24px + var(--app-safe-top)) 16px 12px",
     background:
       "linear-gradient(180deg, #e4f7f7 0px, #e4f7f7 121px, #ffffff 121px, #ffffff 100%)",
-    boxShadow: "0 8px 18px rgba(33, 33, 33, 0.06)",
     opacity: 0,
     pointerEvents: "none",
     transform: "translateY(calc(-100% - 16px))",
