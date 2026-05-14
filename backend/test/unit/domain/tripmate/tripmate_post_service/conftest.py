@@ -16,6 +16,7 @@ from test.unit.domain.tripmate.mock_factory import (
     TripmatePostRepositoryMockFactory,
     UserDetailInformRepositoryMockFactory,
     make_draft_service_mock,
+    make_inbox_service_mock,
     make_mock_session,
     make_object_storage_mock,
     make_tripmate_image_mongo_repo_mock,
@@ -61,10 +62,17 @@ def mongo_image_repo_mock():
 
 
 @pytest.fixture
+def inbox_service_mock():
+    """인박스 cascade 진입점 mock — `delete_post` 후 cascade_post_deleted 호출 검증용."""
+    return make_inbox_service_mock()
+
+
+@pytest.fixture
 def service(
     monkeypatch, mock_session,
     post_repo_mock, image_repo_mock, detail_repo_mock,
     draft_service_mock, storage_mock, mongo_image_repo_mock,
+    inbox_service_mock,
 ):
     """모든 외부 의존성 mock 치환 후 service 인스턴스화.
 
@@ -96,6 +104,7 @@ def service(
     return TripmatePostService(
         uow=FakeUnitOfWork(mock_session),
         draft_service=draft_service_mock,
+        inbox_service=inbox_service_mock,
     )
 
 

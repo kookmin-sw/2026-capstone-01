@@ -17,10 +17,15 @@ API 매핑:
 
 cascade 호출 매핑:
     cascade_user_withdrawn   ← withdraw_purge worker (유저 자체가 사라져 항목 의미 소멸)
+    cascade_post_deleted     ← feed_post / tripmate_post `delete_post` (트랜잭션 커밋 후)
 
-게시물/댓글 삭제는 cascade 안 함 — 좋아요 취소 항목 보존 정책과 대칭. "그 시점에 좋아요/댓글이
-있었다" 는 이벤트 사실은 게시물·댓글 삭제 후에도 보존. deep link 클릭 시 클라가 404 처리,
-target_preview 썸네일이 깨질 수 있으나 TTL 30일로 자연 정리.
+게시글 삭제 cascade 정책:
+    - `(target_type, target_id)` 매칭 항목 일괄 soft hide (`display=False`). 한 게시글의
+      좋아요·댓글 알림이 모두 인박스에서 사라진다 (TTL 30일로 hard delete).
+    - 좋아요 *취소* 시엔 항목 그대로 보존 — "이벤트 발생 사실의 기록" 이라는 인박스 모델
+      철학과 비대칭. 게시글 *삭제* 는 원본 자체 소멸이라 deep link 404 가 확정 → 클릭할
+      가치 없는 stale 알림이 작성자 본인 인박스에 쌓이는 UX 손해를 막는다.
+    - 댓글 단건 삭제는 cascade 안 함 (현 정책 — 사용자 요청 범위 밖).
 """
 from typing import Optional
 from pymongo.errors import DuplicateKeyError
@@ -236,6 +241,36 @@ class InboxService:
         if not modified:
             raise InboxItemNotFoundError("존재하지 않는 인박스 항목입니다.")
         logger.info("인박스 항목 hide (recipient_id={}, inbox_item_id={})", recipient_id, inbox_item_id)
+
+
+    # ──────────────────── Cascade (게시글 삭제 — soft hide) ────────────────────
+
+    async def cascade_post_deleted(
+        self, *, target_type: TargetType, target_id: str,
+    ) -> int:
+        """게시글 삭제 cascade — 해당 게시글의 모든 알림 (LIKE/COMMENT) soft hide.
+
+        RDB 트랜잭션 *밖* 에서 호출되어야 함 (caller 책임). RDB 롤백된 삭제에 대해
+        Mongo 항목을 미리 숨기는 race 회피 — fan-out insert 와 동일 contract.
+        실패 시 stale 항목은 deep link 404 + TTL 30일로 자연 정리.
+
+        권한 검증은 caller (feed/tripmate `delete_post`) 가 본인 소유 게시글로 이미
+        제한한 상태 — 본 메서드는 단순 일괄 update.
+        """
+        try:
+            modified = await self.repo.hide_by_target(target_type.value, target_id)
+            if modified > 0:
+                logger.info(
+                    "인박스 cascade post_deleted (target_type={}, target_id={}, modified={})",
+                    target_type.value, target_id, modified,
+                )
+            return modified
+        except Exception as e:
+            logger.warning(
+                "인박스 cascade post_deleted 실패 (target_type={}, target_id={}, error={})",
+                target_type.value, target_id, e,
+            )
+            return 0
 
 
     # ──────────────────── Cascade (유저 탈퇴만) ────────────────────

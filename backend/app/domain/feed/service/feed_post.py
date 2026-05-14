@@ -30,6 +30,8 @@ import asyncio
 
 from app.util.id_generator import generate_feed_post_id
 from app.util.storage_prefix import feed_post_prefix
+from app.domain.notification.service.inbox import InboxService
+from app.domain.notification.model.inbox import TargetType
 from app.domain.feed.service.thumbnail import process_feed_image
 from app.domain.feed.service.access import resolve_viewer_visibilities
 from app.domain.feed.service.exception import FeedNotFoundError
@@ -63,8 +65,9 @@ def _normalize_caption(caption: Optional[str]) -> Optional[str]:
 
 
 class FeedPostService:
-    def __init__(self, uow: UnitOfWork):
+    def __init__(self, uow: UnitOfWork, inbox_service: InboxService):
         self.uow = uow
+        self.inbox_service = inbox_service
         self.storage = get_object_storage()
 
 
@@ -282,7 +285,7 @@ class FeedPostService:
     # ──────────────────── 삭제 ────────────────────
 
     async def delete_post(self, user_id: str, post_id: str) -> None:
-        """본인 게시물 삭제 — DB row 먼저, S3 prefix 는 best-effort 정리 (auth/profile 패턴).
+        """본인 게시물 삭제 — DB row 먼저, S3 prefix + 인박스 알림은 best-effort 정리.
 
         순서 결정:
             DB → S3  : DB 가 비면 더 이상 broken URL 노출 X. S3 실패 = orphan (invisible).
@@ -290,6 +293,11 @@ class FeedPostService:
         → DB 먼저가 user-facing 면에서 strictly better.
 
         FK CASCADE + ORM cascade 가 `feed_post_like` / `feed_post_comment` 자동 정리.
+
+        인박스 cascade — RDB 커밋 *후* `InboxService.cascade_post_deleted` 로 해당
+        게시글의 LIKE/COMMENT 알림을 soft hide (`display=False`). RDB 트랜잭션 롤백된
+        삭제에 대해 알림이 먼저 숨겨지는 race 회피 — fan-out insert 와 동일 contract.
+        실패해도 사용자 응답은 정상 (stale 알림은 deep link 404 + TTL 30일로 자연 정리).
         """
         # (트랜잭션) 권한 검증 + DB row 삭제 → 정리할 prefix 반환
         prefix = await self._delete_post_row(user_id, post_id)
@@ -303,8 +311,12 @@ class FeedPostService:
                 prefix, e,
             )
 
-        # 알림은 cascade 하지 않음 — 좋아요 취소 알림 보존 정책과 대칭. stale 알림은
-        # deep link 404 + TTL 30일로 자연 정리.
+        # (트랜잭션 밖) 인박스 cascade — 해당 게시글의 LIKE/COMMENT 알림 일괄 soft hide.
+        # service 내부에서 예외 swallow + 로그 — 호출측 try 불필요.
+        await self.inbox_service.cascade_post_deleted(
+            target_type=TargetType.FEED_POST,
+            target_id=post_id,
+        )
 
 
     @transactional
