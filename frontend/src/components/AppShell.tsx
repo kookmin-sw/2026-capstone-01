@@ -3,19 +3,39 @@ import { useEffect } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { getMyProfile } from "../api/auth/auth";
 import { registerFcmToken } from "../lib/fcm";
+import { recordLastTab } from "../utils/navigation";
+
+type NavIconSize = {
+  width: number;
+  height: number;
+};
+
+const DEFAULT_NAV_ICON_SIZE: NavIconSize = {
+  width: 28,
+  height: 28,
+};
 
 const TAB_ITEMS = [
-  { to: "/home", label: "Home", icon: "home" },
-  { to: "/plan", label: "Plan", icon: "calendar" },
-  { to: "/menu", label: "Menu", icon: "grid" },
-  { to: "/mate", label: "Mate", icon: "mate" },
-  { to: "/my", label: "My Page", icon: "my" },
+  { to: "/home", label: "Home", icon: "home", iconSize: { width: 24, height: 24 } },
+  { to: "/plan", label: "Plan", icon: "calendar", iconSize: DEFAULT_NAV_ICON_SIZE },
+  { to: "/menu", label: "Menu", icon: "menu", iconSize: { width: 24, height: 24 } },
+  { to: "/mate", label: "Mate", icon: "mate", iconSize: { width: 24, height: 24 } },
+  { to: "/my", label: "My Page", icon: "my", iconSize: DEFAULT_NAV_ICON_SIZE },
 ] as const;
+
+const TAB_ROOT_PATHS = TAB_ITEMS.map((item) => item.to);
 
 export default function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const currentPath = location.pathname;
+
+  // 탭 루트 방문 시마다 마지막 탭을 기록해 뒤로가기에서 활용한다.
+  useEffect(() => {
+    if (TAB_ROOT_PATHS.includes(currentPath as (typeof TAB_ROOT_PATHS)[number])) {
+      recordLastTab(currentPath);
+    }
+  }, [currentPath]);
 
   useEffect(() => {
     getMyProfile()
@@ -42,46 +62,55 @@ export default function AppShell() {
       </div>
 
       <nav style={styles.nav}>
-        {TAB_ITEMS.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            aria-label={item.label}
-            style={({ isActive }) => ({
-              ...styles.navItem,
-              ...(isActive || (item.to === "/my" && currentPath.startsWith("/profile/"))
-                ? styles.navItemActive
-                : {}),
-            })}
-          >
-            <span style={styles.navIconWrap}>
-              <NavIcon name={item.icon} />
-            </span>
-          </NavLink>
-        ))}
+        {TAB_ITEMS.map((item) => {
+          const active = isTabActive(item.to, currentPath);
+
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              aria-label={item.label}
+              style={{
+                ...styles.navItem,
+                ...(active ? styles.navItemActive : {}),
+              }}
+            >
+              <span style={styles.navIconWrap}>
+                <NavIcon name={item.icon} active={active} size={item.iconSize} />
+              </span>
+            </NavLink>
+          );
+        })}
       </nav>
     </div>
   );
 }
 
-function NavIcon({ name }: { name: (typeof TAB_ITEMS)[number]["icon"] }) {
+function NavIcon({
+  name,
+  active,
+  size,
+}: {
+  name: (typeof TAB_ITEMS)[number]["icon"];
+  active: boolean;
+  size: NavIconSize;
+}) {
+  const assetIcon = getNavIconAsset(name, active);
+  const iconStyle = getNavIconStyle(size);
+
+  if (assetIcon) {
+    return <img src={assetIcon} alt="" aria-hidden="true" style={iconStyle} />;
+  }
+
   return (
     <svg
       viewBox="0 0 64 64"
       aria-hidden="true"
       focusable="false"
-      style={styles.navIcon}
+      style={iconStyle}
     >
       {name === "home" ? (
         <path d="M10 30.5 32 11l22 19.5V55a4 4 0 0 1-4 4H39V43a4 4 0 0 0-4-4h-6a4 4 0 0 0-4 4v16H14a4 4 0 0 1-4-4V30.5Z" />
-      ) : null}
-      {name === "grid" ? (
-        <>
-          <rect x="10" y="10" width="18" height="18" rx="5" />
-          <rect x="36" y="10" width="18" height="18" rx="5" />
-          <rect x="10" y="36" width="18" height="18" rx="5" />
-          <rect x="36" y="36" width="18" height="18" rx="5" />
-        </>
       ) : null}
       {name === "calendar" ? (
         <>
@@ -110,6 +139,29 @@ function NavIcon({ name }: { name: (typeof TAB_ITEMS)[number]["icon"] }) {
       ) : null}
     </svg>
   );
+}
+
+function getNavIconStyle(size: NavIconSize): CSSProperties {
+  return {
+    ...styles.navIcon,
+    width: size.width,
+    height: size.height,
+  };
+}
+
+function getNavIconAsset(
+  name: (typeof TAB_ITEMS)[number]["icon"],
+  active: boolean
+): string | null {
+  if (name === "home") return active ? "/home_active.svg" : "/home.svg";
+  if (name === "menu") return active ? "/menu_active.svg" : "/menu.svg";
+  if (name === "mate") return active ? "/mate_active.svg" : "/mate.svg";
+  return null;
+}
+
+function isTabActive(to: (typeof TAB_ITEMS)[number]["to"], currentPath: string): boolean {
+  if (to === "/my" && currentPath.startsWith("/profile/")) return true;
+  return currentPath === to || currentPath.startsWith(`${to}/`);
 }
 
 function isWithdrawalPendingError(error: unknown): boolean {

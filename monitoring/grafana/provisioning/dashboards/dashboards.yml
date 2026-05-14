@@ -1,0 +1,16 @@
+# Grafana dashboard provider — 본 디렉토리의 *.json 을 자동 import
+
+apiVersion: 1
+
+providers:
+  - name: 'krip-dashboards'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

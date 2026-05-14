@@ -1,5 +1,5 @@
 ﻿import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent } from "react";
+import type { CSSProperties, MouseEvent, UIEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   addTourPlaceFavorite,
@@ -241,6 +241,23 @@ function getBackendCategory(item: TourPlaceApiItem): PlaceCategory {
   return String(category || "Other");
 }
 
+function formatCategoryLabel(value: string): string {
+  const parts = value
+    .split("/")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const uniqueParts = Array.from(
+    new Map(parts.map((item) => [item.toLowerCase(), item])).values()
+  );
+  const normalized = uniqueParts.length > 0 ? uniqueParts.join(" / ") : value;
+
+  return normalized
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase());
+}
+
 function getCategoryGroup(category: string): string {
   const normalized = category.trim().toLowerCase();
 
@@ -336,7 +353,7 @@ function mapTourPlace(item: TourPlaceApiItem): Place {
     id: String(item.id || item.place_id || crypto.randomUUID()),
     initialIsFavorite: item.is_favorite === true,
     name: String(item.display_name || item.name || item.title || "Unnamed place"),
-    category: getBackendCategory(item),
+    category: formatCategoryLabel(getBackendCategory(item)),
     groupCategory: getCategoryGroup(getBackendCategory(item)),
     raw: item,
     tags: sanitizeTags(item.tags),
@@ -423,9 +440,35 @@ function mapFavoritePlace(item: FavoritePlaceApiItem): Place | null {
   };
 }
 
+function getFilterMask(left: boolean, right: boolean): string {
+  if (left && right) {
+    return "linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)";
+  }
+
+  if (left) {
+    return "linear-gradient(to right, transparent 0, black 16px, black 100%)";
+  }
+
+  if (right) {
+    return "linear-gradient(to right, black 0, black calc(100% - 16px), transparent 100%)";
+  }
+
+  return "none";
+}
+
 export default function HomePage() {
   const navigate = useNavigate();
   const observerRef = useRef<HTMLDivElement | null>(null);
+  const categoryFilterRef = useRef<HTMLDivElement | null>(null);
+  const bodyScrollerRef = useRef<HTMLDivElement | null>(null);
+  const lastScrollTopRef = useRef(0);
+
+  const [categoryFilterFade, setCategoryFilterFade] = useState({
+    left: false,
+    right: false,
+  });
+  const [isHeaderHidden, setIsHeaderHidden] = useState(false);
+
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [placesSource, setPlacesSource] = useState<Place[]>([]);
@@ -448,7 +491,6 @@ export default function HomePage() {
   const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("detecting");
   const [locationError, setLocationError] = useState("");
-  const [isScrollHandleVisible, setIsScrollHandleVisible] = useState(false);
   const hasGpsLocationRef = useRef(false);
 
   useEffect(() => {
@@ -475,6 +517,26 @@ export default function HomePage() {
         setIsProfileLoading(false);
       });
   }, [navigate]);
+
+  function updateFadeState(
+    ref: React.RefObject<HTMLDivElement>,
+    setter: React.Dispatch<
+      React.SetStateAction<{
+        left: boolean;
+        right: boolean;
+      }>
+    >
+  ) {
+    const el = ref.current;
+    if (!el) return;
+
+    const maxScrollLeft = el.scrollWidth - el.clientWidth;
+
+    setter({
+      left: el.scrollLeft > 2,
+      right: maxScrollLeft <= 2 || el.scrollLeft < maxScrollLeft - 2,
+    });
+  }
 
   function applyCurrentPosition(coords: GeolocationCoordinates): void {
     hasGpsLocationRef.current = true;
@@ -663,19 +725,6 @@ export default function HomePage() {
     });
   }, []);
 
-  useEffect(() => {
-    function handlePageScroll(): void {
-      setIsScrollHandleVisible(window.scrollY > 160);
-    }
-
-    handlePageScroll();
-    window.addEventListener("scroll", handlePageScroll, { passive: true });
-
-    return () => {
-      window.removeEventListener("scroll", handlePageScroll);
-    };
-  }, []);
-
   const favoriteIds = useMemo(
     () => new Set(favoritePlaces.map((place) => place.id)),
     [favoritePlaces]
@@ -730,6 +779,29 @@ export default function HomePage() {
       setActiveCategory(ALL_CATEGORY);
     }
   }, [activeCategory, categoryFilters]);
+
+  useEffect(() => {
+  const el = categoryFilterRef.current;
+  if (!el) return;
+
+  const updateCategoryFade = () => {
+      updateFadeState(categoryFilterRef, setCategoryFilterFade);
+    };
+
+    requestAnimationFrame(updateCategoryFade);
+
+    el.addEventListener("scroll", updateCategoryFade);
+    window.addEventListener("resize", updateCategoryFade);
+
+    const resizeObserver = new ResizeObserver(updateCategoryFade);
+    resizeObserver.observe(el);
+
+    return () => {
+      el.removeEventListener("scroll", updateCategoryFade);
+      window.removeEventListener("resize", updateCategoryFade);
+      resizeObserver.disconnect();
+    };
+  }, [categoryFilters.length]);
 
   const filteredPlaces = useMemo<PlaceWithMeta[]>(() => {
     const source = activeSort === "Favorites" ? favoritePlacesWithMeta : places;
@@ -933,204 +1005,184 @@ export default function HomePage() {
     ? `${locationCoordinatesText} · ${locationAccuracyText}`
     : locationCoordinatesText;
 
+  function handleBodyScroll(event: UIEvent<HTMLDivElement>) {
+    const nextScrollTop = Math.max(event.currentTarget.scrollTop, 0);
+    const delta = nextScrollTop - lastScrollTopRef.current;
+
+    if (nextScrollTop <= 8) {
+      setIsHeaderHidden(false);
+    } else if (delta > 5 && nextScrollTop > 72) {
+      setIsHeaderHidden(true);
+    } else if (delta < -5) {
+      setIsHeaderHidden(false);
+    }
+
+    lastScrollTopRef.current = nextScrollTop;
+  }
+
   return (
     <div style={styles.page}>
-      {isScrollHandleVisible ? (
-        <button
-          type="button"
-          style={styles.floatingScrollHandle}
-          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          aria-label="Scroll to top"
-        >
-          <span style={styles.floatingScrollHandleBar} />
-        </button>
-      ) : null}
       <div style={styles.shell}>
-        <header style={styles.header}>
-          <div>
-            <p style={styles.eyebrow}>Trip Finder</p>
-            <h1 style={styles.headerTitle}>Explore Nearby Places</h1>
-          </div>
-          <div style={styles.headerActions}>
-            <NotificationBell></NotificationBell>
-            <button
-              type="button"
-              style={styles.myPageButton}
-              aria-label="Open chat"
-              onClick={() => navigate("/chat")}
-            >
-              <ChatIcon />
-            </button>
-          </div>
-        </header>
+        <div
+          ref={bodyScrollerRef}
+          style={styles.bodyScroller}
+          onScroll={handleBodyScroll}
+        >
+          <HomeHeader
+            searchInput={searchInput}
+            onOpenSearch={openSearchSheet}
+            isHidden={isHeaderHidden}
+          />
 
-        <section style={styles.searchPanel}>
-          <div style={styles.searchRow}>
-            <label style={styles.searchWrap}>
-              <SearchIcon />
-              <input
-                value={searchInput}
-                onClick={openSearchSheet}
-                onFocus={(event) => {
-                  event.target.blur();
-                  openSearchSheet();
-                }}
-                placeholder="Search places by name or keyword"
-                style={styles.searchInput}
-                readOnly
-              />
-            </label>
-            <button
-              type="button"
-              style={styles.searchAction}
-              aria-label="Search"
-              onClick={openSearchSheet}
-            >
-              <SearchIcon />
-            </button>
-          </div>
-
-          <div style={styles.locationBar}>
-            <span style={styles.locationBadge}>{locationLabel}</span>
-            <button
-              type="button"
-              style={styles.locationButton}
-              onClick={requestCurrentLocation}
-            >
-              Use my location
-            </button>
-            <span style={styles.locationHint}>
-              {locationError ||
-                `Viewing ${filteredPlaces.length} places sorted by ${activeSort.toLowerCase()} near ${locationDetailText}`}
-            </span>
-            {locationError ? (
-              <span style={styles.locationHint}>
-                Current basis: {locationDetailText}
-              </span>
-            ) : null}
-          </div>
-        </section>
-
-        <section style={styles.filtersSection}>
-          <div style={styles.filterGroup}>
-            {categoryFilters.map((category) => {
-              const isActive = activeCategory === category;
-              return (
-                <button
-                  key={category}
-                  style={{
-                    ...styles.filterChip,
-                    ...(isActive ? styles.filterChipActive : {}),
-                  }}
-                  onClick={() => setActiveCategory(category)}
-                >
-                  {category}
-                </button>
-              );
-            })}
-          </div>
-
-          <div style={styles.filterGroup}>
-            {SORT_FILTERS.map((sort) => {
-              const isActive = activeSort === sort;
-              return (
-                <button
-                  key={sort}
-                  style={{
-                    ...styles.secondaryChip,
-                    ...(isActive ? styles.secondaryChipActive : {}),
-                  }}
-                  onClick={() => setActiveSort(sort)}
-                >
-                  {sort}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        <section style={styles.listSection}>
-          {visiblePlaces.length > 0 ? (
-            visiblePlaces.map((place) => (
-              <article
-                key={place.id}
-                className="interactive-card"
-                style={styles.card}
-                onClick={() => openPlaceDetail(place)}
+          <section style={styles.locationSection}>
+            <div style={styles.locationBar}>
+              <button
+                type="button"
+                style={styles.locationButton}
+                onClick={requestCurrentLocation}
               >
-                <div style={styles.thumbnail}>
-                  <span style={styles.thumbnailLabel}>{place.thumbnail.label}</span>
-                </div>
-
-                <div style={styles.cardBody}>
-                  <div style={styles.cardTop}>
-                    <div>
-                      <p style={styles.cardCategory}>{place.category}</p>
-                      <h2 style={styles.cardTitle}>{place.name}</h2>
-                    </div>
-                    <button
-                      type="button"
-                      style={{
-                        ...styles.favoriteButton,
-                        ...(favoriteActionIds.includes(place.id)
-                          ? styles.favoriteButtonPending
-                          : {}),
-                      }}
-                      onClick={(event: MouseEvent<HTMLButtonElement>) => {
-                        event.stopPropagation();
-                        void toggleFavorite(place);
-                      }}
-                      aria-label={`Toggle favorite for ${place.name}`}
-                      disabled={favoriteActionIds.includes(place.id)}
-                    >
-                      <StarIcon filled={place.isFavorite} />
-                    </button>
-                  </div>
-
-                  <p style={styles.cardDescription}>{place.description}</p>
-
-                  <div style={styles.cardMeta}>
-                    <div style={styles.inlineTags}>
-                      {place.tags.map((tag) => (
-                        <span key={tag} style={styles.inlineTag}>
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                    <div style={styles.metaRight}>
-                      <span style={styles.reviewText}>
-                        {formatRating(place.rating, place.reviewCount)}
-                      </span>
-                      <span style={styles.distance}>
-                        {formatDistance(place.distanceKm)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </article>
-            ))
-          ) : (
-            <div style={styles.emptyState}>
-              <p style={styles.emptyTitle}>
-                {locationStatus === "detecting"
-                  ? "Finding places near you..."
-                  : placesError ||
-                  (activeSort === "Favorites"
-                    ? "No favorite places yet."
-                    : "No places available yet.")}
-              </p>
-              <p style={styles.emptyCopy}>
-                {activeSort === "Favorites"
-                  ? "Add a place to favorites and it will appear here in latest-added order."
-                  : "Search again or adjust your filters to find nearby places."}
-              </p>
+                Use my location
+              </button>
             </div>
-          )}
+          </section>
 
-          <div ref={observerRef} style={styles.scrollSentinel}>
-            {sentinelText}
-          </div>
-        </section>
+          <section style={styles.filtersSection}>
+            <div ref={categoryFilterRef}
+              className="filter-group-scroll"
+              style={{
+                ...styles.filterGroup,
+                justifyContent: "flex-start",
+                WebkitMaskImage: getFilterMask(
+                  categoryFilterFade.left,
+                  categoryFilterFade.right
+                ),
+                maskImage: getFilterMask(
+                  categoryFilterFade.left,
+                  categoryFilterFade.right
+                ),
+              }}>
+              <div style={styles.categoryFilterContent}>
+                {categoryFilters.map((category) => {
+                  const isActive = activeCategory === category;
+                  return (
+                    <button
+                      key={category}
+                      style={{
+                        ...styles.filterChip,
+                        ...(isActive ? styles.filterChipActive : {}),
+                      }}
+                      onClick={() => setActiveCategory(category)}
+                    >
+                      {category}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={styles.filterGroup}>
+              {SORT_FILTERS.map((sort) => {
+                const isActive = activeSort === sort;
+                return (
+                  <button
+                    key={sort}
+                    style={{
+                      ...styles.secondaryChip,
+                      ...(isActive ? styles.secondaryChipActive : {}),
+                    }}
+                    onClick={() => setActiveSort(sort)}
+                  >
+                    {sort}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section style={visiblePlaces.length > 0
+            ? styles.listSection
+            : styles.emptyListSection}>
+            {visiblePlaces.length > 0 ? (
+              visiblePlaces.map((place) => (
+                <article
+                  key={place.id}
+                  className="interactive-card"
+                  style={styles.card}
+                  onClick={() => openPlaceDetail(place)}
+                >
+                  <div style={styles.thumbnail}>
+                  </div>
+
+                  <div style={styles.cardBody}>
+                    <div style={styles.cardTop}>
+                      <div>
+                        <p style={styles.cardCategory}>{place.category}</p>
+                        <h2 style={styles.cardTitle}>{place.name}</h2>
+                      </div>
+                      <button
+                        type="button"
+                        style={{
+                          ...styles.favoriteButton,
+                          ...(favoriteActionIds.includes(place.id)
+                            ? styles.favoriteButtonPending
+                            : {}),
+                        }}
+                        onClick={(event: MouseEvent<HTMLButtonElement>) => {
+                          event.stopPropagation();
+                          void toggleFavorite(place);
+                        }}
+                        aria-label={`Toggle favorite for ${place.name}`}
+                        disabled={favoriteActionIds.includes(place.id)}
+                      >
+                        <BookmarkIcon filled={place.isFavorite} />
+                      </button>
+                    </div>
+
+                    <p style={styles.cardDescription}>{place.description}</p>
+
+                    <div style={styles.cardMeta}>
+                      <div style={styles.inlineTags}>
+                        {place.tags.map((tag) => (
+                          <span key={tag} style={styles.inlineTag}>
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                      <div style={styles.metaRight}>
+                        <span style={styles.reviewText}>
+                          {formatRating(place.rating, place.reviewCount)}
+                        </span>
+                        <span style={styles.distance}>
+                          {formatDistance(place.distanceKm)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div style={styles.emptyState}>
+                <p style={styles.emptyTitle}>
+                  {locationStatus === "detecting"
+                    ? "Finding places near you..."
+                    : placesError ||
+                    (activeSort === "Favorites"
+                      ? "No favorite places yet."
+                      : "No places available yet.")}
+                </p>
+                <p style={styles.emptyCopy}>
+                  {activeSort === "Favorites"
+                    ? "Add a place to favorites and it will appear here in latest-added order."
+                    : "Search again or adjust your filters to find nearby places."}
+                </p>
+              </div>
+            )}
+
+            <div ref={observerRef} style={styles.scrollSentinel}>
+              {sentinelText}
+            </div>
+          </section>
+        </div>
       </div>
 
       {selectedPlace ? (
@@ -1364,7 +1416,7 @@ export default function HomePage() {
                         onClick={() => void removeRecentSearch(keyword)}
                         aria-label={`Delete ${keyword}`}
                       >
-                        횞
+                        Delete
                       </button>
                     </div>
                   ))}
@@ -1383,11 +1435,11 @@ export default function HomePage() {
 
 function SearchIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg width="25" height="25" viewBox="0 0 24 24" fill="#848484" aria-hidden="true">
       <path
         d="M10.5 18a7.5 7.5 0 1 1 5.303-12.803A7.5 7.5 0 0 1 10.5 18Zm0-13a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11Zm10 15l-4.35-4.35"
         stroke="currentColor"
-        strokeWidth="1.8"
+        strokeWidth="1.2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -1395,34 +1447,79 @@ function SearchIcon() {
   );
 }
 
-function ChatIcon() {
+function HomeHeader({
+  searchInput,
+  onOpenSearch,
+  isHidden,
+}: {
+  searchInput: string;
+  onOpenSearch: () => void;
+  isHidden: boolean;
+}) {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M5.2 18.4c-1.7-1.4-2.7-3.4-2.7-5.7 0-4.6 4.1-8.2 9.5-8.2s9.5 3.6 9.5 8.2-4.1 8.2-9.5 8.2c-1.2 0-2.3-.2-3.4-.5L4.5 21.5c-.7.2-1.2-.5-.9-1.1l1.6-2Z"
-        stroke="currentColor"
-        strokeWidth="1.9"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M8 12.4h8M8 9.2h5.6"
-        stroke="currentColor"
-        strokeWidth="1.9"
-        strokeLinecap="round"
-      />
-    </svg>
+    <header
+      style={{
+        ...styles.homeHeader,
+        opacity: isHidden ? 0 : 1,
+        pointerEvents: isHidden ? "none" : "auto",
+        transform: isHidden
+          ? "translate3d(0, calc(-100% - 8px), 0)"
+          : "translate3d(0, 0, 0)",
+      }}
+    >
+      <div style={styles.header}>
+        <div>
+          <p style={styles.eyebrow}>Trip Finder</p>
+          <h1 style={styles.headerTitle}>Explore Nearby Places</h1>
+        </div>
+        <div style={styles.headerActions}>
+          <NotificationBell buttonStyle={styles.myPageButton} />
+        </div>
+      </div>
+
+      <div style={styles.searchPanel}>
+        <div style={styles.searchRow}>
+          <label style={styles.searchWrap}>
+            <input
+              value={searchInput}
+              onClick={onOpenSearch}
+              onFocus={(event) => {
+                event.target.blur();
+                onOpenSearch();
+              }}
+              placeholder="Search places by name or keyword"
+              style={styles.searchInput}
+              readOnly
+            />
+            <button
+              type="button"
+              style={styles.searchAction}
+              aria-label="Search"
+              onClick={onOpenSearch}
+            >
+              <SearchIcon />
+            </button>
+          </label>
+        </div>
+      </div>
+    </header>
   );
 }
 
-function StarIcon({ filled }: { filled: boolean }) {
+function BookmarkIcon({ filled }: { filled: boolean }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
-        d="m12 3.75l2.547 5.163l5.697.828l-4.122 4.018l.973 5.674L12 16.756l-5.095 2.677l.973-5.674L3.756 9.74l5.697-.828L12 3.75Z"
+        d="M6.5 4.5C6.5 3.67 7.17 3 8 3H16C16.83 3 17.5 3.67 17.5 4.5V20.25L12 16.75L6.5 20.25V4.5Z"
         fill={filled ? "#9f9f9f" : "transparent"}
         stroke="#6f6f6f"
-        strokeWidth="1.7"
+        strokeWidth="1.8"
         strokeLinejoin="round"
       />
     </svg>
@@ -1492,41 +1589,78 @@ const styles: Record<string, CSSProperties> = {
     animation: "spin 0.8s linear infinite",
   },
   page: {
-    minHeight: "var(--app-viewport-height)",
-    padding: "calc(20px + var(--app-safe-top)) 0 40px",
-    background: "transparent",
+    height: "calc(var(--app-viewport-height) - var(--app-bottom-nav-reserved))",
+    minHeight: "calc(var(--app-viewport-height) - var(--app-bottom-nav-reserved))",
+    overflow: "visible",
+    background:
+      "linear-gradient(180deg, #d5f6f5 0%, #d9f5f2 30%, #eef4ef 58%, #fafafa 100%)",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   shell: {
+    position: "relative",
     width: "100%",
     maxWidth: 760,
+    height: "100%",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
-    gap: 18,
+    overflow: "visible",
+  },
+  bodyScroller: {
+    flex: 1,
+    minHeight: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    overflowY: "auto",
+    overflowX: "hidden",
+    overscrollBehavior: "contain",
+    WebkitOverflowScrolling: "touch",
+    paddingBottom: 40,
+    background:
+      "linear-gradient(180deg, rgba(221,246,244,0.98) 0%, rgba(230,244,240,0.94) 28%, rgba(250,250,250,1) 52%)",
+    transition: "padding-top 220ms ease",
   },
 
   /* ── Header ─────────────────────────────── */
+  homeHeader: {
+    position: "sticky",
+    top: 0,
+    zIndex: 20,
+    flexShrink: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    paddingTop: "calc(20px + var(--app-safe-top))",
+    paddingBottom: 12,
+    boxSizing: "border-box",
+    marginBottom: -1,
+    background:
+      "linear-gradient(180deg, rgba(211,246,245,1) 0%, rgba(220,247,245,0.98) 68%, rgba(221,246,244,0.98) 100%)",
+    transition:
+      "transform 240ms ease, opacity 180ms ease",
+    willChange: "transform, opacity",
+  },
   header: {
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 16,
-    padding: "16px 16px 12px",
+    padding: "16px 16px 0",
   },
   eyebrow: {
     margin: 0,
     color: "var(--brand-primary-deep)",
-    fontSize: "0.78rem",
+    fontSize: "0.7rem",
     fontWeight: 800,
     letterSpacing: "0.14em",
     textTransform: "uppercase",
   },
   headerTitle: {
     margin: "2px 0 0",
-    fontSize: "clamp(1.35rem, 3.7vw, 2rem)",
+    fontSize: "clamp(1.15rem, 3.7vw, 2rem)",
     fontWeight: 800,
-    lineHeight: 1.1,
+    lineHeight: 1.25,
     color: "var(--text-primary)",
   },
   headerActions: {
@@ -1537,8 +1671,8 @@ const styles: Record<string, CSSProperties> = {
   },
   notificationButton: {
     position: "relative",
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     border: "1px solid rgba(5,181,187,0.18)",
     borderRadius: "50%",
     display: "grid",
@@ -1567,8 +1701,8 @@ const styles: Record<string, CSSProperties> = {
   },
   myPageButton: {
     position: "relative",
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     border: "1px solid rgba(5,181,187,0.18)",
     borderRadius: "50%",
     display: "grid",
@@ -1581,12 +1715,13 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 900,
   },
   searchPanel: {
-    padding: 20,
+    padding: "0 16px",
     borderRadius: 28,
-    background:
-      "linear-gradient(180deg, rgba(5,181,187,0.1), rgba(255,255,255,0.96) 44%)",
-    border: "1px solid rgba(5,181,187,0.14)",
-    boxShadow: "var(--shadow-soft)",
+    background: "transparent",
+  },
+  locationSection: {
+    padding: "0 16px",
+    background: "transparent",
   },
   searchRow: {
     display: "flex",
@@ -1597,59 +1732,44 @@ const styles: Record<string, CSSProperties> = {
     flex: 1,
     display: "flex",
     alignItems: "center",
-    gap: 10,
-    padding: "0 14px",
-    minHeight: 56,
-    borderRadius: 20,
-    border: "1.5px solid rgba(5,181,187,0.16)",
-    background: "rgba(255,255,255,0.92)",
-    color: "var(--neutral-700)",
+    padding: "0 0.7rem 0 1.3rem",
+    minHeight: "2.75rem",
+    borderRadius: "3rem",
+    background: "#fff",
+    color: "var(--neutral-600)",
   },
   searchInput: {
     width: "100%",
     border: "none",
     outline: "none",
     background: "transparent",
-    fontSize: "1rem",
+    fontSize: "0.9rem",
     color: "var(--text-primary)",
     fontFamily: "inherit",
   },
   searchAction: {
-    width: 54,
-    height: 54,
-    borderRadius: "50%",
-    border: "1px solid rgba(5,181,187,0.2)",
+    width: 34,
+    border: "transparent",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "linear-gradient(135deg, var(--brand-primary), #12c0c6)",
-    color: "#ffffff",
-    boxShadow: "0 12px 24px rgba(5,181,187,0.22)",
-    flexShrink: 0,
+    background: "transparent",
+    color: "#848484",
     cursor: "pointer",
   },
   locationBar: {
-    marginTop: 14,
     display: "flex",
     flexWrap: "wrap",
     gap: 10,
     alignItems: "center",
   },
-  locationBadge: {
-    padding: "8px 12px",
-    borderRadius: 999,
-    background: "var(--brand-primary-soft)",
-    color: "var(--brand-primary-deep)",
-    fontSize: "0.82rem",
-    fontWeight: 700,
-  },
   locationButton: {
-    border: "1px solid rgba(5,181,187,0.2)",
+    border: "transparent",
     borderRadius: 999,
-    padding: "8px 12px",
-    background: "rgba(255,255,255,0.92)",
+    padding: "7px 12px",
+    background: "#fff",
     color: "var(--brand-primary-deep)",
-    fontSize: "0.82rem",
+    fontSize: "0.7rem",
     fontWeight: 800,
     cursor: "pointer",
   },
@@ -1660,83 +1780,110 @@ const styles: Record<string, CSSProperties> = {
   filtersSection: {
     display: "flex",
     flexDirection: "column",
-    gap: 12,
+    margin: "0",
+    padding: "0 16px 0.8rem",
+    gap: 8,
+    minHeight: 54,
+    overflow: "visible",
   },
   filterGroup: {
     display: "flex",
-    flexWrap: "wrap",
-    gap: 10,
-    justifyContent: "center",
+    flexWrap: "nowrap",
+    gap: "0.3rem",
+    justifyContent: "flex-start",
+    alignItems: "center",
+    overflowX: "auto",
+    overflowY: "hidden",
+    scrollbarWidth: "none",
+    msOverflowStyle: "none",
+    width: "100%",
+    minWidth: 0,
+    minHeight: 23,
+  },
+  categoryFilterContent: {
+    display: "flex",
+    flexWrap: "nowrap",
+    gap: "0.3rem",
+    justifyContent: "flex-start",
+    alignItems: "center",
+    minWidth: "100%",
+    width: "max-content",
+    flexShrink: 0,
   },
   filterChip: {
-    border: "1px solid rgba(248,180,0,0.18)",
+    border: "transparent",
     borderRadius: 999,
-    padding: "12px 18px",
-    background: "rgba(255,255,255,0.86)",
-    color: "var(--neutral-700)",
-    fontWeight: 800,
-    fontSize: "0.98rem",
+    padding: "0.3rem 0.7rem 0.35rem",
+    lineHeight: 1.4,
+    background: "#fff",
+    color: "var(--neutral-500)",
+    fontWeight: 500,
+    fontSize: "0.7rem",
     cursor: "pointer",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
   },
   filterChipActive: {
-    background: "linear-gradient(135deg, rgba(248,180,0,0.2), rgba(255,233,179,0.92))",
-    color: "var(--text-primary)",
-    boxShadow: "0 12px 24px rgba(248,180,0,0.14)",
+    background: "#01C0C0",
+    color: "#fff",
   },
   secondaryChip: {
-    border: "1px solid rgba(5,181,187,0.18)",
+    border: "transparent",
     borderRadius: 999,
-    padding: "10px 16px",
-    background: "rgba(255,255,255,0.86)",
-    color: "var(--neutral-700)",
-    fontWeight: 700,
+    padding: "0.3rem 0.7rem 0.35rem",
+    lineHeight: 1.4,
+    background: "#fff",
+    color: "var(--neutral-500)",
+    fontWeight: 500,
+    fontSize: "0.7rem",
     cursor: "pointer",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
   },
   secondaryChipActive: {
-    background: "linear-gradient(135deg, rgba(5,181,187,0.18), rgba(228,247,247,0.96))",
-    color: "var(--text-primary)",
+    background: "#01C0C0",
+    color: "#fff",
   },
   listSection: {
     display: "flex",
     flexDirection: "column",
-    gap: 14,
+    background: "#fff",
+    borderRadius: "1.8rem",
+    boxShadow: "var(--shadow-soft)",
+    paddingTop: 12,
+  },
+  emptyListSection: {
+    display: "flex",
+    flexDirection: "column",
+    minHeight: 220,
   },
   card: {
     display: "grid",
-    gridTemplateColumns: "116px 1fr",
-    gap: 16,
-    padding: 16,
-    borderRadius: 28,
-    background: "rgba(255,255,255,0.92)",
-    border: "1px solid var(--border-soft)",
-    boxShadow: "var(--shadow-soft)",
+    gridTemplateColumns: "minmax(5.75rem, 6.5rem) minmax(0, 1fr)",
+    gap: 14,
+    padding: "0.8rem 16px",
+    minHeight: "9.25rem",
     cursor: "pointer",
   },
   thumbnail: {
-    minHeight: 116,
+    width: "100%",
+    aspectRatio: "1 / 1.24",
+    minHeight: 108,
+    maxHeight: 132,
     borderRadius: 22,
     display: "flex",
     alignItems: "flex-end",
     justifyContent: "flex-start",
-    padding: 12,
+    padding: 8,
     boxSizing: "border-box",
     background: "linear-gradient(160deg, rgba(5,181,187,0.18), rgba(248,180,0,0.14))",
-  },
-  thumbnailLabel: {
-    padding: "6px 10px",
-    borderRadius: 999,
-    background: "rgba(255,255,255,0.74)",
-    color: "var(--text-secondary)",
-    fontSize: "0.75rem",
-    fontWeight: 800,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
   },
   cardBody: {
     display: "flex",
     flexDirection: "column",
-    gap: 10,
+    gap: 6,
     minWidth: 0,
+    minHeight: 0,
   },
   cardTop: {
     display: "flex",
@@ -1747,43 +1894,51 @@ const styles: Record<string, CSSProperties> = {
   cardCategory: {
     margin: 0,
     color: "var(--brand-primary-deep)",
-    fontSize: "0.82rem",
-    fontWeight: 800,
+    fontSize: "0.8rem",
+    fontWeight: 700,
+    lineHeight: 1.25,
   },
   cardTitle: {
     margin: "2px 0 0",
     color: "var(--text-primary)",
-    fontSize: "1.35rem",
-    fontWeight: 800,
-    lineHeight: 1.08,
+    fontSize: "1.1rem",
+    fontWeight: 700,
+    lineHeight: 1.35,
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
   },
   favoriteButton: {
-    width: 40,
-    height: 40,
-    borderRadius: "50%",
-    border: "1px solid rgba(5,181,187,0.14)",
+    border: "transparent",
     display: "grid",
     placeItems: "center",
-    background: "rgba(255,255,255,0.9)",
+    background: "transparent",
     cursor: "pointer",
     flexShrink: 0,
   },
   favoriteButtonPending: {
-    opacity: 0.55,
+    opacity: 0.4,
     cursor: "wait",
   },
   cardDescription: {
     margin: 0,
-    color: "var(--neutral-700)",
+    color: "var(--neutral-500)",
     lineHeight: 1.5,
-    fontSize: "0.95rem",
+    fontSize: "0.75rem",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
   },
   cardMeta: {
+    marginTop: "auto",
     display: "flex",
     justifyContent: "space-between",
     gap: 12,
     alignItems: "flex-end",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
+    minWidth: 0,
   },
   inlineTags: {
     display: "flex",
@@ -1803,24 +1958,30 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     alignItems: "flex-end",
     gap: 4,
+    marginLeft: "auto",
+    flexShrink: 0,
   },
   distance: {
-    color: "var(--text-primary)",
+    color: "var(--neutral-600)",
     fontWeight: 800,
-    fontSize: "0.96rem",
+    fontSize: "0.9rem",
+    whiteSpace: "nowrap",
   },
   reviewText: {
-    color: "var(--neutral-700)",
-    fontSize: "0.8rem",
+    color: "var(--neutral-600)",
+    textAlign: "left",
+    fontSize: "0.7rem",
+    paddingBottom: 2,
+    whiteSpace: "nowrap",
   },
   emptyState: {
     padding: "48px 20px",
+    margin: 16,
     textAlign: "center",
     borderRadius: 28,
     background: "rgba(255,255,255,0.88)",
     color: "var(--neutral-700)",
     border: "1px solid var(--border-soft)",
-    boxShadow: "var(--shadow-soft)",
   },
   emptyTitle: {
     margin: 0,
@@ -1839,28 +2000,6 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--neutral-700)",
     fontSize: "0.9rem",
     fontWeight: 700,
-  },
-  floatingScrollHandle: {
-    position: "fixed",
-    top: "calc(var(--app-safe-top) + 8px)",
-    left: "50%",
-    transform: "translateX(-50%)",
-    zIndex: 18,
-    width: 48,
-    height: 24,
-    display: "grid",
-    placeItems: "center",
-    border: "none",
-    borderRadius: 999,
-    background: "rgba(255,255,255,0.92)",
-    boxShadow: "0 8px 24px rgba(24,26,32,0.16)",
-    cursor: "pointer",
-  },
-  floatingScrollHandleBar: {
-    width: 32,
-    height: 4,
-    borderRadius: 999,
-    background: "rgba(5,181,187,0.52)",
   },
   modalOverlay: {
     position: "fixed",
@@ -2292,15 +2431,14 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   recentDeleteButton: {
-    width: 28,
-    height: 28,
     border: "none",
-    borderRadius: "50%",
-    background: "rgba(248,180,0,0.16)",
+    borderRadius: "25rem",
+    background: "rgba(248,180,0,0.5)",
     color: "var(--text-secondary)",
     fontSize: "1rem",
     lineHeight: 1,
     cursor: "pointer",
+    padding: "0.4rem 1rem",
   },
   searchEmpty: {
     margin: 0,

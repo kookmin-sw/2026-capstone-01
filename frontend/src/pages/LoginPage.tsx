@@ -1,5 +1,7 @@
 import type { CSSProperties } from "react";
 import { useEffect } from "react";
+import { Browser } from "@capacitor/browser";
+import { Capacitor } from "@capacitor/core";
 import { useNavigate } from "react-router-dom";
 import { createLoginUrl, getMyProfile } from "../api/auth/auth";
 
@@ -42,6 +44,11 @@ export default function LoginPage() {
   }, [navigate]);
 
   function handleGoogleLogin(): void {
+    if (Capacitor.isNativePlatform()) {
+      void Browser.open({ url: createLoginUrl("android") });
+      return;
+    }
+
     window.location.href = createLoginUrl();
   }
 
@@ -49,7 +56,7 @@ export default function LoginPage() {
     <div style={styles.wrapper}>
       <div style={styles.center}>
         <div style={styles.heroFrame}>
-          <img src="/krip_logo.png" alt="Krip login" style={styles.heroImage} />
+          <img src="/krip_icon.svg" alt="Krip login" style={styles.heroImage} />
           <div style={styles.bottom}>
             <button style={styles.googleBtn} onClick={handleGoogleLogin}>
               <GoogleIcon />

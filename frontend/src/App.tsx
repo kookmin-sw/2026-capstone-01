@@ -1,11 +1,10 @@
-import type { CSSProperties } from "react";
+﻿import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate,} from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import type { NavigateFunction } from "react-router-dom";
 import AppShell from "./components/AppShell";
 import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./pages/RegisterPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import WithdrawalPendingPage from "./pages/WithdrawalPendingPage";
 import HomePage from "./features/tour/HomePage";
@@ -34,10 +33,7 @@ import {
   savePreferences,
   type AiPreferenceState,
 } from "./api/aiPlanShared";
-import {
-  getNotificationInbox,
-  type InboxNotification,
-} from "./api/notification";
+import { getNotificationUnreadCount } from "./api/notification";
 
 function AiPlanDesignRoute() {
   const navigate = useNavigate();
@@ -139,9 +135,7 @@ type ChatToastState = {
 
 const GESTURE_TAB_PATHS = ["/home", "/plan", "/menu", "/mate", "/my"] as const;
 const MIN_HORIZONTAL_SWIPE_PX: number = 76;
-const MIN_VERTICAL_REFRESH_SWIPE_PX: number = 92;
-const ACTIVITY_TOAST_POLL_INTERVAL_MS: number = 12000;
-const EMPTY_NOTIFICATION_SENTINEL: string = "__empty__";
+const ACTIVITY_TOAST_POLL_INTERVAL_MS: number = 5000;
 
 type TouchPoint = {
   x: number;
@@ -152,42 +146,40 @@ type TouchPoint = {
 function ChatMessageToast() {
   const navigate = useNavigate();
   const [toast, setToast] = useState<ChatToastState | null>(null);
+  const [isDismissing, setIsDismissing] = useState(false);
   const toastSequenceRef = useRef(0);
+  const dismissTimerRef = useRef<number | undefined>(undefined);
+  const removeTimerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    let timeoutId: number | undefined;
-    let animationFrameId: number | undefined;
-
     function handleChatToast(event: Event): void {
       const detail = (event as CustomEvent<ChatToastState>).detail;
       if (!detail?.roomId && !detail?.path) return;
 
+      window.clearTimeout(dismissTimerRef.current);
+      window.clearTimeout(removeTimerRef.current);
+      setIsDismissing(false);
+
       toastSequenceRef.current += 1;
-      setToast(null);
-      if (animationFrameId) {
-        window.cancelAnimationFrame(animationFrameId);
-      }
-      animationFrameId = window.requestAnimationFrame(() => {
-        setToast({
-          ...detail,
-          toastId: toastSequenceRef.current,
-        });
+      setToast({
+        ...detail,
+        toastId: toastSequenceRef.current,
       });
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
-      timeoutId = window.setTimeout(() => setToast(null), 4200);
+
+      dismissTimerRef.current = window.setTimeout(() => {
+        setIsDismissing(true);
+        removeTimerRef.current = window.setTimeout(() => {
+          setToast(null);
+          setIsDismissing(false);
+        }, 380);
+      }, 3500);
     }
 
     window.addEventListener("krip:chat-message-toast", handleChatToast);
 
     return () => {
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
-      if (animationFrameId) {
-        window.cancelAnimationFrame(animationFrameId);
-      }
+      window.clearTimeout(dismissTimerRef.current);
+      window.clearTimeout(removeTimerRef.current);
       window.removeEventListener("krip:chat-message-toast", handleChatToast);
     };
   }, []);
@@ -199,12 +191,24 @@ function ChatMessageToast() {
       <button
         key={toast.toastId}
         type="button"
-        style={chatToastStyles.toast}
+        style={{
+          ...chatToastStyles.toast,
+          ...(isDismissing
+            ? {
+                opacity: 0,
+                transform: "translateX(-50%) translateY(-8px)",
+                transition: "opacity 380ms ease, transform 380ms ease",
+              }
+            : {}),
+        }}
         onClick={() => {
+          window.clearTimeout(dismissTimerRef.current);
+          window.clearTimeout(removeTimerRef.current);
           const nextPath: string = toast.path || `/chat/${toast.roomId}`;
           window.sessionStorage.setItem("krip:chat-scroll-room", toast.roomId || "");
           navigate(nextPath, { state: { scrollToRecentMessage: true } });
           setToast(null);
+          setIsDismissing(false);
         }}
       >
         <span style={chatToastStyles.icon}>
@@ -256,14 +260,6 @@ function PageGestureController() {
 
       if (absoluteDeltaX > absoluteDeltaY && absoluteDeltaX >= MIN_HORIZONTAL_SWIPE_PX) {
         moveTabBySwipe(deltaX, location.pathname, navigate);
-        return;
-      }
-
-      if (
-        deltaY <= -MIN_VERTICAL_REFRESH_SWIPE_PX &&
-        absoluteDeltaY > absoluteDeltaX * 1.35
-      ) {
-        refreshCurrentPage();
       }
     }
 
@@ -281,113 +277,95 @@ function PageGestureController() {
 
 function ActivityNotificationToastWatcher() {
   const location = useLocation();
-  const latestNotificationIdRef = useRef<string | null>(null);
+  const isAuthFreeRef = useRef(isAuthFreePath(location.pathname));
+  const previousUnreadCountRef = useRef<number | null>(null);
 
   useEffect(() => {
-    let cancelled: boolean = false;
+    const authFree = isAuthFreePath(location.pathname);
+    isAuthFreeRef.current = authFree;
+    if (authFree) {
+      previousUnreadCountRef.current = null;
+    }
+  }, [location.pathname]);
 
-    async function syncLatestNotification(showToast: boolean): Promise<void> {
-      if (isAuthFreePath(location.pathname)) return;
+  useEffect(() => {
+    let cancelled = false;
+
+    async function syncUnreadCount(showToast: boolean): Promise<void> {
+      if (isAuthFreeRef.current) return;
 
       try {
-        const inbox = await getNotificationInbox();
+        const count = await getNotificationUnreadCount();
         if (cancelled) return;
 
-        const latestNotification: InboxNotification | undefined =
-          inbox.notifications[0];
-        if (!latestNotification) {
-          latestNotificationIdRef.current = EMPTY_NOTIFICATION_SENTINEL;
-          return;
-        }
+        const previousCount = previousUnreadCountRef.current;
+        previousUnreadCountRef.current = count;
 
-        const previousNotificationId: string | null =
-          latestNotificationIdRef.current;
-        latestNotificationIdRef.current = latestNotification.notification_id;
-
-        if (
-          showToast &&
-          previousNotificationId !== null &&
-          previousNotificationId !== latestNotification.notification_id &&
-          isFeedActivityNotification(latestNotification)
-        ) {
-          dispatchFeedActivityToast(latestNotification);
+        if (showToast && previousCount !== null && count > previousCount) {
+          const newCount = count - previousCount;
+          window.dispatchEvent(
+            new CustomEvent<AppToastDetail>("krip:app-toast", {
+              detail: {
+                title: "New activity",
+                message: `${newCount} new notification${newCount > 1 ? "s" : ""}.`,
+                variant: "info",
+                path: "/my",
+              },
+            })
+          );
         }
       } catch {
-        // Unauthenticated pages and transient network failures should not interrupt the app.
+        // Ignore transient notification polling failures.
       }
     }
 
-    void syncLatestNotification(false);
-    const intervalId: number = window.setInterval(() => {
-      void syncLatestNotification(true);
-    }, ACTIVITY_TOAST_POLL_INTERVAL_MS);
-
     function handleInboxUpdated(event: Event): void {
-      const toastHandled: boolean = Boolean(
+      const toastHandled = Boolean(
         (event as CustomEvent<{ toastHandled?: boolean }>).detail?.toastHandled
       );
-      void syncLatestNotification(!toastHandled);
+      void syncUnreadCount(!toastHandled);
     }
 
+    function handleFocus(): void {
+      void syncUnreadCount(true);
+    }
+
+    void syncUnreadCount(false);
+    const intervalId: number = window.setInterval(
+      () => void syncUnreadCount(true),
+      ACTIVITY_TOAST_POLL_INTERVAL_MS
+    );
+
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("krip:like-notifications-updated", handleInboxUpdated);
     window.addEventListener("krip:notification-inbox-updated", handleInboxUpdated);
 
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("krip:like-notifications-updated", handleInboxUpdated);
       window.removeEventListener("krip:notification-inbox-updated", handleInboxUpdated);
     };
-  }, [location.pathname]);
+  }, []);
 
   return null;
 }
-
 /**
- * 로그인/회원가입 화면에서는 알림함 조회를 시도하지 않는다.
+ * Avoid notification requests on auth routes where a user token may not exist.
  */
 function isAuthFreePath(pathname: string): boolean {
   return (
     pathname === "/" ||
     pathname === "/login" ||
     pathname.startsWith("/register") ||
+    pathname.startsWith("/share/") ||
     pathname === "/withdrawal-pending"
   );
 }
 
-function isFeedActivityNotification(notification: InboxNotification): boolean {
-  return notification.type === "feed_like" || notification.type === "feed_comment";
-}
-
-function dispatchFeedActivityToast(notification: InboxNotification): void {
-  window.dispatchEvent(
-    new CustomEvent<AppToastDetail>("krip:app-toast", {
-      detail: {
-        title: getFeedActivityTitle(notification),
-        message: notification.comment_preview || getFeedActivityMessage(notification),
-        variant: "info",
-        path: "/my",
-        imageUrl: notification.actor_profile_image_url || notification.target_preview,
-      },
-    })
-  );
-}
-
-function getFeedActivityTitle(notification: InboxNotification): string {
-  const actorName: string = notification.actor_name || "Someone";
-  if (notification.type === "feed_comment") {
-    return `${actorName} commented on your post`;
-  }
-  return `${actorName} liked your post`;
-}
-
-function getFeedActivityMessage(notification: InboxNotification): string {
-  if (notification.type === "feed_comment") {
-    return "Tap to open your feed.";
-  }
-  return "Your feed post got a new like.";
-}
-
 /**
- * 입력 중이거나 모달을 조작 중인 터치는 페이지 제스처에서 제외한다.
+ * ?낅젰 以묒씠嫄곕굹 紐⑤떖??議곗옉 以묒씤 ?곗튂???섏씠吏 ?쒖뒪泥섏뿉???쒖쇅?쒕떎.
  */
 function isGestureIgnored(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
@@ -400,7 +378,7 @@ function isGestureIgnored(target: EventTarget | null): boolean {
 }
 
 /**
- * 하단 탭 경로 안에서 좌우 스와이프를 인접 페이지 이동으로 변환한다.
+ * ?섎떒 ??寃쎈줈 ?덉뿉??醫뚯슦 ?ㅼ??댄봽瑜??몄젒 ?섏씠吏 ?대룞?쇰줈 蹂?섑븳??
  */
 function moveTabBySwipe(
   deltaX: number,
@@ -418,20 +396,6 @@ function moveTabBySwipe(
   if (!nextPath) return;
 
   navigate(nextPath);
-}
-
-/**
- * 페이지별 새로고침 이벤트를 우선 보내고, 처리자가 없으면 현재 문서를 새로고침한다.
- */
-function refreshCurrentPage(): void {
-  const refreshEvent: CustomEvent = new CustomEvent("krip:page-refresh", {
-    cancelable: true,
-  });
-  const shouldReloadDocument: boolean = window.dispatchEvent(refreshEvent);
-
-  if (shouldReloadDocument) {
-    window.location.reload();
-  }
 }
 
 type AppToastState = AppToastDetail & {
@@ -474,15 +438,17 @@ function AppToast() {
 
   if (!toast) return null;
   const ToastElement = toast.path ? "button" : "div";
+  const isCenteredToast = toast.placement === "center";
 
   return createPortal(
-    <div style={toastLayerStyles.appSlot}>
+    <div style={isCenteredToast ? toastLayerStyles.appCenterSlot : toastLayerStyles.appSlot}>
       <ToastElement
         key={toast.toastId}
         type={toast.path ? "button" : undefined}
         role="status"
         style={{
           ...appToastStyles.toast,
+          ...(isCenteredToast ? appToastStyles.toastCentered : {}),
           ...(toast.path ? appToastStyles.toastClickable : {}),
           ...(toast.variant === "error" ? appToastStyles.toastError : {}),
           ...(toast.variant === "success" ? appToastStyles.toastSuccess : {}),
@@ -533,6 +499,38 @@ function WithdrawalPendingRedirect() {
   return null;
 }
 
+function UnauthorizedRedirect() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const locationRef = useRef(location);
+
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
+
+  useEffect(() => {
+    function handleUnauthorized(): void {
+      const currentLocation = locationRef.current;
+      if (isAuthFreePath(currentLocation.pathname)) return;
+
+      navigate("/login", {
+        replace: true,
+        state: {
+          from: `${currentLocation.pathname}${currentLocation.search}${currentLocation.hash}`,
+        },
+      });
+    }
+
+    window.addEventListener("krip:unauthorized", handleUnauthorized);
+
+    return () => {
+      window.removeEventListener("krip:unauthorized", handleUnauthorized);
+    };
+  }, [navigate]);
+
+  return null;
+}
+
 export default function App() {
   useEffect(() => {
     void requestPermission();
@@ -547,8 +545,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<LoginPage />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/register/onboarding" element={<OnboardingPage />} />
+          <Route path="/register" element={<OnboardingPage />} />
+          <Route path="/register/onboarding" element={<Navigate to="/register" replace />} />
           <Route path="/withdrawal-pending" element={<WithdrawalPendingPage />} />
           <Route element={<AppShell />}>
             <Route path="/home" element={<HomePage />} />
@@ -568,6 +566,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <WithdrawalPendingRedirect />
+        <UnauthorizedRedirect />
         <PageGestureController />
         <ActivityNotificationToastWatcher />
         <AppToast />
@@ -591,6 +590,16 @@ const toastLayerStyles: Record<string, CSSProperties> = {
   appSlot: {
     position: "relative",
     zIndex: 2,
+  },
+  appCenterSlot: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 2147483647,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    pointerEvents: "none",
   },
   chatSlot: {
     position: "relative",
@@ -688,6 +697,15 @@ const appToastStyles: Record<string, CSSProperties> = {
   },
   toastClickable: {
     cursor: "pointer",
+  },
+  toastCentered: {
+    position: "relative",
+    top: "auto",
+    left: "auto",
+    transform: "none",
+    animation: "fadeInToast 240ms ease-out",
+    width: "min(calc(100% - 32px), 360px)",
+    boxShadow: "0 24px 70px rgba(15,23,42,0.26), 0 10px 24px rgba(15,23,42,0.16)",
   },
   toastSuccess: {
     borderColor: "rgba(5,181,187,0.26)",
