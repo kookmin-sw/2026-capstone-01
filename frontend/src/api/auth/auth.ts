@@ -17,15 +17,6 @@ export interface UserProfile {
   gender?: string;
   nationality?: string;
   travel_styles?: string[];
-  food_preferences?: string[];
-  density_preference?: string;
-  budget_preference?: string;
-  walking_preference?: string;
-  transport_preferences?: string[];
-  companion_preference?: string;
-  time_preferences?: string[];
-  communication_preference?: string;
-  planning_preference?: string;
   image_url?: string;
   imageUrl?: string;
   profile_image_url?: string | null;
@@ -40,15 +31,6 @@ export interface ProfileImageResponse {
 export type ProfilePreferencesPayload = Pick<
   RegisterPayload,
   | "travel_styles"
-  | "food_preferences"
-  | "density_preference"
-  | "budget_preference"
-  | "walking_preference"
-  | "transport_preferences"
-  | "companion_preference"
-  | "time_preferences"
-  | "communication_preference"
-  | "planning_preference"
 >;
 
 export type ProfileUpdatePayload = Partial<
@@ -61,15 +43,6 @@ export type ProfileUpdatePayload = Partial<
     | "gender"
     | "nationality"
     | "travel_styles"
-    | "food_preferences"
-    | "density_preference"
-    | "budget_preference"
-    | "walking_preference"
-    | "transport_preferences"
-    | "companion_preference"
-    | "time_preferences"
-    | "communication_preference"
-    | "planning_preference"
   >
 >;
 
@@ -81,15 +54,6 @@ export interface RegisterPayload {
   gender: string;
   nationality: string;
   travel_styles: string[];
-  food_preferences?: string[];
-  density_preference?: string;
-  budget_preference?: string;
-  walking_preference?: string;
-  transport_preferences?: string[];
-  companion_preference?: string;
-  time_preferences?: string[];
-  communication_preference?: string;
-  planning_preference?: string;
 }
 
 export interface TourPlaceApiItem {
@@ -381,26 +345,69 @@ export function cancelWithdrawUser(): Promise<Record<string, unknown> | null> {
   });
 }
 
-export function getMyProfile(): Promise<UserProfile | null> {
-  return authRequest("/api/auth/profile/me");
+export async function getMyProfile(): Promise<UserProfile | null> {
+  const data = await authRequest<unknown>("/api/auth/profile/me");
+  return normalizeUserProfile(data);
 }
 
-export function updateMyProfile(
+export async function updateMyProfile(
   payload: ProfileUpdatePayload
 ): Promise<UserProfile | null> {
-  return authRequest("/api/auth/profile/me", {
+  const data = await authRequest<unknown>("/api/auth/profile/me", {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
   });
+  return normalizeUserProfile(data);
 }
 
 function buildProfileImageFormData(file: File): FormData {
   const formData = new FormData();
   formData.append("file", file);
   return formData;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function unwrapProfileResponse(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+
+  const nestedKeys = ["profile", "user", "data", "item"] as const;
+  for (const key of nestedKeys) {
+    if (isRecord(value[key])) {
+      return value[key];
+    }
+  }
+
+  return value;
+}
+
+function readStringList(
+  source: Record<string, unknown>,
+  ...keys: string[]
+): string[] | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    if (Array.isArray(value)) {
+      return value.filter((item): item is string => typeof item === "string");
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeUserProfile(value: unknown): UserProfile | null {
+  const profile = unwrapProfileResponse(value);
+  if (!profile) return null;
+
+  return {
+    ...(profile as UserProfile),
+    travel_styles: readStringList(profile, "travel_styles"),
+  };
 }
 
 export function uploadMyProfileImage(file: File): Promise<ProfileImageResponse | null> {
