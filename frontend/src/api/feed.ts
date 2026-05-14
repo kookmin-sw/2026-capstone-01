@@ -1,4 +1,5 @@
 import client from "./client";
+import type { AxiosProgressEvent } from "axios";
 
 export type FeedVisibility = "private" | "friends" | "public";
 
@@ -69,10 +70,12 @@ export async function createFeedPost({
   file,
   visibility = "public",
   caption,
+  onUploadProgress,
 }: {
   file: File;
   visibility?: FeedVisibility;
   caption?: string;
+  onUploadProgress?: (progress: number) => void;
 }): Promise<FeedPost> {
   const formData = new FormData();
   formData.append("file", file);
@@ -83,6 +86,16 @@ export async function createFeedPost({
 
   const { data } = await client.post<FeedPost>("/api/feed/posts", formData, {
     timeout: 0,
+    onUploadProgress: (progressEvent: AxiosProgressEvent) => {
+      const total = progressEvent.total ?? file.size;
+      if (!total) return;
+
+      const progress = Math.min(
+        100,
+        Math.max(0, Math.round((progressEvent.loaded / total) * 100))
+      );
+      onUploadProgress?.(progress);
+    },
   });
   return data;
 }

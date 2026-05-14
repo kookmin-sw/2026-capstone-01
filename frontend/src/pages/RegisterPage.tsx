@@ -17,6 +17,9 @@ export interface RegisterFormState {
   nationality: string;
 }
 
+const MIN_AGE = 0;
+const MAX_AGE = 149;
+
 export default function RegisterPage() {
   const navigate = useNavigate();
   const { state } = useLocation() as { state: RegisterLocationState | null };
@@ -43,6 +46,12 @@ export default function RegisterPage() {
     setError("");
     if (!form.email || !form.user_name || !form.phone_number || !form.age || !form.gender || !form.nationality) {
       setError("Please fill in all required fields.");
+      return;
+    }
+
+    const age = Number(form.age);
+    if (!Number.isInteger(age) || age < MIN_AGE || age > MAX_AGE) {
+      setError(`Age must be between ${MIN_AGE} and ${MAX_AGE}.`);
       return;
     }
 
@@ -95,9 +104,11 @@ export default function RegisterPage() {
                 style={s.input}
                 type="number"
                 value={form.age}
-                onChange={(e) => setField("age", e.target.value)}
+                onChange={(e) => setField("age", normalizeAgeInput(e.target.value))}
                 placeholder="25"
-                min={1}
+                min={MIN_AGE}
+                max={MAX_AGE}
+                inputMode="numeric"
               />
             </Field>
 
@@ -169,6 +180,16 @@ function Field({
       {children}
     </div>
   );
+}
+
+function normalizeAgeInput(value: string): string {
+  const digitsOnly = value.replace(/\D/g, "");
+  if (!digitsOnly) return "";
+
+  const age = Number(digitsOnly);
+  if (!Number.isFinite(age)) return "";
+
+  return String(Math.min(Math.max(age, MIN_AGE), MAX_AGE));
 }
 
 const s: Record<string, CSSProperties> = {

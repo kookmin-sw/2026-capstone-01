@@ -241,6 +241,23 @@ function getBackendCategory(item: TourPlaceApiItem): PlaceCategory {
   return String(category || "Other");
 }
 
+function formatCategoryLabel(value: string): string {
+  const parts = value
+    .split("/")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const uniqueParts = Array.from(
+    new Map(parts.map((item) => [item.toLowerCase(), item])).values()
+  );
+  const normalized = uniqueParts.length > 0 ? uniqueParts.join(" / ") : value;
+
+  return normalized
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase());
+}
+
 function getCategoryGroup(category: string): string {
   const normalized = category.trim().toLowerCase();
 
@@ -336,7 +353,7 @@ function mapTourPlace(item: TourPlaceApiItem): Place {
     id: String(item.id || item.place_id || crypto.randomUUID()),
     initialIsFavorite: item.is_favorite === true,
     name: String(item.display_name || item.name || item.title || "Unnamed place"),
-    category: getBackendCategory(item),
+    category: formatCategoryLabel(getBackendCategory(item)),
     groupCategory: getCategoryGroup(getBackendCategory(item)),
     raw: item,
     tags: sanitizeTags(item.tags),
