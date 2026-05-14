@@ -78,6 +78,7 @@ class Container(containers.DeclarativeContainer):
         TripmatePostService,
         uow=uow,
         draft_service=tripmate_post_draft_service,
+        inbox_service=inbox_service,
     )
     tripmate_post_like_service = providers.Factory(
         TripmatePostLikeService, uow=uow, inbox_service=inbox_service,
@@ -145,8 +146,11 @@ class Container(containers.DeclarativeContainer):
     friend_search_service = providers.Factory(FriendSearchService, uow=uow)
     friend_search_history_service = providers.Factory(FriendSearchHistoryService)
 
-    # 피드 — 좋아요/댓글 fan-out 만 인박스 의존 (게시물/댓글 삭제는 cascade 안 함).
-    feed_post_service = providers.Factory(FeedPostService, uow=uow)
+    # 피드 — 좋아요/댓글 fan-out + 게시글 삭제 cascade (soft hide) 모두 인박스 의존.
+    # 댓글 단건 삭제는 cascade 안 함.
+    feed_post_service = providers.Factory(
+        FeedPostService, uow=uow, inbox_service=inbox_service,
+    )
     feed_post_like_service = providers.Factory(
         FeedPostLikeService, uow=uow, inbox_service=inbox_service,
     )
