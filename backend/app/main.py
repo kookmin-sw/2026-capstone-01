@@ -11,7 +11,7 @@ from app.middleware.tracking import (
     ErrorTrackingMiddleware,
     SecurityHeadersMiddleware,
 )
-from app.middleware.auth import BearerTokenMiddleware, LoginCookieMiddleware, RegisterCheckMiddleware
+from app.middleware.auth import BearerTokenMiddleware, LoginAuthMiddleware, RegisterCheckMiddleware
 from app.domain.chat.worker.reconcile import (
     start_reconcile_scheduler,
     stop_reconcile_scheduler,
@@ -135,6 +135,7 @@ def create_app() -> FastAPI:
     container = Container()
     container.wire(modules=[
         "app.domain.auth.router.login",
+        "app.domain.auth.router.app_login",
         "app.domain.auth.router.register",
         "app.domain.auth.router.profile",
         "app.domain.auth.router.withdraw",
@@ -173,7 +174,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Krip API",
         description="Krip 서버",
-        version="0.1.0",
+        version="0.3.0",
         docs_url=None if settings.is_production else "/docs",
         redoc_url=None if settings.is_production else "/redoc",
         openapi_url=None if settings.is_production else "/openapi.json",
@@ -183,7 +184,7 @@ def create_app() -> FastAPI:
     # 미들웨어 (등록 역순으로 실행됨 → CORS가 가장 먼저 실행)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RegisterCheckMiddleware)
-    app.add_middleware(LoginCookieMiddleware)
+    app.add_middleware(LoginAuthMiddleware)
     app.add_middleware(BearerTokenMiddleware)
     app.add_middleware(ErrorTrackingMiddleware)
     app.add_middleware(RequestIDMiddleware)

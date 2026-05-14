@@ -1,14 +1,21 @@
 """채팅 WebSocket 엔드포인트 — `/ws/chat`.
 
 WS 업그레이드 핸드셰이크는 `BaseHTTPMiddleware` 를 거치지 않으므로 인증을
-**이 모듈 내부에서 직접** 수행한다 (Origin 화이트리스트 + JWT 쿠키 + status 가드).
+**이 모듈 내부에서 직접** 수행한다 (Origin 화이트리스트 + JWT + status 가드).
+
+JWT 전송 채널
+    - 웹: `utk` 쿠키 (httpOnly 자동 첨부)
+    - 앱: Sec-WebSocket-Protocol 헤더 (브라우저 WebSocket API 가 임의 헤더를
+      못 붙이는 제약 우회). 클라가 `['krip.chat.v1', 'auth.<jwt>']` 형태로 두 개의
+      subprotocol 을 보내면 서버가 `auth.<jwt>` 에서 토큰 추출 + 검증 후
+      `krip.chat.v1` 만 echo. `auth.<jwt>` 는 응답 헤더 노출 방지를 위해 echo 안 함.
 
 연결 플로우
     1. Origin 헤더 화이트리스트 검증 → 실패 시 close(4403)
-    2. 쿠키 JWT 검증 → 실패 시 close(4001)
+    2. JWT 검증 (쿠키 → subprotocol fallback) → 실패 시 close(4001)
     3. status 가드 (INACTIVE / 미가입 차단) → 실패 시 close(4019)
        `RegisterCheckMiddleware` 와 동일 검증을 `REGISTERED:{uid}` 캐시 공유로 수행.
-    4. WS accept
+    4. WS accept (subprotocol 인증 시 `krip.chat.v1` echo)
     5. SessionService.create_session — Redis 3키 + 세션 한도 체크
     6. WS 컨텍스트 심기 (session_id / user_id / subscribed_rooms)
     7. FanoutService.register_session + 방 목록 register_ws_to_room
@@ -65,6 +72,11 @@ CLOSE_FORBIDDEN_ORIGIN = 4403
 CLOSE_WITHDRAWAL_PENDING = 4019    # HTTP 419 (탈퇴 유예) 와 매칭
 CLOSE_SERVICE_RESTART = 1012
 
+# Sec-WebSocket-Protocol 서브프로토콜 — 앱 인증 채널
+# 브라우저 WebSocket API 가 임의 헤더를 못 붙이는 제약을 우회.
+SUBPROTOCOL_VERSION = "krip.chat.v1"
+SUBPROTOCOL_AUTH_PREFIX = "auth."
+
 
 # Pydantic discriminated union 어댑터는 모듈 레벨에서 1회만 생성
 _ClientRequestAdapter = TypeAdapter(ClientRequest)
@@ -90,8 +102,8 @@ async def ws_chat(
         await websocket.close(code=CLOSE_FORBIDDEN_ORIGIN)
         return
 
-    # 2. JWT 쿠키 검증
-    auth = _verify_cookie_jwt(websocket)
+    # 2. JWT 검증 (쿠키 → subprotocol fallback)
+    auth = _verify_jwt(websocket)
     if auth is None:
         chat_ws_connect_result("auth_expired")
         await websocket.close(code=CLOSE_AUTH_EXPIRED)
@@ -106,8 +118,9 @@ async def ws_chat(
         await websocket.close(code=CLOSE_WITHDRAWAL_PENDING)
         return
 
-    # 4. 업그레이드 수락
-    await websocket.accept()
+    # 4. 업그레이드 수락 — 앱이 subprotocol 인증을 사용했다면 krip.chat.v1 echo.
+    #    웹(쿠키 플로우) 은 None → 응답에 Sec-WebSocket-Protocol 헤더 미포함.
+    await websocket.accept(subprotocol=_select_accept_subprotocol(websocket))
 
     # 5. Redis 세션 등록 + 한도 체크
     try:
@@ -276,21 +289,64 @@ async def _recover_unread_and_notify(websocket: WebSocket, user_id: str) -> None
 # ──────────────────── 인증 ────────────────────
 
 def _is_allowed_origin(origin: str | None) -> bool:
-    """CORS 설정과 동일한 Origin 화이트리스트"""
+    """Origin 화이트리스트 검증.
+
+    웹 프론트 origin (CORS allow_origins 과 동일) + 앱 (Capacitor 등) origin 합집합.
+    앱 origin 은 `settings.APP_ALLOWED_ORIGINS` 에서 환경별로 관리한다.
+    """
     if origin is None:
         return False
-    allowed = {settings.FRONTEND_URL, settings.LOCAL_FRONTEND_URL}
+    allowed = {settings.FRONTEND_URL, settings.LOCAL_FRONTEND_URL} | settings.app_allowed_origins
     return origin in allowed
 
 
-def _verify_cookie_jwt(websocket: WebSocket) -> tuple[str, str] | None:
-    """쿠키의 JWT 를 검증해 (user_id, token_jti) 반환. 실패 시 None.
+def _ws_subprotocols(websocket: WebSocket) -> list[str]:
+    """클라가 핸드셰이크로 요청한 Sec-WebSocket-Protocol 목록을 파싱."""
+    header = websocket.headers.get("sec-websocket-protocol", "")
+    return [p.strip() for p in header.split(",") if p.strip()]
+
+
+def _extract_jwt(websocket: WebSocket) -> str | None:
+    """JWT 추출. 쿠키(웹) → Sec-WebSocket-Protocol(앱) 순.
+
+    웹은 자동 첨부된 쿠키로 통과되고, 앱은 `auth.<jwt>` subprotocol 로 통과된다.
+    동시 전송 시나리오는 실무상 없지만 (각 클라이언트가 자기 채널만 사용), 우선순위는
+    쿠키 → subprotocol 로 두어 기존 웹 동작을 그대로 보존한다.
+    """
+    cookie_token = websocket.cookies.get(settings.USER_LOGIN_COOKIE_NAME)
+    if cookie_token:
+        return cookie_token
+
+    for proto in _ws_subprotocols(websocket):
+        if proto.startswith(SUBPROTOCOL_AUTH_PREFIX):
+            token = proto[len(SUBPROTOCOL_AUTH_PREFIX):]
+            if token:
+                return token
+
+    return None
+
+
+def _select_accept_subprotocol(websocket: WebSocket) -> str | None:
+    """핸드셰이크 accept 시 응답할 subprotocol 선택.
+
+    클라가 `krip.chat.v1` 도 함께 요청했을 때만 그것을 echo. `auth.<jwt>` 는 토큰이라
+    절대 echo 하지 않는다 (응답 헤더 노출 방지).
+
+    클라가 어떤 subprotocol 도 안 보냈으면 (= 웹 쿠키 플로우) None 반환 → 응답 헤더 미포함.
+    """
+    if SUBPROTOCOL_VERSION in _ws_subprotocols(websocket):
+        return SUBPROTOCOL_VERSION
+    return None
+
+
+def _verify_jwt(websocket: WebSocket) -> tuple[str, str] | None:
+    """JWT 를 검증해 (user_id, token_jti) 반환. 실패 시 None.
 
     token_jti 는 JWT `jti` claim 이 없으면 token 앞 32자를 fallback 으로 사용 —
     이는 SessionService 가 `sess:{sid}.token_jti` 에 기록만 하고 현재는 비교하지 않기
     때문. refresh 시점에 같은 로직으로 비교하면 일관성 유지.
     """
-    token = websocket.cookies.get(settings.USER_LOGIN_COOKIE_NAME)
+    token = _extract_jwt(websocket)
     if not token:
         return None
     try:

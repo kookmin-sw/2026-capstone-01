@@ -72,7 +72,7 @@ async def cancel_withdraw(
     """회원 탈퇴 취소 — 유예 기간 내 INACTIVE 유저를 ACTIVE 로 복구.
 
     경로 보호 흐름:
-        - LoginCookieMiddleware: 쿠키 검증 통과 (OAuth 재로그인으로 발급된 쿠키 사용).
+        - LoginAuthMiddleware: 로그인 토큰 검증 통과 (OAuth 재로그인으로 발급된 쿠키 또는 X-Auth-Token 토큰).
         - RegisterCheckMiddleware: `/api/auth/withdraw` prefix 가 EXCLUDE_PREFIXES 에
           포함되어 INACTIVE → 419 차단을 우회하므로 이 핸들러까지 안전하게 도달.
 
