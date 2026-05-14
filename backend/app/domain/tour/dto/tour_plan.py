@@ -15,7 +15,7 @@ class TourPlanItemCreateInput:
 class TourPlanItemData:
     """카드 단건 응답 DTO
 
-    - rating 은 MongoDB Place 에서 라이브 조회한 값 (스냅샷 아님)
+    - rating / photos 는 MongoDB Place 에서 라이브 조회한 값 (스냅샷 아님)
     - display_name / address 는 RDB 스냅샷
     """
     item_id: str
@@ -26,6 +26,7 @@ class TourPlanItemData:
     address: str
     visit_time: Optional[str]
     rating: Optional[float]
+    photos: List[str]
 
 
 @dataclass
