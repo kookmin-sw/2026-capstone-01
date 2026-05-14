@@ -42,8 +42,8 @@ export interface OnboardingData {
 
 // ─── Value → API key maps ────────────────────────────────────────────────────
 
-const MIN_AGE = 0;
-const MAX_AGE = 149;
+const MIN_AGE = 20;
+const MAX_AGE = 100;
 
 const TRAVEL_STYLE_KEY: Record<string, string> = {
   Activity: "activity",
@@ -515,17 +515,8 @@ type PageProps = {
 };
 
 function Page1({ data, setData, onNext, onBack, email }: PageProps) {
-  const age = Number(data.age);
-  const hasAgeInput = data.age.trim().length > 0;
-  const isAgeValid =
-    hasAgeInput &&
-    Number.isInteger(age) &&
-    age >= MIN_AGE &&
-    age <= MAX_AGE;
-  const ageError =
-    hasAgeInput && !isAgeValid
-      ? `Age must be a number between ${MIN_AGE} and ${MAX_AGE}.`
-      : "";
+  const isAgeValid = Boolean(data.age);
+  const ageError = "";
   const canProceed =
     data.nickname.trim().length > 0 &&
     isAgeValid &&
@@ -543,17 +534,60 @@ function Page1({ data, setData, onNext, onBack, email }: PageProps) {
         </div>
         {email ? <ReadOnlyField label="Email" value={email} /> : null}
         <TextInput label="Nickname *" value={data.nickname} onChange={(v) => setData({ nickname: v })} placeholder="What should we call you?" />
-        <TextInput
-          label="Age *"
-          value={data.age}
-          onChange={(value) => setData({ age: value })}
-          placeholder="Enter your age"
-          type="number"
-          min={MIN_AGE}
-          max={MAX_AGE}
-          inputMode="numeric"
-          error={ageError}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
+          <label
+            style={{
+              fontFamily: "Pretendard Variable,sans-serif",
+              fontWeight: 700,
+              fontSize: 13,
+              color: DARK_MINT,
+            }}
+          >
+            Age *
+          </label>
+          <select
+            value={data.age}
+            onChange={(e) => setData({ age: e.target.value })}
+            style={{
+              height: 48,
+              borderRadius: 50,
+              border: `1px solid ${ageError ? "#ef4444" : GRAY2}`,
+              background: ageError ? "rgba(239,68,68,0.06)" : GRAY1,
+              outline: "none",
+              padding: "0 18px",
+              fontFamily: "Pretendard Variable,sans-serif",
+              fontSize: 15,
+              color: data.age ? GRAY6 : GRAY_AAA,
+              appearance: "none",
+              WebkitAppearance: "none",
+              cursor: "pointer",
+            }}
+          >
+            <option value="" disabled hidden>Select your age</option>
+            {Array.from({ length: MAX_AGE - MIN_AGE + 1 }, (_, i) => {
+              const age = MIN_AGE + i;
+              return (
+                <option key={age} value={String(age)} style={{ color: GRAY6 }}>
+                  {age}
+                </option>
+              );
+            })}
+          </select>
+          {ageError ? (
+            <p
+              style={{
+                margin: "0 4px",
+                color: "#ef4444",
+                fontFamily: "Pretendard Variable,sans-serif",
+                fontSize: 12,
+                fontWeight: 700,
+                lineHeight: "16px",
+              }}
+            >
+              {ageError}
+            </p>
+          ) : null}
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
           <span style={{ fontFamily: "Pretendard Variable,sans-serif", fontWeight: 700, fontSize: 13, color: DARK_MINT }}>
             Gender *

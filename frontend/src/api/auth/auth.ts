@@ -1,4 +1,5 @@
-import { notifyUnauthorized, removeToken } from "../../utils/tokens";
+import { Capacitor } from "@capacitor/core";
+import { notifyForbidden, notifyUnauthorized, readToken, removeToken } from "../../utils/tokens";
 import { getUserAuthorizationBearer } from "../client";
 import {
   API_BASE_URL,
@@ -208,22 +209,40 @@ function toErrorMessage(value: unknown, fallback: string): string {
 }
 
 function getAuthHeaders(headers: RequestHeaders = {}): RequestHeaders {
-  const authorization = getUserAuthorizationBearer() || AUTHORIZATION_BEARER;
+  const rawToken = readToken();
+
+  const authorization = Capacitor.isNativePlatform()
+    ? AUTHORIZATION_BEARER
+    : getUserAuthorizationBearer() || AUTHORIZATION_BEARER;
+
   if (!authorization) return headers;
 
-  return {
+  const result: RequestHeaders = {
     ...headers,
     Authorization: authorization,
   };
+
+  if (Capacitor.isNativePlatform() && rawToken) {
+    result["X-Auth-Token"] = rawToken;
+  }
+
+  return result;
 }
 
 function getTourPlacesHeaders(headers: RequestHeaders = {}): RequestHeaders {
   if (!TOUR_PLACES_AUTHORIZATION_BEARER) return headers;
 
-  return {
+  const result: RequestHeaders = {
     ...headers,
     Authorization: TOUR_PLACES_AUTHORIZATION_BEARER,
   };
+
+  const rawToken = readToken();
+  if (Capacitor.isNativePlatform() && rawToken) {
+    result["X-Auth-Token"] = rawToken;
+  }
+
+  return result;
 }
 
 function buildQueryString(params: TourPlacesParams = {}): string {
@@ -277,12 +296,22 @@ async function authRequest<T>(
   }
 
   if (response.status === 401) {
-    console.warn("Unauthorized request", {
-      path,
-      authorization: getUserAuthorizationBearer() || AUTHORIZATION_BEARER,
-    });
-    removeToken();
-    notifyUnauthorized();
+  const rawToken = readToken();
+  const authorization = rawToken
+    ? `Bearer ${rawToken}`
+    : getUserAuthorizationBearer() || AUTHORIZATION_BEARER;
+
+  console.warn("Unauthorized request", {
+    path,
+    hasAuthorization: Boolean(authorization),
+    tokenPreview: authorization ? `${authorization.slice(0, 40)}...` : "",
+  });
+
+  notifyUnauthorized();
+}
+
+  if (response.status === 403) {
+    notifyForbidden();
   }
 
   if (response.status === 419) {
@@ -295,17 +324,19 @@ async function authRequest<T>(
 }
 
 export function createLoginUrl(platform?: "android"): string {
+  if (platform === "android") {
+    // Native app uses a dedicated endpoint that returns a JWT deep link
+    // (krip://auth/callback?utk=...&status=...) instead of a session cookie.
+    const url = new URL("/api/auth/login/app", API_BASE_URL);
+    url.searchParams.set("type", "google");
+    return url.toString();
+  }
+
   const url = new URL("/api/auth/login", API_BASE_URL);
   url.searchParams.set("type", "google");
 
-  const shouldUseLocalLogin = import.meta.env.VITE_AUTH_IS_LOCAL === "true";
-
-  if (shouldUseLocalLogin) {
+  if (import.meta.env.VITE_AUTH_IS_LOCAL === "true") {
     url.searchParams.set("is_local", "true");
-  }
-
-  if (platform) {
-    url.searchParams.set("platform", platform);
   }
 
   return url.toString();
@@ -323,20 +354,24 @@ export function registerUser(
   });
 }
 
-export function logoutUser(): Promise<Record<string, unknown> | null> {
-  return authRequest("/api/auth/logout", {
-    method: "POST",
-  });
+export async function logoutUser(): Promise<Record<string, unknown> | null> {
+  try {
+    return await authRequest("/api/auth/logout", {
+      method: "POST",
+    });
+  } finally {
+    removeToken();
+  }
 }
 
 export async function withdrawUser(): Promise<Record<string, unknown> | string | null> {
-  const result = await authRequest<Record<string, unknown> | string>("/api/auth/withdraw", {
-    method: "DELETE",
-  });
-
-  removeToken();
-
-  return result;
+  try {
+    return await authRequest<Record<string, unknown> | string>("/api/auth/withdraw", {
+      method: "DELETE",
+    });
+  } finally {
+    removeToken();
+  }
 }
 
 export function cancelWithdrawUser(): Promise<Record<string, unknown> | null> {
