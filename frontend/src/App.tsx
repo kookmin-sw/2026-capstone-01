@@ -438,15 +438,17 @@ function AppToast() {
 
   if (!toast) return null;
   const ToastElement = toast.path ? "button" : "div";
+  const isCenteredToast = toast.placement === "center";
 
   return createPortal(
-    <div style={toastLayerStyles.appSlot}>
+    <div style={isCenteredToast ? toastLayerStyles.appCenterSlot : toastLayerStyles.appSlot}>
       <ToastElement
         key={toast.toastId}
         type={toast.path ? "button" : undefined}
         role="status"
         style={{
           ...appToastStyles.toast,
+          ...(isCenteredToast ? appToastStyles.toastCentered : {}),
           ...(toast.path ? appToastStyles.toastClickable : {}),
           ...(toast.variant === "error" ? appToastStyles.toastError : {}),
           ...(toast.variant === "success" ? appToastStyles.toastSuccess : {}),
@@ -589,6 +591,16 @@ const toastLayerStyles: Record<string, CSSProperties> = {
     position: "relative",
     zIndex: 2,
   },
+  appCenterSlot: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 2147483647,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    pointerEvents: "none",
+  },
   chatSlot: {
     position: "relative",
     zIndex: 1,
@@ -685,6 +697,15 @@ const appToastStyles: Record<string, CSSProperties> = {
   },
   toastClickable: {
     cursor: "pointer",
+  },
+  toastCentered: {
+    position: "relative",
+    top: "auto",
+    left: "auto",
+    transform: "none",
+    animation: "fadeInToast 240ms ease-out",
+    width: "min(calc(100% - 32px), 360px)",
+    boxShadow: "0 24px 70px rgba(15,23,42,0.26), 0 10px 24px rgba(15,23,42,0.16)",
   },
   toastSuccess: {
     borderColor: "rgba(5,181,187,0.26)",

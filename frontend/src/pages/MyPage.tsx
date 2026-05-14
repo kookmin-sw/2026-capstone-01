@@ -116,6 +116,22 @@ const PLANNING_OPTIONS: PreferenceOption[] = [
   { key: "follower", label: "Follower" },
 ];
 
+type FeedUploadStatus = "uploading" | "failed";
+
+type FeedPostItem = FeedPost & {
+  uploadStatus?: FeedUploadStatus;
+  uploadProgress?: number;
+  uploadFile?: File;
+  uploadPreviewUrl?: string;
+  uploadCaption?: string;
+  uploadVisibility?: FeedVisibility;
+  uploadError?: string;
+};
+
+type FeedConfirmState =
+  | { type: "delete-post" }
+  | { type: "delete-comment"; comment: FeedComment };
+
 const EMPTY_PREFERENCES: ProfilePreferencesPayload = {
   travel_styles: [],
   food_preferences: [],
@@ -147,7 +163,7 @@ export default function MyPage() {
   const [isPreferenceEditing, setIsPreferenceEditing] = useState(false);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
 
-  const [feedPosts, setFeedPosts] = useState<FeedPost[]>([]);
+  const [feedPosts, setFeedPosts] = useState<FeedPostItem[]>([]);
   const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
   const [isFeedLoading, setIsFeedLoading] = useState(false);
   const [isFeedUploading, setIsFeedUploading] = useState(false);
@@ -165,6 +181,7 @@ export default function MyPage() {
   const [isFeedPostMenuOpen, setIsFeedPostMenuOpen] = useState(false);
   const [commentInput, setCommentInput] = useState("");
   const [isFeedActionRunning, setIsFeedActionRunning] = useState(false);
+  const [feedConfirm, setFeedConfirm] = useState<FeedConfirmState | null>(null);
   const [pendingAccountAction, setPendingAccountAction] = useState<
     "logout" | "withdraw" | null
   >(null);
@@ -290,19 +307,34 @@ export default function MyPage() {
     if (!file) return;
 
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-      window.alert("Please choose a JPG, PNG, or WEBP image.");
+      showAppToast({
+        title: "Unsupported file type.",
+        message: "Please upload a JPG, PNG, or WEBP image.",
+        variant: "error",
+        placement: "center",
+      });
       event.target.value = "";
       return;
     }
 
     if (file.size > 10 * 1024 * 1024) {
-      window.alert("Please choose an image smaller than 10MB.");
+      showAppToast({
+        title: "File too large.",
+        message: "Please upload an image smaller than 10MB.",
+        variant: "error",
+        placement: "center",
+      });
       event.target.value = "";
       return;
     }
 
     if (await isAnimatedFeedImage(file)) {
-      window.alert("Animated WEBP/APNG images are not supported.");
+      showAppToast({
+        title: "Unsupported image file.",
+        message: "Animated WEBP/APNG images are not supported.",
+        variant: "error",
+        placement: "center",
+      });
       event.target.value = "";
       return;
     }
@@ -319,19 +351,87 @@ export default function MyPage() {
       return;
     }
 
+    const uploadFile = feedFile;
+    const uploadCaption = feedCaption;
+    const uploadVisibility = feedVisibility;
+    const uploadPreviewUrl = URL.createObjectURL(uploadFile);
+    const temporaryPostId = `upload-${Date.now()}`;
+
+    setFeedPosts((current) =>
+      [
+        createOptimisticFeedPost({
+          postId: temporaryPostId,
+          file: uploadFile,
+          previewUrl: uploadPreviewUrl,
+          caption: uploadCaption,
+          visibility: uploadVisibility,
+        }),
+        ...current,
+      ].slice(0, 100)
+    );
+
+    closeFeedComposer();
     setIsFeedUploading(true);
     setFeedError("");
 
     try {
       const post = await createFeedPost({
-        file: feedFile,
-        visibility: feedVisibility,
-        caption: feedCaption,
+        file: uploadFile,
+        visibility: uploadVisibility,
+        caption: uploadCaption,
+        onUploadProgress: (progress) =>
+          updateOptimisticFeedPost(temporaryPostId, { uploadProgress: progress }),
       });
-      setFeedPosts((current) => [post, ...current].slice(0, 100));
-      closeFeedComposer();
+      URL.revokeObjectURL(uploadPreviewUrl);
+      setFeedPosts((current) =>
+        current.map((item) => (item.post_id === temporaryPostId ? post : item))
+      );
     } catch (error) {
-      setFeedError(toErrorMessage(error, "Feed upload failed. Please try again."));
+      updateOptimisticFeedPost(temporaryPostId, {
+        uploadStatus: "failed",
+        uploadError: toErrorMessage(error, "Feed upload failed. Please try again."),
+      });
+    } finally {
+      setIsFeedUploading(false);
+    }
+  }
+
+  function updateOptimisticFeedPost(
+    postId: string,
+    patch: Partial<FeedPostItem>
+  ): void {
+    setFeedPosts((current) =>
+      current.map((item) => (item.post_id === postId ? { ...item, ...patch } : item))
+    );
+  }
+
+  async function retryFeedUpload(post: FeedPostItem): Promise<void> {
+    if (!post.uploadFile || isFeedUploading) return;
+
+    updateOptimisticFeedPost(post.post_id, {
+      uploadStatus: "uploading",
+      uploadProgress: 0,
+      uploadError: "",
+    });
+    setIsFeedUploading(true);
+
+    try {
+      const createdPost = await createFeedPost({
+        file: post.uploadFile,
+        visibility: post.uploadVisibility ?? "public",
+        caption: post.uploadCaption ?? "",
+        onUploadProgress: (progress) =>
+          updateOptimisticFeedPost(post.post_id, { uploadProgress: progress }),
+      });
+      if (post.uploadPreviewUrl) URL.revokeObjectURL(post.uploadPreviewUrl);
+      setFeedPosts((current) =>
+        current.map((item) => (item.post_id === post.post_id ? createdPost : item))
+      );
+    } catch (error) {
+      updateOptimisticFeedPost(post.post_id, {
+        uploadStatus: "failed",
+        uploadError: toErrorMessage(error, "Feed upload failed. Please try again."),
+      });
     } finally {
       setIsFeedUploading(false);
     }
@@ -343,10 +443,12 @@ export default function MyPage() {
     setFeedPreviewUrl("");
     setFeedCaption("");
     setFeedVisibility("public");
+    setFeedError("");
     if (feedImageInputRef.current) feedImageInputRef.current.value = "";
   }
 
-  async function openFeedPost(post: FeedPost): Promise<void> {
+  async function openFeedPost(post: FeedPostItem): Promise<void> {
+    if (post.uploadStatus) return;
     setSelectedFeedPost(post);
     setSelectedCaptionDraft(post.caption || "");
     setIsFeedPostEditing(false);
@@ -411,7 +513,11 @@ export default function MyPage() {
 
   async function handleSelectedDelete(): Promise<void> {
     if (!selectedFeedPost || isFeedActionRunning) return;
-    if (!window.confirm("Delete this post?")) return;
+    setFeedConfirm({ type: "delete-post" });
+  }
+
+  async function confirmSelectedDelete(): Promise<void> {
+    if (!selectedFeedPost || isFeedActionRunning) return;
 
     setIsFeedActionRunning(true);
     try {
@@ -420,6 +526,7 @@ export default function MyPage() {
         current.filter((item) => item.post_id !== selectedFeedPost.post_id)
       );
       setSelectedFeedPost(null);
+      setFeedConfirm(null);
     } catch (error) {
       window.alert(toErrorMessage(error, "Failed to delete feed photo."));
     } finally {
@@ -474,7 +581,11 @@ export default function MyPage() {
 
   async function handleCommentDelete(comment: FeedComment): Promise<void> {
     if (!selectedFeedPost || isFeedActionRunning) return;
-    if (!window.confirm("Delete this comment?")) return;
+    setFeedConfirm({ type: "delete-comment", comment });
+  }
+
+  async function confirmCommentDelete(comment: FeedComment): Promise<void> {
+    if (!selectedFeedPost || isFeedActionRunning) return;
 
     setIsFeedActionRunning(true);
     try {
@@ -486,11 +597,23 @@ export default function MyPage() {
         ...selectedFeedPost,
         comment_count: Math.max(0, selectedFeedPost.comment_count - 1),
       });
+      setFeedConfirm(null);
     } catch (error) {
       window.alert(toErrorMessage(error, "Failed to delete comment."));
     } finally {
       setIsFeedActionRunning(false);
     }
+  }
+
+  function confirmFeedAction(): void {
+    if (!feedConfirm) return;
+
+    if (feedConfirm.type === "delete-post") {
+      void confirmSelectedDelete();
+      return;
+    }
+
+    void confirmCommentDelete(feedConfirm.comment);
   }
 
   async function handleLogout(): Promise<void> {
@@ -541,13 +664,23 @@ export default function MyPage() {
     setIsProfileImageMenuOpen(false);
 
     if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
-      window.alert("Please choose a JPG, PNG, WEBP, or GIF image.");
+      showAppToast({
+        title: "Unsupported file type.",
+        message: "Please upload a JPG, PNG, WEBP, or GIF image.",
+        variant: "error",
+        placement: "center",
+      });
       event.target.value = "";
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      window.alert("Please choose an image smaller than 5MB.");
+      showAppToast({
+        title: "File too large.",
+        message: "Please upload an image smaller than 5MB.",
+        variant: "error",
+        placement: "center",
+      });
       event.target.value = "";
       return;
     }
@@ -791,11 +924,60 @@ export default function MyPage() {
               <button
                 key={post.post_id}
                 type="button"
-                style={styles.feedTile}
-                onClick={() => void openFeedPost(post)}
+                style={{
+                  ...styles.feedTile,
+                  ...(post.uploadStatus ? styles.feedTilePending : {}),
+                }}
+                onClick={() => {
+                  if (post.uploadStatus === "failed") return;
+                  void openFeedPost(post);
+                }}
+                disabled={post.uploadStatus === "uploading"}
               >
                 <img src={getFeedImageUrl(post)} alt="" style={styles.feedTileImage} />
-                <span style={styles.feedTileMeta}>
+                {post.uploadStatus ? (
+                  <span style={styles.feedUploadOverlay}>
+                    {post.uploadStatus === "uploading" ? (
+                      <>
+                        <span style={styles.feedUploadSpinner} />
+                        <span style={styles.feedUploadBadge}>Uploading...</span>
+                        <span style={styles.feedUploadPercent}>
+                          {post.uploadProgress ?? 0}%
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span style={styles.feedFailedBadge}>Failed</span>
+                        <span style={styles.feedUploadError}>
+                          {post.uploadError || "Upload failed."}
+                        </span>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          style={styles.feedRetryButton}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void retryFeedUpload(post);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void retryFeedUpload(post);
+                          }}
+                        >
+                          Retry
+                        </span>
+                      </>
+                    )}
+                  </span>
+                ) : null}
+                <span
+                  style={{
+                    ...styles.feedTileMeta,
+                    ...(post.uploadStatus ? styles.feedTileMetaHidden : {}),
+                  }}
+                >
                   {post.like_count} likes · {post.comment_count} comments
                 </span>
               </button>
@@ -906,7 +1088,8 @@ export default function MyPage() {
           caption={feedCaption}
           visibility={feedVisibility}
           isUploading={isFeedUploading}
-          disabled={!feedFile || feedPosts.length >= 100}
+          errorMessage={feedError}
+          disabled={!feedFile || feedPosts.length >= 100 || isFeedUploading}
           previewUrl={feedPreviewUrl}
           onBack={closeFeedComposer}
           onCaptionChange={setFeedCaption}
@@ -954,6 +1137,21 @@ export default function MyPage() {
           onCommentInputChange={setCommentInput}
           onCommentSubmit={() => void handleCommentSubmit()}
           onCommentDelete={(comment) => void handleCommentDelete(comment)}
+        />
+      ) : null}
+
+      {feedConfirm ? (
+        <FeedConfirmToast
+          title={
+            feedConfirm.type === "delete-post"
+              ? "Delete this feed?"
+              : "Delete this comment?"
+          }
+          message="This action cannot be undone."
+          confirmLabel="Delete"
+          busy={isFeedActionRunning}
+          onCancel={() => setFeedConfirm(null)}
+          onConfirm={confirmFeedAction}
         />
       ) : null}
     </div>
@@ -1264,12 +1462,67 @@ function AccountConfirmDialog({
   );
 }
 
+function FeedConfirmToast({
+  title,
+  message,
+  confirmLabel,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div style={styles.feedConfirmBackdrop} onClick={busy ? undefined : onCancel}>
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="feed-confirm-title"
+        style={styles.feedConfirmCard}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <strong id="feed-confirm-title" style={styles.feedConfirmTitle}>
+          {title}
+        </strong>
+        <p style={styles.feedConfirmMessage}>{message}</p>
+        <div style={styles.feedConfirmActions}>
+          <button
+            type="button"
+            style={styles.feedConfirmCancel}
+            disabled={busy}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            style={{
+              ...styles.feedConfirmDelete,
+              ...(busy ? styles.buttonDisabled : {}),
+            }}
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            {busy ? "Deleting..." : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CreatePostModal({
   profileImageUrl,
   userName,
   caption,
   visibility,
   isUploading,
+  errorMessage,
   disabled,
   previewUrl,
   onBack,
@@ -1282,6 +1535,7 @@ function CreatePostModal({
   caption: string;
   visibility: FeedVisibility;
   isUploading: boolean;
+  errorMessage: string;
   disabled: boolean;
   previewUrl: string;
   onBack: () => void;
@@ -1306,6 +1560,9 @@ function CreatePostModal({
             {isUploading ? "Sharing..." : "Share"}
           </button>
         </div>
+        {!isUploading && errorMessage ? (
+          <p style={styles.createPostErrorText}>{errorMessage}</p>
+        ) : null}
         <div style={styles.createPostFrame}>
           <div style={styles.createPostImagePane}>
             <img src={previewUrl} alt="" style={styles.createPostImage} />
@@ -1806,12 +2063,79 @@ const styles: Record<string, CSSProperties> = {
     aspectRatio: "1 / 1",
     cursor: "pointer",
   },
+  feedTilePending: {
+    cursor: "default",
+  },
   feedTileImage: {
     width: "100%",
     height: "100%",
     objectFit: "contain",
     display: "block",
     background: "#050608",
+  },
+  feedUploadOverlay: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 2,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    padding: 12,
+    background: "rgba(5,6,8,0.42)",
+    color: "#ffffff",
+    textAlign: "center",
+    backdropFilter: "blur(1.5px)",
+  },
+  feedUploadSpinner: {
+    width: 24,
+    height: 24,
+    borderRadius: "50%",
+    border: "3px solid rgba(255,255,255,0.36)",
+    borderTopColor: "#ffffff",
+    animation: "spin 820ms linear infinite",
+  },
+  feedUploadBadge: {
+    borderRadius: 999,
+    padding: "5px 10px",
+    background: "rgba(5,181,187,0.92)",
+    color: "#ffffff",
+    fontSize: "0.72rem",
+    fontWeight: 900,
+  },
+  feedUploadPercent: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: "0.78rem",
+    fontWeight: 900,
+  },
+  feedFailedBadge: {
+    borderRadius: 999,
+    padding: "5px 10px",
+    background: "rgba(220,38,38,0.94)",
+    color: "#ffffff",
+    fontSize: "0.72rem",
+    fontWeight: 900,
+  },
+  feedUploadError: {
+    maxWidth: "100%",
+    color: "rgba(255,255,255,0.92)",
+    fontSize: "0.72rem",
+    fontWeight: 800,
+    lineHeight: 1.25,
+    overflow: "hidden",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+  },
+  feedRetryButton: {
+    borderRadius: 999,
+    padding: "6px 12px",
+    background: "#ffffff",
+    color: "#dc2626",
+    fontSize: "0.72rem",
+    fontWeight: 900,
+    cursor: "pointer",
   },
   feedTileMeta: {
     position: "absolute",
@@ -1824,6 +2148,9 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "0.72rem",
     fontWeight: 900,
     textAlign: "left",
+  },
+  feedTileMetaHidden: {
+    display: "none",
   },
   emptyPanel: {
     padding: 28,
@@ -2173,6 +2500,15 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
+  createPostErrorText: {
+    margin: 0,
+    padding: "10px 18px",
+    color: "#fecaca",
+    background: "rgba(220,38,38,0.14)",
+    borderBottom: "1px solid rgba(220,38,38,0.2)",
+    fontSize: "0.82rem",
+    fontWeight: 800,
+  },
   createPostFrame: {
     minHeight: 0,
     display: "grid",
@@ -2323,6 +2659,63 @@ const styles: Record<string, CSSProperties> = {
   },
   accountConfirmDanger: {
     background: "#dc2626",
+  },
+  feedConfirmBackdrop: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 140,
+    display: "grid",
+    placeItems: "center",
+    padding: 24,
+    background: "rgba(15,23,42,0.34)",
+    backdropFilter: "blur(2px)",
+  },
+  feedConfirmCard: {
+    width: "min(336px, 100%)",
+    borderRadius: 20,
+    padding: 20,
+    background: "rgba(255,255,255,0.98)",
+    border: "1px solid rgba(255,255,255,0.82)",
+    boxShadow:
+      "0 28px 80px rgba(15,23,42,0.34), 0 10px 28px rgba(15,23,42,0.18)",
+    color: "var(--text-primary)",
+    textAlign: "center",
+  },
+  feedConfirmTitle: {
+    display: "block",
+    fontSize: "1.08rem",
+    lineHeight: 1.25,
+  },
+  feedConfirmMessage: {
+    margin: "8px 0 0",
+    color: "var(--neutral-700)",
+    fontSize: "0.88rem",
+    lineHeight: 1.45,
+  },
+  feedConfirmActions: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+    marginTop: 18,
+  },
+  feedConfirmCancel: {
+    minHeight: 42,
+    border: "1px solid var(--border-soft)",
+    borderRadius: 14,
+    background: "#ffffff",
+    color: "var(--text-secondary)",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  feedConfirmDelete: {
+    minHeight: 42,
+    border: "none",
+    borderRadius: 14,
+    background: "#dc2626",
+    color: "#ffffff",
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 12px 24px rgba(220,38,38,0.24)",
   },
   feedModal: {
     position: "relative",
@@ -2650,8 +3043,49 @@ function getProfileImageUrl(profile: UserProfile | null): string {
   );
 }
 
-function getFeedImageUrl(post: FeedPost): string {
-  return post.thumbnail_medium_url || post.thumbnail_small_url || post.original_url;
+function createOptimisticFeedPost({
+  postId,
+  file,
+  previewUrl,
+  caption,
+  visibility,
+}: {
+  postId: string;
+  file: File;
+  previewUrl: string;
+  caption: string;
+  visibility: FeedVisibility;
+}): FeedPostItem {
+  const now = new Date().toISOString();
+
+  return {
+    post_id: postId,
+    user_id: "",
+    visibility,
+    caption: caption || null,
+    original_url: previewUrl,
+    thumbnail_small_url: previewUrl,
+    thumbnail_medium_url: previewUrl,
+    like_count: 0,
+    comment_count: 0,
+    created_at: now,
+    updated_at: now,
+    uploadStatus: "uploading",
+    uploadProgress: 0,
+    uploadFile: file,
+    uploadPreviewUrl: previewUrl,
+    uploadCaption: caption,
+    uploadVisibility: visibility,
+  };
+}
+
+function getFeedImageUrl(post: FeedPostItem): string {
+  return (
+    post.uploadPreviewUrl ||
+    post.thumbnail_medium_url ||
+    post.thumbnail_small_url ||
+    post.original_url
+  );
 }
 
 async function isAnimatedFeedImage(file: File): Promise<boolean> {

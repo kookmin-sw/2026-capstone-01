@@ -42,6 +42,9 @@ export interface OnboardingData {
 
 // ─── Value → API key maps ────────────────────────────────────────────────────
 
+const MIN_AGE = 0;
+const MAX_AGE = 149;
+
 const TRAVEL_STYLE_KEY: Record<string, string> = {
   Activity: "activity",
   "Famous Attractions": "famous_attractions",
@@ -344,12 +347,20 @@ function TextInput({
   onChange,
   placeholder,
   type = "text",
+  min,
+  max,
+  inputMode,
+  error,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   type?: string;
+  min?: number;
+  max?: number;
+  inputMode?: "numeric" | "text" | "search" | "tel" | "url" | "email" | "decimal";
+  error?: string;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
@@ -369,11 +380,14 @@ function TextInput({
         name={label.toLowerCase().replace(/[^a-z0-9]+/g, "_")}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        min={min}
+        max={max}
+        inputMode={inputMode}
         style={{
           height: 48,
           borderRadius: 50,
-          border: `1px solid ${GRAY2}`,
-          background: GRAY1,
+          border: `1px solid ${error ? "#ef4444" : GRAY2}`,
+          background: error ? "rgba(239,68,68,0.06)" : GRAY1,
           outline: "none",
           padding: "0 18px",
           fontFamily: "Pretendard Variable,sans-serif",
@@ -381,6 +395,20 @@ function TextInput({
           color: GRAY6,
         }}
       />
+      {error ? (
+        <p
+          style={{
+            margin: "0 4px",
+            color: "#ef4444",
+            fontFamily: "Pretendard Variable,sans-serif",
+            fontSize: 12,
+            fontWeight: 700,
+            lineHeight: "16px",
+          }}
+        >
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -487,9 +515,20 @@ type PageProps = {
 };
 
 function Page1({ data, setData, onNext, onBack, email }: PageProps) {
+  const age = Number(data.age);
+  const hasAgeInput = data.age.trim().length > 0;
+  const isAgeValid =
+    hasAgeInput &&
+    Number.isInteger(age) &&
+    age >= MIN_AGE &&
+    age <= MAX_AGE;
+  const ageError =
+    hasAgeInput && !isAgeValid
+      ? `Age must be a number between ${MIN_AGE} and ${MAX_AGE}.`
+      : "";
   const canProceed =
     data.nickname.trim().length > 0 &&
-    data.age.trim().length > 0 &&
+    isAgeValid &&
     data.gender.length > 0;
 
   return (
@@ -504,7 +543,17 @@ function Page1({ data, setData, onNext, onBack, email }: PageProps) {
         </div>
         {email ? <ReadOnlyField label="Email" value={email} /> : null}
         <TextInput label="Nickname *" value={data.nickname} onChange={(v) => setData({ nickname: v })} placeholder="What should we call you?" />
-        <TextInput label="Age *" value={data.age} onChange={(v) => setData({ age: v })} placeholder="Enter your age" type="number" />
+        <TextInput
+          label="Age *"
+          value={data.age}
+          onChange={(value) => setData({ age: value })}
+          placeholder="Enter your age"
+          type="number"
+          min={MIN_AGE}
+          max={MAX_AGE}
+          inputMode="numeric"
+          error={ageError}
+        />
         <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
           <span style={{ fontFamily: "Pretendard Variable,sans-serif", fontWeight: 700, fontSize: 13, color: DARK_MINT }}>
             Gender *
@@ -767,6 +816,13 @@ export default function OnboardingPage() {
 
   async function handleComplete(): Promise<void> {
     if (!email) { setError("Email is missing. Please log in again."); return; }
+    const age = Number(data.age);
+    if (!Number.isInteger(age) || age < MIN_AGE || age > MAX_AGE) {
+      setError(`Age must be between ${MIN_AGE} and ${MAX_AGE}.`);
+      setDone(false);
+      setStep(0);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
