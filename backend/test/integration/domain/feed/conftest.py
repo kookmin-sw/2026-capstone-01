@@ -102,10 +102,10 @@ def process_feed_image_mock(monkeypatch):
 
 
 @pytest.fixture
-def feed_post_service(uow, feed_storage_mock, process_feed_image_mock):
-    """FeedPostService — 인박스 의존성 없음 (게시물/댓글 cascade 제거 정책)."""
+def feed_post_service(uow, feed_storage_mock, process_feed_image_mock, inbox_service):
+    """FeedPostService — `delete_post` 의 인박스 cascade (soft hide) 의존성 포함."""
     from app.domain.feed.service.feed_post import FeedPostService
-    return FeedPostService(uow=uow)
+    return FeedPostService(uow=uow, inbox_service=inbox_service)
 
 
 @pytest.fixture

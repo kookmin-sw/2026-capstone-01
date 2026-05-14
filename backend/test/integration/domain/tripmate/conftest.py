@@ -133,13 +133,17 @@ def tripmate_image_service(mongo_db, uow, tripmate_image_storage_mock) -> Tripma
 
 
 @pytest.fixture
-def tripmate_post_service(uow, tripmate_storage_mock, tripmate_image_mongo_repo_mock):
-    """TripmatePostService — RDB + S3/Mongo image mock."""
+def tripmate_post_service(
+    uow, tripmate_storage_mock, tripmate_image_mongo_repo_mock, inbox_service,
+):
+    """TripmatePostService — RDB + S3/Mongo image mock + 인박스 cascade 의존성."""
     from app.domain.tripmate.service.tripmate_post import TripmatePostService
     from app.domain.tripmate.service.tripmate_post_draft import TripmatePostDraftService
 
     draft_service = TripmatePostDraftService()
-    return TripmatePostService(uow=uow, draft_service=draft_service)
+    return TripmatePostService(
+        uow=uow, draft_service=draft_service, inbox_service=inbox_service,
+    )
 
 
 @pytest_asyncio.fixture

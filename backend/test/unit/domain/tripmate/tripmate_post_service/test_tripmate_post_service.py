@@ -314,8 +314,9 @@ class TestUpdatePost:
 class TestDeletePost:
     """Tests for TripmatePostService.delete_post.
 
-    인박스 cascade 는 정책상 하지 않음 — 좋아요 취소 인박스 보존 정책과 대칭. 본 service 가
-    inbox_service 를 의존하지 않는 것을 별도로 검증할 필요 없음 (의존 자체 없음).
+    인박스 cascade — 게시글 삭제 시 해당 게시글의 알림을 soft hide (display=False).
+    `_delete_post_tx` 커밋 후 `inbox_service.cascade_post_deleted` 호출을 검증한다.
+    실패 swallow / TargetType 매칭 등의 best-effort 동작은 InboxService 단위 테스트가 담당.
     """
 
     async def test_raises_when_not_found(self, service, post_repo_mock):
@@ -333,8 +334,10 @@ class TestDeletePost:
 
     async def test_deletes_post_and_cleans_images(
         self, service, post_repo_mock, image_repo_mock,
-        storage_mock, mongo_image_repo_mock,
+        storage_mock, mongo_image_repo_mock, inbox_service_mock,
     ):
+        from app.domain.notification.model.inbox import TargetType
+
         post = TripmatePostFactory.create(user_id="USER_a")
         post_repo_mock.find_by_id.return_value = post
         image_repo_mock.find_by_post_id.return_value = [
@@ -351,6 +354,22 @@ class TestDeletePost:
         mongo_image_repo_mock.delete_by_urls.assert_awaited_once_with(
             ["https://img/1", "https://img/2"],
         )
+        inbox_service_mock.cascade_post_deleted.assert_awaited_once_with(
+            target_type=TargetType.TRIPMATE_POST,
+            target_id=post.post_id,
+        )
+
+    async def test_no_cascade_when_unauthorized(
+        self, service, post_repo_mock, inbox_service_mock,
+    ):
+        """권한 실패 → 트랜잭션 raise → outer 가 cascade 호출 안 함 (RDB 롤백 race 회피 contract)."""
+        post = TripmatePostFactory.create(user_id="USER_owner")
+        post_repo_mock.find_by_id.return_value = post
+
+        with pytest.raises(PermissionError):
+            await service.delete_post(post_id=post.post_id, user_id="USER_other")
+
+        inbox_service_mock.cascade_post_deleted.assert_not_awaited()
 
     async def test_no_image_cleanup_when_no_images(
         self, service, post_repo_mock, image_repo_mock, storage_mock,
