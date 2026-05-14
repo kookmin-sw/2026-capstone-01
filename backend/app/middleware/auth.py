@@ -1,4 +1,4 @@
-from typing import Callable, Sequence
+from typing import Callable, Optional, Sequence, Tuple
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 import jwt
@@ -96,14 +96,17 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-class LoginCookieMiddleware(BaseHTTPMiddleware):
-    """로그인 쿠키 인증 미들웨어
+class LoginAuthMiddleware(BaseHTTPMiddleware):
+    """로그인 토큰 인증 미들웨어
 
-    JWT 로그인 쿠키를 검증하여 user_id를 request.state.user_id에 저장한다.
-    쿠키가 필요 없는 경로(로그인, docs 등)는 건너뛴다.
+    JWT 로그인 토큰을 검증해 user_id 를 request.state.user_id 에 저장한다.
+    토큰은 두 가지 경로로 받는다:
+
+        1. `X-Auth-Token: <jwt>` 헤더 — Capacitor/네이티브 앱 (쿠키 jar 미보유)
+        2. `utk` 쿠키 — 웹 브라우저 (httpOnly 쿠키 자동 첨부)
     """
 
-    # 쿠키 검증을 건너뛸 경로
+    # 인증을 건너뛸 경로
     EXCLUDE_PATHS: Sequence[str] = (
         "/health",
         "/health/deep",      # EXCLUDE_PATHS 는 정확 매칭이라 deep 도 별도 명시한다.
@@ -113,7 +116,7 @@ class LoginCookieMiddleware(BaseHTTPMiddleware):
         "/openapi.json",
     )
 
-    # 쿠키 검증을 건너뛸 경로 prefix
+    # 인증을 건너뛸 경로 prefix
     EXCLUDE_PREFIXES: Sequence[str] = (
         "/api/auth/login",
         "/api/public",  # 외부 사용자 공개 endpoint (share 토큰 등)
@@ -122,7 +125,7 @@ class LoginCookieMiddleware(BaseHTTPMiddleware):
 
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
-        self.logger = get_logger("middleware.cookie_auth")
+        self.logger = get_logger("middleware.login_auth")
 
 
     def _is_excluded(self, path: str) -> bool:
@@ -132,25 +135,46 @@ class LoginCookieMiddleware(BaseHTTPMiddleware):
         return any(path.startswith(prefix) for prefix in self.EXCLUDE_PREFIXES)
 
 
+    def _extract_token(self, request: Request) -> Tuple[Optional[str], Optional[str]]:
+        """X-Auth-Token 헤더 → 쿠키 순으로 JWT 를 찾는다.
+
+        커스텀 헤더라 별도 스킴 (Bearer 등) 없이 raw JWT 값을 그대로 담는다.
+
+        Returns:
+            (token, source) — source 는 "header" / "cookie" / None.
+        """
+        header_token = request.headers.get("X-Auth-Token")
+        if header_token:
+            return header_token, "header"
+
+        cookie_token = request.cookies.get(settings.USER_LOGIN_COOKIE_NAME)
+        if cookie_token:
+            return cookie_token, "cookie"
+
+        return None, None
+
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if self._is_excluded(request.url.path):
             return await call_next(request)
 
         request_id = getattr(request.state, "request_id", "unknown")
-        cookie_logger = self.logger.bind(
+        auth_logger = self.logger.bind(
             request_id=request_id,
             method=request.method,
             path=request.url.path,
         )
 
-        token = request.cookies.get(settings.USER_LOGIN_COOKIE_NAME)
+        token, source = self._extract_token(request)
         if token is None:
-            AUTH_FAILURES.labels(kind="cookie_missing").inc()
-            cookie_logger.warning("로그인 쿠키 없음")
+            AUTH_FAILURES.labels(kind="login_missing").inc()
+            auth_logger.warning("로그인 토큰 없음 (X-Auth-Token 헤더 / 쿠키 모두 부재)")
             return JSONResponse(
                 status_code=401,
-                content={"detail": "로그인 쿠키가 없습니다."},
+                content={"detail": "로그인이 필요합니다."},
             )
+
+        auth_logger = auth_logger.bind(source=source)
 
         try:
             payload = jwt.decode(
@@ -160,29 +184,29 @@ class LoginCookieMiddleware(BaseHTTPMiddleware):
             )
             user_id = payload.get("user_id")
             if user_id is None:
-                AUTH_FAILURES.labels(kind="cookie_no_user_id").inc()
-                cookie_logger.warning("쿠키에 user_id 없음")
+                AUTH_FAILURES.labels(kind="login_no_user_id").inc()
+                auth_logger.warning("토큰에 user_id 없음")
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "유효하지 않은 토큰입니다."},
                 )
         except jwt.ExpiredSignatureError:
-            AUTH_FAILURES.labels(kind="cookie_expired").inc()
-            cookie_logger.warning("로그인 쿠키 만료")
+            AUTH_FAILURES.labels(kind="login_expired").inc()
+            auth_logger.warning("로그인 토큰 만료")
             return JSONResponse(
                 status_code=401,
                 content={"detail": "토큰이 만료되었습니다."},
             )
         except jwt.InvalidTokenError:
-            AUTH_FAILURES.labels(kind="cookie_invalid").inc()
-            cookie_logger.warning("유효하지 않은 로그인 쿠키")
+            AUTH_FAILURES.labels(kind="login_invalid").inc()
+            auth_logger.warning("유효하지 않은 로그인 토큰")
             return JSONResponse(
                 status_code=401,
                 content={"detail": "유효하지 않은 토큰입니다."},
             )
 
         request.state.user_id = user_id
-        cookie_logger.debug("쿠키 인증 성공: {}", user_id)
+        auth_logger.debug("로그인 인증 성공: {}", user_id)
         return await call_next(request)
 
 
