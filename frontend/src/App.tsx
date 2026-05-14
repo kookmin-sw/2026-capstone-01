@@ -1,8 +1,12 @@
 ﻿import type { CSSProperties } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import type { NavigateFunction } from "react-router-dom";
+import { App as CapacitorApp } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
+import { Capacitor } from "@capacitor/core";
+import { removeToken, saveToken } from "./utils/tokens";
 import AppShell from "./components/AppShell";
 import LoginPage from "./pages/LoginPage";
 import OnboardingPage from "./pages/OnboardingPage";
@@ -103,6 +107,18 @@ function AiPlanResultRoute() {
 function ManualPlanRoute() {
   const navigate = useNavigate();
   return <ManualPlanPage onBack={() => navigate("/plan")} />;
+}
+
+function RouteScrollReset() {
+  const location = useLocation();
+
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [location.pathname]);
+
+  return null;
 }
 
 function getToastRoot(): HTMLElement {
@@ -481,6 +497,132 @@ function AppToast() {
   );
 }
 
+/**
+ * Handles the JWT deep link callback from the native Google OAuth flow.
+ * The backend redirects to krip://auth/callback?utk=...&status=...&email=...&name=...
+ * after the user authenticates. This component captures that URL, saves the token,
+ * and navigates to the appropriate screen.
+ */
+function AppUrlOpenHandler() {
+  const navigate = useNavigate();
+  const handledUrlRef = useRef("");
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    async function handleAppUrlOpen(url?: string): Promise<void> {
+      if (!url || handledUrlRef.current === url) return;
+      handledUrlRef.current = url;
+
+      console.info("[auth] appUrlOpen received url", url);
+      if (!url.startsWith("krip://")) return;
+
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return;
+      }
+
+      // Only handle krip://auth/callback
+      if (parsed.hostname !== "auth" || parsed.pathname !== "/callback") return;
+
+      const utk = parsed.searchParams.get("utk") ?? "";
+      const status = parsed.searchParams.get("status") ?? "";
+      const email = parsed.searchParams.get("email") ?? "";
+      const name = parsed.searchParams.get("name") ?? "";
+
+      console.info(
+        "[auth] appUrlOpen parsed",
+        JSON.stringify({
+          status,
+          hasUtk: Boolean(utk),
+          hasEmail: Boolean(email),
+          hasName: Boolean(name),
+          tokenPrefix: utk ? utk.slice(0, 10) : null,
+        })
+      );
+
+      try {
+        await Browser.close();
+      } catch {
+        // The browser may already be closed by the OS deep link handoff.
+      }
+
+      if (!utk) {
+        removeToken();
+        navigate("/login", { replace: true });
+        return;
+      }
+
+      saveToken(utk);
+      console.info(
+        "[auth] token saved",
+        JSON.stringify({
+          hasSavedToken: true,
+          tokenPrefix: utk.slice(0, 10),
+        })
+      );
+
+      if (status === "complete") {
+        navigate("/home", { replace: true });
+      } else if (status === "new" || status === "in_progress") {
+        navigate("/register", { state: { email, name }, replace: true });
+      } else if (status === "withdrawal_pending") {
+        navigate("/withdrawal-pending", { replace: true });
+      }
+    }
+
+    const listenerPromise = CapacitorApp.addListener("appUrlOpen", (data) => {
+      void handleAppUrlOpen(data.url);
+    });
+    void CapacitorApp.getLaunchUrl().then((data) => handleAppUrlOpen(data?.url));
+
+    return () => {
+      void listenerPromise.then((handle) => handle.remove());
+    };
+  }, [navigate]);
+
+  return null;
+}
+
+/**
+ * Listens for 403 Forbidden API responses and navigates to the registration
+ * screen. A 403 means the user is authenticated but has not completed
+ * registration (incomplete profile).
+ */
+function ForbiddenRedirect() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const locationRef = useRef(location);
+
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
+
+  useEffect(() => {
+    function handleForbidden(): void {
+      const currentLocation = locationRef.current;
+      // Avoid redirect loops on auth-free paths
+      if (
+        currentLocation.pathname === "/register" ||
+        isAuthFreePath(currentLocation.pathname)
+      ) {
+        return;
+      }
+      navigate("/register", { replace: true });
+    }
+
+    window.addEventListener("krip:forbidden", handleForbidden);
+
+    return () => {
+      window.removeEventListener("krip:forbidden", handleForbidden);
+    };
+  }, [navigate]);
+
+  return null;
+}
+
 function WithdrawalPendingRedirect() {
   const navigate = useNavigate();
 
@@ -559,14 +701,17 @@ export default function App() {
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/my" element={<MyPage />} />
             <Route path="/profile/:id" element={<UserFeedPage />} />
+            <Route path="/spots/:id" element={<PlaceholderPage />} />
           </Route>
           <Route path="/share/plan/:shareToken" element={<SharedPlanPage />} />
           <Route path="/chat/:id" element={<ChatRoomPage />} />
-          <Route path="/spots/:id" element={<PlaceholderPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <AppUrlOpenHandler />
+        <ForbiddenRedirect />
         <WithdrawalPendingRedirect />
         <UnauthorizedRedirect />
+        <RouteScrollReset />
         <PageGestureController />
         <ActivityNotificationToastWatcher />
         <AppToast />

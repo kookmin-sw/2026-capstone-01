@@ -9,8 +9,11 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { Capacitor } from "@capacitor/core";
 import { getMyProfile } from "../../api/auth";
 import { getFriendDetail } from "../../api/friend";
+import { readAccessToken } from "../../api/client";
+import { removeToken } from "../../utils/tokens";
 import {
   createDirectChatRoom,
   getChatMessages,
@@ -803,11 +806,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         case "session_revoked":
           if (event.session_id === sessionIdRef.current) {
             shouldReconnectRef.current = false;
+            removeToken();
+            setConnectionState("closed");
             navigate("/login", { replace: true });
           }
           return;
         case "auth_expired":
           shouldReconnectRef.current = false;
+          removeToken();
+          setConnectionState("closed");
           navigate("/login", { replace: true });
           return;
         case "server_error":
@@ -882,7 +889,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     function connect(): void {
       setConnectionState(reconnectAttemptRef.current > 0 ? "reconnecting" : "connecting");
-      const ws = new WebSocket(getChatWebSocketUrl());
+      const token = readAccessToken();
+      const ws =
+        Capacitor.isNativePlatform() && token
+          ? new WebSocket(getChatWebSocketUrl(), ["krip.chat.v1", `auth.${token}`])
+          : new WebSocket(getChatWebSocketUrl());
       socketRef.current = ws;
 
       ws.onopen = () => {
@@ -909,10 +920,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (socketEvent.code === 4001 || socketEvent.code === 4403) {
+        if (socketEvent.code === 4001) {
           shouldReconnectRef.current = false;
+          removeToken();
           setConnectionState("closed");
           navigate("/login", { replace: true });
+          return;
+        }
+
+        if (socketEvent.code === 4019) {
+          shouldReconnectRef.current = false;
+          setConnectionState("closed");
+          navigate("/register", { replace: true });
+          return;
+        }
+
+        if (socketEvent.code === 4403) {
+          shouldReconnectRef.current = false;
+          setConnectionState("closed");
+          reportChatNetworkError({
+            action: "websocket_origin_rejected",
+            detail: "WebSocket origin rejected.",
+            extra: socketEvent.reason,
+          });
           return;
         }
 
