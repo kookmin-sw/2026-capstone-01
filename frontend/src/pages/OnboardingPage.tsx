@@ -64,7 +64,6 @@ const FOOD_KEY: Record<string, string> = {
   Vegetarian: "food_vegetarian",
   Foodie: "foodie",
   "Cafe Lover": "cafe_lover",
-  "No Preference": "food_no_preference",
 };
 
 const SCHEDULE_KEY: Record<string, string> = {
@@ -88,8 +87,6 @@ const TRANSPORT_KEY: Record<string, string> = {
   "Public Transit": "transport_public",
   Car: "transport_car",
   Taxi: "transport_taxi",
-  Walking: "transport_walking",
-  Bicycle: "transport_bicycle",
 };
 
 const ACTIVE_TIME_KEY: Record<string, string> = {
@@ -116,21 +113,32 @@ const PLANNING_KEY: Record<string, string> = {
 };
 
 function mapArray(values: string[], map: Record<string, string>): string[] {
-  return values.map((v) => map[v] ?? v);
+  const allowed = new Set(Object.values(map));
+  return values
+    .map((value) => map[value] ?? value.trim().toLowerCase())
+    .filter((value) => allowed.has(value));
 }
 
 function toOnboardingPayload(data: OnboardingData) {
   return {
-    travel_styles: mapArray(data.travelStyles, TRAVEL_STYLE_KEY),
-    food_preferences: mapArray(data.foodPrefs, FOOD_KEY),
-    density_preference: SCHEDULE_KEY[data.schedule] ?? data.schedule,
-    budget_preference: BUDGET_KEY[data.budget] ?? data.budget,
-    walking_preference: WALKING_KEY[data.walking] ?? data.walking,
-    transport_preferences: mapArray(data.transport, TRANSPORT_KEY),
-    companion_preference: COMPANION_KEY[data.companion] ?? data.companion,
-    time_preferences: mapArray(data.activeTime, ACTIVE_TIME_KEY),
-    communication_preference: COMMUNICATION_KEY[data.communication] ?? data.communication,
-    planning_preference: PLANNING_KEY[data.planning] ?? data.planning,
+    travel_styles: Array.from(
+      new Set(
+        [
+          ...mapArray(data.travelStyles, TRAVEL_STYLE_KEY),
+          ...mapArray(data.foodPrefs, FOOD_KEY),
+          SCHEDULE_KEY[data.schedule] ?? data.schedule,
+          BUDGET_KEY[data.budget] ?? data.budget,
+          WALKING_KEY[data.walking] ?? data.walking,
+          ...mapArray(data.transport, TRANSPORT_KEY),
+          COMPANION_KEY[data.companion] ?? data.companion,
+          ...mapArray(data.activeTime, ACTIVE_TIME_KEY),
+          COMMUNICATION_KEY[data.communication] ?? data.communication,
+          PLANNING_KEY[data.planning] ?? data.planning,
+        ]
+          .map((value) => value.trim().toLowerCase())
+          .filter(Boolean)
+      )
+    ),
   };
 }
 
@@ -545,7 +553,7 @@ function Page2({ data, setData, onNext, onBack }: PageProps) {
   );
 }
 
-const FOOD_PREFS = ["Halal", "Vegetarian", "Foodie", "Cafe Lover", "No Preference"];
+const FOOD_PREFS = ["Halal", "Vegetarian", "Foodie", "Cafe Lover"];
 const WALKING_OPTS = ["Low", "Medium", "High"];
 const BUDGET_OPTS = [
   { title: "Saving", sub: "$40-$70 / day" },
@@ -598,7 +606,7 @@ function Page3({ data, setData, onNext, onBack }: PageProps) {
 }
 
 const SCHEDULE_OPTS = ["Relaxed", "Packed"];
-const TRANSPORT_OPTS = ["Public Transit", "Car", "Taxi", "Walking", "Bicycle"];
+const TRANSPORT_OPTS = ["Public Transit", "Car", "Taxi"];
 const ACTIVE_TIME_OPTS = ["Daytime", "Nightlife", "Night View"];
 
 function Page4({ data, setData, onNext, onBack }: PageProps) {

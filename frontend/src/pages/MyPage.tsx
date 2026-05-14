@@ -650,12 +650,22 @@ export default function MyPage() {
 
     setIsSavingPreferences(true);
     try {
-      const updatedProfile = await updateMyProfile(preferenceDraft);
+      const normalizedPreferences = sanitizePreferencePayload(preferenceDraft);
+      const updatePayload = toTravelStylesOnlyPayload(normalizedPreferences);
+      const updatedProfile = await updateMyProfile(updatePayload);
+      const refreshedProfile = await getMyProfile();
+      const nextProfile = {
+        ...(profile ?? {}),
+        ...(updatedProfile ?? {}),
+        ...(refreshedProfile ?? {}),
+        ...updatePayload,
+      } as UserProfile;
+      const nextPreferences = toPreferencePayload(nextProfile);
       setProfile((current) => ({
         ...(current ?? {}),
-        ...(updatedProfile ?? {}),
-        ...preferenceDraft,
+        ...nextProfile,
       }) as UserProfile);
+      setPreferenceDraft(nextPreferences);
       setIsPreferenceEditing(false);
       showAppToast({ title: "Preferences saved", variant: "success" });
     } catch (error) {
@@ -2701,17 +2711,113 @@ function bytesToAscii(bytes: Uint8Array, start: number, end: number): string {
 function toPreferencePayload(profile: UserProfile | null): ProfilePreferencesPayload {
   if (!profile) return EMPTY_PREFERENCES;
 
+  return splitTravelStylesIntoPreferenceGroups([
+    ...(profile.travel_styles ?? []),
+  ]);
+}
+
+const ALLOWED_TRAVEL_STYLE_KEYS = new Set(TRAVEL_STYLE_OPTIONS.map((item) => item.key));
+const ALLOWED_FOOD_KEYS = new Set(FOOD_OPTIONS.map((item) => item.key));
+const ALLOWED_DENSITY_KEYS = new Set(DENSITY_OPTIONS.map((item) => item.key));
+const ALLOWED_BUDGET_KEYS = new Set(BUDGET_OPTIONS.map((item) => item.key));
+const ALLOWED_WALKING_KEYS = new Set(WALKING_OPTIONS.map((item) => item.key));
+const ALLOWED_TRANSPORT_KEYS = new Set(TRANSPORT_OPTIONS.map((item) => item.key));
+const ALLOWED_COMPANION_KEYS = new Set(COMPANION_OPTIONS.map((item) => item.key));
+const ALLOWED_TIME_KEYS = new Set(TIME_OPTIONS.map((item) => item.key));
+const ALLOWED_COMMUNICATION_KEYS = new Set(COMMUNICATION_OPTIONS.map((item) => item.key));
+const ALLOWED_PLANNING_KEYS = new Set(PLANNING_OPTIONS.map((item) => item.key));
+
+function normalizePreferenceToken(value?: string | null): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizePreferenceList(
+  values: string[] | undefined,
+  allowed: Set<string>
+): string[] {
+  return Array.from(
+    new Set(
+      (values ?? [])
+        .map(normalizePreferenceToken)
+        .filter((item) => allowed.has(item))
+    )
+  );
+}
+
+function normalizePreferenceValue(
+  value: string | undefined,
+  allowed: Set<string>
+): string {
+  const normalized = normalizePreferenceToken(value);
+  return allowed.has(normalized) ? normalized : "";
+}
+
+function sanitizePreferencePayload(
+  value: ProfilePreferencesPayload
+): ProfilePreferencesPayload {
   return {
-    travel_styles: profile.travel_styles ?? [],
-    food_preferences: profile.food_preferences ?? [],
-    density_preference: profile.density_preference ?? "",
-    budget_preference: profile.budget_preference ?? "",
-    walking_preference: profile.walking_preference ?? "",
-    transport_preferences: profile.transport_preferences ?? [],
-    companion_preference: profile.companion_preference ?? "",
-    time_preferences: profile.time_preferences ?? [],
-    communication_preference: profile.communication_preference ?? "",
-    planning_preference: profile.planning_preference ?? "",
+    travel_styles: normalizePreferenceList(value.travel_styles, ALLOWED_TRAVEL_STYLE_KEYS),
+    food_preferences: normalizePreferenceList(value.food_preferences, ALLOWED_FOOD_KEYS),
+    density_preference: normalizePreferenceValue(value.density_preference, ALLOWED_DENSITY_KEYS),
+    budget_preference: normalizePreferenceValue(value.budget_preference, ALLOWED_BUDGET_KEYS),
+    walking_preference: normalizePreferenceValue(value.walking_preference, ALLOWED_WALKING_KEYS),
+    transport_preferences: normalizePreferenceList(value.transport_preferences, ALLOWED_TRANSPORT_KEYS),
+    companion_preference: normalizePreferenceValue(value.companion_preference, ALLOWED_COMPANION_KEYS),
+    time_preferences: normalizePreferenceList(value.time_preferences, ALLOWED_TIME_KEYS),
+    communication_preference: normalizePreferenceValue(
+      value.communication_preference,
+      ALLOWED_COMMUNICATION_KEYS
+    ),
+    planning_preference: normalizePreferenceValue(value.planning_preference, ALLOWED_PLANNING_KEYS),
+  };
+}
+
+function splitTravelStylesIntoPreferenceGroups(values: string[]): ProfilePreferencesPayload {
+  const normalized = Array.from(
+    new Set(values.map(normalizePreferenceToken).filter(Boolean))
+  );
+
+  const findOne = (allowed: Set<string>) =>
+    normalized.find((item) => allowed.has(item)) ?? "";
+
+  return {
+    travel_styles: normalized.filter((item) => ALLOWED_TRAVEL_STYLE_KEYS.has(item)),
+    food_preferences: normalized.filter((item) => ALLOWED_FOOD_KEYS.has(item)),
+    density_preference: findOne(ALLOWED_DENSITY_KEYS),
+    budget_preference: findOne(ALLOWED_BUDGET_KEYS),
+    walking_preference: findOne(ALLOWED_WALKING_KEYS),
+    transport_preferences: normalized.filter((item) => ALLOWED_TRANSPORT_KEYS.has(item)),
+    companion_preference: findOne(ALLOWED_COMPANION_KEYS),
+    time_preferences: normalized.filter((item) => ALLOWED_TIME_KEYS.has(item)),
+    communication_preference: findOne(ALLOWED_COMMUNICATION_KEYS),
+    planning_preference: findOne(ALLOWED_PLANNING_KEYS),
+  };
+}
+
+function toTravelStylesOnlyPayload(
+  value: ProfilePreferencesPayload
+): Pick<ProfilePreferencesPayload, "travel_styles"> {
+  const normalized = sanitizePreferencePayload(value);
+
+  return {
+    travel_styles: Array.from(
+      new Set(
+        [
+          ...normalized.travel_styles,
+          ...(normalized.food_preferences ?? []),
+          normalized.density_preference,
+          normalized.budget_preference,
+          normalized.walking_preference,
+          ...(normalized.transport_preferences ?? []),
+          normalized.companion_preference,
+          ...(normalized.time_preferences ?? []),
+          normalized.communication_preference,
+          normalized.planning_preference,
+        ]
+          .map(normalizePreferenceToken)
+          .filter(Boolean)
+      )
+    ),
   };
 }
 
