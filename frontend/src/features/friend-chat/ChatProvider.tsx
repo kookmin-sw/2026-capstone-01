@@ -74,7 +74,7 @@ interface ChatContextValue {
   messagesByRoom: Record<string, ChatMessage[]>;
   roomPageStateByRoom: Record<string, RoomPageState>;
   refreshRooms: () => Promise<void>;
-  openDirectChat: (userId: string) => Promise<ChatRoom>;
+  openDirectChat: (userId: string) => ChatRoom | null;
   ensureRoom: (roomId: string) => Promise<ChatRoom>;
   setActiveRoomId: (roomId: string) => void;
   loadInitialMessages: (roomId: string) => Promise<void>;
@@ -191,7 +191,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setRoomsLoading(true);
     try {
       const response = await getChatRooms();
-      setRooms(await enrichRoomProfileImages(response.items));
+      const visibleRooms = response.items.filter(isVisibleChatRoom);
+      setRooms(await enrichRoomProfileImages(visibleRooms));
     } finally {
       setRoomsLoading(false);
     }
@@ -459,11 +460,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return room;
   }, [enrichRoomProfileImages]);
 
-  const openDirectChat = useCallback(async (userId: string): Promise<ChatRoom> => {
-    const [room] = await enrichRoomProfileImages([await createDirectChatRoom(userId)]);
-    setRooms((current) => moveRoomToTop(upsertRoom(current, room), room.chat_room_id));
-    return room;
-  }, [enrichRoomProfileImages]);
+  // Returns an existing real direct-chat room for the given peer, or null if none exists yet.
+  // Rooms with no last_message are treated as non-existent so draft mode is preserved.
+  // Room creation is handled lazily in ChatRoomPage when the first message is sent.
+  const openDirectChat = useCallback((userId: string): ChatRoom | null => {
+    return (
+      roomsRef.current.find(
+        (room) =>
+          room.type === "direct" &&
+          room.peer?.user_id === userId &&
+          Boolean(room.last_message)
+      ) ?? null
+    );
+  }, []);
 
   const sendMessagePayload = useCallback(
     (clientMsgId: string): void => {
@@ -614,6 +623,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     async (roomId: string): Promise<void> => {
       try {
         const [room] = await enrichRoomProfileImages([await getChatRoom(roomId)]);
+        // Skip empty direct rooms — they should not appear in the room list
+        if (!isVisibleChatRoom(room)) return;
         setRooms((current) => moveRoomToTop(upsertRoom(current, room), room.chat_room_id));
       } catch {
         reportChatNetworkError({
@@ -1275,6 +1286,13 @@ function clearRetryTimer(
 
   window.clearTimeout(timerId);
   delete retryTimers[clientMsgId];
+}
+
+// A direct room with no last_message is considered a ghost room (created but never used).
+// These should not appear in the room list; they are hidden until the first message is sent.
+function isVisibleChatRoom(room: ChatRoom): boolean {
+  if (room.type !== "direct") return true;
+  return Boolean(room.last_message);
 }
 
 function isPermanentSendFailure(reason: string): boolean {

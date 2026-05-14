@@ -2,15 +2,18 @@ import type { CSSProperties } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
+  createDirectChatRoom,
   getChatRoomMembers,
   getInvitableChatRoomFriends,
   inviteChatRoomMembers,
   leaveChatRoom,
   type ChatMessage,
+  type ChatPeer,
   type ChatRoom,
   type ChatUserProfile,
 } from "../../api/chat";
 import { getMyProfile } from "../../api/auth/auth";
+import { getFriendDetail } from "../../api/friend";
 import ConfirmToast from "../../components/ConfirmToast";
 import FeedPopup from "../../components/FeedPopup";
 import { useChat } from "./ChatProvider";
@@ -29,6 +32,7 @@ export default function ChatRoomPage() {
   const scrollSnapshotRef = useRef<{ height: number; top: number } | null>(null);
   const latestMessageKeyRef = useRef("");
   const {
+    rooms,
     connectionState,
     currentUserId,
     messagesByRoom,
@@ -42,6 +46,10 @@ export default function ChatRoomPage() {
     sendRead,
   } = useChat();
   const [room, setRoom] = useState<ChatRoom | null>(null);
+  // Draft state: set when the user opens a 1:1 chat to a peer with no existing room yet.
+  // The actual room is created on the backend only when the first message is sent.
+  const [draftDirectUserId, setDraftDirectUserId] = useState<string | null>(null);
+  const [draftPeer, setDraftPeer] = useState<ChatPeer | null>(null);
   const [input, setInput] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [members, setMembers] = useState<ChatUserProfile[]>([]);
@@ -70,13 +78,23 @@ export default function ChatRoomPage() {
     ? roomPageStateByRoom[roomId]
     : undefined;
   const roomName = useMemo(() => {
-    if (!room) return "Chat";
-    if (room.type === "direct") return room.peer?.user_name || "Deleted User";
-    return room.title || "Group Chat";
-  }, [room]);
+    if (room?.type === "direct") return room.peer?.user_name || "Deleted User";
+    if (room?.type === "group") return room.title || "Group Chat";
+    if (draftPeer) return draftPeer.user_name || "Chat";
+    return "Chat";
+  }, [room, draftPeer]);
   const roomProfileImageUrl =
-    room?.type === "direct" ? room.peer?.profile_image_url || DEFAULT_PROFILE_IMAGE_URL : DEFAULT_PROFILE_IMAGE_URL;
-  const roomProfileUserId = room?.type === "direct" ? room.peer?.user_id || "" : "";
+    room?.type === "direct"
+      ? room.peer?.profile_image_url || DEFAULT_PROFILE_IMAGE_URL
+      : draftPeer
+      ? draftPeer.profile_image_url || DEFAULT_PROFILE_IMAGE_URL
+      : DEFAULT_PROFILE_IMAGE_URL;
+  const roomProfileUserId =
+    room?.type === "direct"
+      ? room.peer?.user_id || ""
+      : draftPeer
+      ? draftPeer.user_id || ""
+      : "";
   const memberProfilesById = useMemo(() => {
     const profiles = new Map<string, ChatUserProfile>();
     members.forEach((member) => profiles.set(member.user_id, member));
@@ -96,14 +114,46 @@ export default function ChatRoomPage() {
     async function loadRoom(): Promise<void> {
       if (!id) return;
 
-      try {
-        const nextRoom = id.startsWith("USER_")
-          ? await openDirectChat(id)
-          : await ensureRoom(id);
-
+      if (id.startsWith("USER_")) {
+        // Check if a real direct room already exists with this peer
+        const existingRoom = openDirectChat(id);
         if (cancelled) return;
 
+        if (existingRoom) {
+          setRoom(existingRoom);
+          setDraftDirectUserId(null);
+          setDraftPeer(null);
+          navigate(`/chat/${existingRoom.chat_room_id}`, { replace: true });
+        } else {
+          // No room yet — enter draft mode.
+          // The actual room is created on the backend when the first message is sent.
+          setRoom(null);
+          setDraftDirectUserId(id);
+          try {
+            const detail = await getFriendDetail(id);
+            if (!cancelled) {
+              setDraftPeer({
+                user_id: detail.user_id,
+                user_name: detail.user_name,
+                profile_image_url: detail.profile_image_url,
+              });
+            }
+          } catch {
+            if (!cancelled) {
+              setDraftPeer({ user_id: id, user_name: null, profile_image_url: null });
+            }
+          }
+        }
+        return;
+      }
+
+      // Real room ID — fetch or find from cache
+      try {
+        const nextRoom = await ensureRoom(id);
+        if (cancelled) return;
         setRoom(nextRoom);
+        setDraftDirectUserId(null);
+        setDraftPeer(null);
         if (id !== nextRoom.chat_room_id) {
           navigate(`/chat/${nextRoom.chat_room_id}`, { replace: true });
         }
@@ -120,6 +170,19 @@ export default function ChatRoomPage() {
       cancelled = true;
     };
   }, [ensureRoom, id, navigate, openDirectChat]);
+
+  // When rooms list updates while in draft mode, check if the room was created elsewhere
+  // (e.g., the peer sent the first message) and transition to the real room if found.
+  useEffect(() => {
+    if (!draftDirectUserId) return;
+    const existingRoom = openDirectChat(draftDirectUserId);
+    if (existingRoom) {
+      setRoom(existingRoom);
+      setDraftDirectUserId(null);
+      setDraftPeer(null);
+      navigate(`/chat/${existingRoom.chat_room_id}`, { replace: true });
+    }
+  }, [rooms, draftDirectUserId, openDirectChat, navigate]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -148,7 +211,43 @@ export default function ChatRoomPage() {
     let cancelled = false;
 
     async function loadMembers(): Promise<void> {
-      if (!roomId || !room) {
+      if (!room) {
+        // Draft mode: show the peer and self without any room API call
+        if (draftPeer?.user_id) {
+          const peerMember: ChatUserProfile = {
+            user_id: draftPeer.user_id,
+            user_name: draftPeer.user_name || "",
+            profile_image_url: draftPeer.profile_image_url,
+          };
+          if (!cancelled) setMembers([peerMember]);
+          setMembersLoading(true);
+          try {
+            const myProfile = await getMyProfile();
+            if (!cancelled && myProfile) {
+              const selfMember: ChatUserProfile = {
+                user_id: myProfile.user_id || currentUserId || "",
+                user_name: myProfile.user_name || "Me",
+                profile_image_url:
+                  myProfile.profile_image_url ||
+                  myProfile.profileImageUrl ||
+                  myProfile.image_url ||
+                  myProfile.imageUrl ||
+                  DEFAULT_PROFILE_IMAGE_URL,
+              };
+              setMembers([peerMember, selfMember]);
+            }
+          } catch {
+            // Non-fatal: peer is already shown
+          } finally {
+            if (!cancelled) setMembersLoading(false);
+          }
+        } else {
+          if (!cancelled) setMembers([]);
+        }
+        return;
+      }
+
+      if (!roomId) {
         setMembers([]);
         return;
       }
@@ -212,7 +311,7 @@ export default function ChatRoomPage() {
     return () => {
       cancelled = true;
     };
-  }, [room, roomId]);
+  }, [room, roomId, draftPeer, currentUserId]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -311,12 +410,36 @@ export default function ChatRoomPage() {
 
   function handleSend(): void {
     const content = input.trim();
-    if (!content || !roomId || content.length > 2000) return;
+    if (!content || content.length > 2000) return;
+
+    // Draft mode: create the room on the backend first, then send
+    if (draftDirectUserId) {
+      void handleSendToNewRoom(draftDirectUserId, content);
+      return;
+    }
+
+    if (!roomId) return;
 
     shouldForceScrollToBottomRef.current = true;
     setIncomingMessageNotice(null);
     sendMessage(roomId, content);
     setInput("");
+  }
+
+  async function handleSendToNewRoom(userId: string, content: string): Promise<void> {
+    try {
+      const newRoom = await createDirectChatRoom(userId);
+      setDraftDirectUserId(null);
+      setDraftPeer(null);
+      setInput("");
+      shouldForceScrollToBottomRef.current = true;
+      setIncomingMessageNotice(null);
+      // Send the message using the now-real room ID, then navigate there
+      sendMessage(newRoom.chat_room_id, content);
+      navigate(`/chat/${newRoom.chat_room_id}`, { replace: true });
+    } catch (error) {
+      setErrorMessage(toErrorMessage(error, "Failed to create chat room."));
+    }
   }
 
   async function openInvitePanel(): Promise<void> {
