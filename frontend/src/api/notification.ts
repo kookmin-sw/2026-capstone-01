@@ -27,9 +27,18 @@ export interface NotificationUnreadCountResponse {
   unread_count: number;
 }
 
+const HIDDEN_NOTIFICATION_STORAGE_KEY = "krip-hidden-notification-ids";
+const HIDDEN_NOTIFICATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+type HiddenNotificationRecord = {
+  hiddenAt: number;
+};
+
 type RawInboxNotification = Partial<InboxNotification> & {
   id?: string;
   _id?: string;
+  inbox_item_id?: string;
+  inboxItemId?: string;
   notificationId?: string;
 };
 
@@ -53,7 +62,9 @@ export async function getNotificationInbox(
       : [];
 
   return {
-    notifications: rawNotifications.map(normalizeInboxNotification),
+    notifications: rawNotifications
+      .map(normalizeInboxNotification)
+      .filter((notification) => !isNotificationHidden(notification.notification_id)),
     next_cursor: data.next_cursor ?? null,
   };
 }
@@ -72,11 +83,14 @@ export async function hideNotification(notificationId: string): Promise<void> {
     undefined,
     { useConfiguredBearer: true }
   );
+  rememberHiddenNotification(notificationId);
 }
 
 function normalizeInboxNotification(notification: RawInboxNotification): InboxNotification {
   return {
     notification_id:
+      notification.inbox_item_id ||
+      notification.inboxItemId ||
       notification.notification_id ||
       notification.notificationId ||
       notification.id ||
@@ -94,4 +108,49 @@ function normalizeInboxNotification(notification: RawInboxNotification): InboxNo
     is_read: Boolean(notification.is_read),
     created_at: notification.created_at || "",
   };
+}
+
+function rememberHiddenNotification(notificationId: string): void {
+  if (!notificationId) return;
+
+  const hiddenNotifications = readHiddenNotifications();
+  hiddenNotifications[notificationId] = { hiddenAt: Date.now() };
+  writeHiddenNotifications(hiddenNotifications);
+}
+
+function isNotificationHidden(notificationId: string): boolean {
+  if (!notificationId) return false;
+  return Boolean(readHiddenNotifications()[notificationId]);
+}
+
+function readHiddenNotifications(): Record<string, HiddenNotificationRecord> {
+  try {
+    const raw = localStorage.getItem(HIDDEN_NOTIFICATION_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+    const now = Date.now();
+    const entries = Object.entries(parsed as Record<string, HiddenNotificationRecord>)
+      .filter(([id, record]) => {
+        const hiddenAt = Number(record?.hiddenAt || 0);
+        return id && hiddenAt > 0 && now - hiddenAt < HIDDEN_NOTIFICATION_TTL_MS;
+      });
+
+    const hiddenNotifications = Object.fromEntries(entries);
+    if (entries.length !== Object.keys(parsed).length) {
+      writeHiddenNotifications(hiddenNotifications);
+    }
+    return hiddenNotifications;
+  } catch {
+    return {};
+  }
+}
+
+function writeHiddenNotifications(
+  hiddenNotifications: Record<string, HiddenNotificationRecord>
+): void {
+  localStorage.setItem(
+    HIDDEN_NOTIFICATION_STORAGE_KEY,
+    JSON.stringify(hiddenNotifications)
+  );
 }

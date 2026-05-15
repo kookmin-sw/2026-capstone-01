@@ -1,8 +1,12 @@
 ﻿import type { CSSProperties } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate,} from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import type { NavigateFunction } from "react-router-dom";
+import { App as CapacitorApp } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
+import { Capacitor } from "@capacitor/core";
+import { removeToken, saveToken } from "./utils/tokens";
 import AppShell from "./components/AppShell";
 import LoginPage from "./pages/LoginPage";
 import OnboardingPage from "./pages/OnboardingPage";
@@ -105,6 +109,18 @@ function ManualPlanRoute() {
   return <ManualPlanPage onBack={() => navigate("/plan")} />;
 }
 
+function RouteScrollReset() {
+  const location = useLocation();
+
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [location.pathname]);
+
+  return null;
+}
+
 function getToastRoot(): HTMLElement {
   const existing = document.getElementById("krip-toast-root");
   if (existing) return existing;
@@ -135,7 +151,6 @@ type ChatToastState = {
 
 const GESTURE_TAB_PATHS = ["/home", "/plan", "/menu", "/mate", "/my"] as const;
 const MIN_HORIZONTAL_SWIPE_PX: number = 76;
-const MIN_VERTICAL_REFRESH_SWIPE_PX: number = 92;
 const ACTIVITY_TOAST_POLL_INTERVAL_MS: number = 5000;
 
 type TouchPoint = {
@@ -261,14 +276,6 @@ function PageGestureController() {
 
       if (absoluteDeltaX > absoluteDeltaY && absoluteDeltaX >= MIN_HORIZONTAL_SWIPE_PX) {
         moveTabBySwipe(deltaX, location.pathname, navigate);
-        return;
-      }
-
-      if (
-        deltaY <= -MIN_VERTICAL_REFRESH_SWIPE_PX &&
-        absoluteDeltaY > absoluteDeltaX * 1.35
-      ) {
-        refreshCurrentPage();
       }
     }
 
@@ -368,6 +375,7 @@ function isAuthFreePath(pathname: string): boolean {
     pathname === "/" ||
     pathname === "/login" ||
     pathname.startsWith("/register") ||
+    pathname.startsWith("/share/") ||
     pathname === "/withdrawal-pending"
   );
 }
@@ -404,20 +412,6 @@ function moveTabBySwipe(
   if (!nextPath) return;
 
   navigate(nextPath);
-}
-
-/**
- * ?섏씠吏蹂??덈줈怨좎묠 ?대깽?몃? ?곗꽑 蹂대궡怨? 泥섎━?먭? ?놁쑝硫??꾩옱 臾몄꽌瑜??덈줈怨좎묠?쒕떎.
- */
-function refreshCurrentPage(): void {
-  const refreshEvent: CustomEvent = new CustomEvent("krip:page-refresh", {
-    cancelable: true,
-  });
-  const shouldReloadDocument: boolean = window.dispatchEvent(refreshEvent);
-
-  if (shouldReloadDocument) {
-    window.location.reload();
-  }
 }
 
 type AppToastState = AppToastDetail & {
@@ -460,15 +454,17 @@ function AppToast() {
 
   if (!toast) return null;
   const ToastElement = toast.path ? "button" : "div";
+  const isCenteredToast = toast.placement === "center";
 
   return createPortal(
-    <div style={toastLayerStyles.appSlot}>
+    <div style={isCenteredToast ? toastLayerStyles.appCenterSlot : toastLayerStyles.appSlot}>
       <ToastElement
         key={toast.toastId}
         type={toast.path ? "button" : undefined}
         role="status"
         style={{
           ...appToastStyles.toast,
+          ...(isCenteredToast ? appToastStyles.toastCentered : {}),
           ...(toast.path ? appToastStyles.toastClickable : {}),
           ...(toast.variant === "error" ? appToastStyles.toastError : {}),
           ...(toast.variant === "success" ? appToastStyles.toastSuccess : {}),
@@ -501,6 +497,132 @@ function AppToast() {
   );
 }
 
+/**
+ * Handles the JWT deep link callback from the native Google OAuth flow.
+ * The backend redirects to krip://auth/callback?utk=...&status=...&email=...&name=...
+ * after the user authenticates. This component captures that URL, saves the token,
+ * and navigates to the appropriate screen.
+ */
+function AppUrlOpenHandler() {
+  const navigate = useNavigate();
+  const handledUrlRef = useRef("");
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    async function handleAppUrlOpen(url?: string): Promise<void> {
+      if (!url || handledUrlRef.current === url) return;
+      handledUrlRef.current = url;
+
+      console.info("[auth] appUrlOpen received url", url);
+      if (!url.startsWith("krip://")) return;
+
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return;
+      }
+
+      // Only handle krip://auth/callback
+      if (parsed.hostname !== "auth" || parsed.pathname !== "/callback") return;
+
+      const utk = parsed.searchParams.get("utk") ?? "";
+      const status = parsed.searchParams.get("status") ?? "";
+      const email = parsed.searchParams.get("email") ?? "";
+      const name = parsed.searchParams.get("name") ?? "";
+
+      console.info(
+        "[auth] appUrlOpen parsed",
+        JSON.stringify({
+          status,
+          hasUtk: Boolean(utk),
+          hasEmail: Boolean(email),
+          hasName: Boolean(name),
+          tokenPrefix: utk ? utk.slice(0, 10) : null,
+        })
+      );
+
+      try {
+        await Browser.close();
+      } catch {
+        // The browser may already be closed by the OS deep link handoff.
+      }
+
+      if (!utk) {
+        removeToken();
+        navigate("/login", { replace: true });
+        return;
+      }
+
+      saveToken(utk);
+      console.info(
+        "[auth] token saved",
+        JSON.stringify({
+          hasSavedToken: true,
+          tokenPrefix: utk.slice(0, 10),
+        })
+      );
+
+      if (status === "complete") {
+        navigate("/home", { replace: true });
+      } else if (status === "new" || status === "in_progress") {
+        navigate("/register", { state: { email, name }, replace: true });
+      } else if (status === "withdrawal_pending") {
+        navigate("/withdrawal-pending", { replace: true });
+      }
+    }
+
+    const listenerPromise = CapacitorApp.addListener("appUrlOpen", (data) => {
+      void handleAppUrlOpen(data.url);
+    });
+    void CapacitorApp.getLaunchUrl().then((data) => handleAppUrlOpen(data?.url));
+
+    return () => {
+      void listenerPromise.then((handle) => handle.remove());
+    };
+  }, [navigate]);
+
+  return null;
+}
+
+/**
+ * Listens for 403 Forbidden API responses and navigates to the registration
+ * screen. A 403 means the user is authenticated but has not completed
+ * registration (incomplete profile).
+ */
+function ForbiddenRedirect() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const locationRef = useRef(location);
+
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
+
+  useEffect(() => {
+    function handleForbidden(): void {
+      const currentLocation = locationRef.current;
+      // Avoid redirect loops on auth-free paths
+      if (
+        currentLocation.pathname === "/register" ||
+        isAuthFreePath(currentLocation.pathname)
+      ) {
+        return;
+      }
+      navigate("/register", { replace: true });
+    }
+
+    window.addEventListener("krip:forbidden", handleForbidden);
+
+    return () => {
+      window.removeEventListener("krip:forbidden", handleForbidden);
+    };
+  }, [navigate]);
+
+  return null;
+}
+
 function WithdrawalPendingRedirect() {
   const navigate = useNavigate();
 
@@ -513,6 +635,38 @@ function WithdrawalPendingRedirect() {
 
     return () => {
       window.removeEventListener("krip:withdrawal-pending", handleWithdrawalPending);
+    };
+  }, [navigate]);
+
+  return null;
+}
+
+function UnauthorizedRedirect() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const locationRef = useRef(location);
+
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
+
+  useEffect(() => {
+    function handleUnauthorized(): void {
+      const currentLocation = locationRef.current;
+      if (isAuthFreePath(currentLocation.pathname)) return;
+
+      navigate("/login", {
+        replace: true,
+        state: {
+          from: `${currentLocation.pathname}${currentLocation.search}${currentLocation.hash}`,
+        },
+      });
+    }
+
+    window.addEventListener("krip:unauthorized", handleUnauthorized);
+
+    return () => {
+      window.removeEventListener("krip:unauthorized", handleUnauthorized);
     };
   }, [navigate]);
 
@@ -547,13 +701,17 @@ export default function App() {
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/my" element={<MyPage />} />
             <Route path="/profile/:id" element={<UserFeedPage />} />
+            <Route path="/spots/:id" element={<PlaceholderPage />} />
           </Route>
           <Route path="/share/plan/:shareToken" element={<SharedPlanPage />} />
           <Route path="/chat/:id" element={<ChatRoomPage />} />
-          <Route path="/spots/:id" element={<PlaceholderPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <AppUrlOpenHandler />
+        <ForbiddenRedirect />
         <WithdrawalPendingRedirect />
+        <UnauthorizedRedirect />
+        <RouteScrollReset />
         <PageGestureController />
         <ActivityNotificationToastWatcher />
         <AppToast />
@@ -577,6 +735,16 @@ const toastLayerStyles: Record<string, CSSProperties> = {
   appSlot: {
     position: "relative",
     zIndex: 2,
+  },
+  appCenterSlot: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 2147483647,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    pointerEvents: "none",
   },
   chatSlot: {
     position: "relative",
@@ -674,6 +842,15 @@ const appToastStyles: Record<string, CSSProperties> = {
   },
   toastClickable: {
     cursor: "pointer",
+  },
+  toastCentered: {
+    position: "relative",
+    top: "auto",
+    left: "auto",
+    transform: "none",
+    animation: "fadeInToast 240ms ease-out",
+    width: "min(calc(100% - 32px), 360px)",
+    boxShadow: "0 24px 70px rgba(15,23,42,0.26), 0 10px 24px rgba(15,23,42,0.16)",
   },
   toastSuccess: {
     borderColor: "rgba(5,181,187,0.26)",

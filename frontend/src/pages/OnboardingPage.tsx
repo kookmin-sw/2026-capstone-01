@@ -42,6 +42,9 @@ export interface OnboardingData {
 
 // ─── Value → API key maps ────────────────────────────────────────────────────
 
+const MIN_AGE = 20;
+const MAX_AGE = 100;
+
 const TRAVEL_STYLE_KEY: Record<string, string> = {
   Activity: "activity",
   "Famous Attractions": "famous_attractions",
@@ -64,7 +67,6 @@ const FOOD_KEY: Record<string, string> = {
   Vegetarian: "food_vegetarian",
   Foodie: "foodie",
   "Cafe Lover": "cafe_lover",
-  "No Preference": "food_no_preference",
 };
 
 const SCHEDULE_KEY: Record<string, string> = {
@@ -88,8 +90,6 @@ const TRANSPORT_KEY: Record<string, string> = {
   "Public Transit": "transport_public",
   Car: "transport_car",
   Taxi: "transport_taxi",
-  Walking: "transport_walking",
-  Bicycle: "transport_bicycle",
 };
 
 const ACTIVE_TIME_KEY: Record<string, string> = {
@@ -116,21 +116,32 @@ const PLANNING_KEY: Record<string, string> = {
 };
 
 function mapArray(values: string[], map: Record<string, string>): string[] {
-  return values.map((v) => map[v] ?? v);
+  const allowed = new Set(Object.values(map));
+  return values
+    .map((value) => map[value] ?? value.trim().toLowerCase())
+    .filter((value) => allowed.has(value));
 }
 
 function toOnboardingPayload(data: OnboardingData) {
   return {
-    travel_styles: mapArray(data.travelStyles, TRAVEL_STYLE_KEY),
-    food_preferences: mapArray(data.foodPrefs, FOOD_KEY),
-    density_preference: SCHEDULE_KEY[data.schedule] ?? data.schedule,
-    budget_preference: BUDGET_KEY[data.budget] ?? data.budget,
-    walking_preference: WALKING_KEY[data.walking] ?? data.walking,
-    transport_preferences: mapArray(data.transport, TRANSPORT_KEY),
-    companion_preference: COMPANION_KEY[data.companion] ?? data.companion,
-    time_preferences: mapArray(data.activeTime, ACTIVE_TIME_KEY),
-    communication_preference: COMMUNICATION_KEY[data.communication] ?? data.communication,
-    planning_preference: PLANNING_KEY[data.planning] ?? data.planning,
+    travel_styles: Array.from(
+      new Set(
+        [
+          ...mapArray(data.travelStyles, TRAVEL_STYLE_KEY),
+          ...mapArray(data.foodPrefs, FOOD_KEY),
+          SCHEDULE_KEY[data.schedule] ?? data.schedule,
+          BUDGET_KEY[data.budget] ?? data.budget,
+          WALKING_KEY[data.walking] ?? data.walking,
+          ...mapArray(data.transport, TRANSPORT_KEY),
+          COMPANION_KEY[data.companion] ?? data.companion,
+          ...mapArray(data.activeTime, ACTIVE_TIME_KEY),
+          COMMUNICATION_KEY[data.communication] ?? data.communication,
+          PLANNING_KEY[data.planning] ?? data.planning,
+        ]
+          .map((value) => value.trim().toLowerCase())
+          .filter(Boolean)
+      )
+    ),
   };
 }
 
@@ -336,12 +347,20 @@ function TextInput({
   onChange,
   placeholder,
   type = "text",
+  min,
+  max,
+  inputMode,
+  error,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   type?: string;
+  min?: number;
+  max?: number;
+  inputMode?: "numeric" | "text" | "search" | "tel" | "url" | "email" | "decimal";
+  error?: string;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
@@ -361,11 +380,14 @@ function TextInput({
         name={label.toLowerCase().replace(/[^a-z0-9]+/g, "_")}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        min={min}
+        max={max}
+        inputMode={inputMode}
         style={{
           height: 48,
           borderRadius: 50,
-          border: `1px solid ${GRAY2}`,
-          background: GRAY1,
+          border: `1px solid ${error ? "#ef4444" : GRAY2}`,
+          background: error ? "rgba(239,68,68,0.06)" : GRAY1,
           outline: "none",
           padding: "0 18px",
           fontFamily: "Pretendard Variable,sans-serif",
@@ -373,6 +395,20 @@ function TextInput({
           color: GRAY6,
         }}
       />
+      {error ? (
+        <p
+          style={{
+            margin: "0 4px",
+            color: "#ef4444",
+            fontFamily: "Pretendard Variable,sans-serif",
+            fontSize: 12,
+            fontWeight: 700,
+            lineHeight: "16px",
+          }}
+        >
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -479,9 +515,11 @@ type PageProps = {
 };
 
 function Page1({ data, setData, onNext, onBack, email }: PageProps) {
+  const isAgeValid = Boolean(data.age);
+  const ageError = "";
   const canProceed =
     data.nickname.trim().length > 0 &&
-    data.age.trim().length > 0 &&
+    isAgeValid &&
     data.gender.length > 0;
 
   return (
@@ -496,7 +534,60 @@ function Page1({ data, setData, onNext, onBack, email }: PageProps) {
         </div>
         {email ? <ReadOnlyField label="Email" value={email} /> : null}
         <TextInput label="Nickname *" value={data.nickname} onChange={(v) => setData({ nickname: v })} placeholder="What should we call you?" />
-        <TextInput label="Age *" value={data.age} onChange={(v) => setData({ age: v })} placeholder="Enter your age" type="number" />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
+          <label
+            style={{
+              fontFamily: "Pretendard Variable,sans-serif",
+              fontWeight: 700,
+              fontSize: 13,
+              color: DARK_MINT,
+            }}
+          >
+            Age *
+          </label>
+          <select
+            value={data.age}
+            onChange={(e) => setData({ age: e.target.value })}
+            style={{
+              height: 48,
+              borderRadius: 50,
+              border: `1px solid ${ageError ? "#ef4444" : GRAY2}`,
+              background: ageError ? "rgba(239,68,68,0.06)" : GRAY1,
+              outline: "none",
+              padding: "0 18px",
+              fontFamily: "Pretendard Variable,sans-serif",
+              fontSize: 15,
+              color: data.age ? GRAY6 : GRAY_AAA,
+              appearance: "none",
+              WebkitAppearance: "none",
+              cursor: "pointer",
+            }}
+          >
+            <option value="" disabled hidden>Select your age</option>
+            {Array.from({ length: MAX_AGE - MIN_AGE + 1 }, (_, i) => {
+              const age = MIN_AGE + i;
+              return (
+                <option key={age} value={String(age)} style={{ color: GRAY6 }}>
+                  {age}
+                </option>
+              );
+            })}
+          </select>
+          {ageError ? (
+            <p
+              style={{
+                margin: "0 4px",
+                color: "#ef4444",
+                fontFamily: "Pretendard Variable,sans-serif",
+                fontSize: 12,
+                fontWeight: 700,
+                lineHeight: "16px",
+              }}
+            >
+              {ageError}
+            </p>
+          ) : null}
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
           <span style={{ fontFamily: "Pretendard Variable,sans-serif", fontWeight: 700, fontSize: 13, color: DARK_MINT }}>
             Gender *
@@ -545,7 +636,7 @@ function Page2({ data, setData, onNext, onBack }: PageProps) {
   );
 }
 
-const FOOD_PREFS = ["Halal", "Vegetarian", "Foodie", "Cafe Lover", "No Preference"];
+const FOOD_PREFS = ["Halal", "Vegetarian", "Foodie", "Cafe Lover"];
 const WALKING_OPTS = ["Low", "Medium", "High"];
 const BUDGET_OPTS = [
   { title: "Saving", sub: "$40-$70 / day" },
@@ -598,7 +689,7 @@ function Page3({ data, setData, onNext, onBack }: PageProps) {
 }
 
 const SCHEDULE_OPTS = ["Relaxed", "Packed"];
-const TRANSPORT_OPTS = ["Public Transit", "Car", "Taxi", "Walking", "Bicycle"];
+const TRANSPORT_OPTS = ["Public Transit", "Car", "Taxi"];
 const ACTIVE_TIME_OPTS = ["Daytime", "Nightlife", "Night View"];
 
 function Page4({ data, setData, onNext, onBack }: PageProps) {
@@ -759,6 +850,13 @@ export default function OnboardingPage() {
 
   async function handleComplete(): Promise<void> {
     if (!email) { setError("Email is missing. Please log in again."); return; }
+    const age = Number(data.age);
+    if (!Number.isInteger(age) || age < MIN_AGE || age > MAX_AGE) {
+      setError(`Age must be between ${MIN_AGE} and ${MAX_AGE}.`);
+      setDone(false);
+      setStep(0);
+      return;
+    }
     setLoading(true);
     setError("");
     try {

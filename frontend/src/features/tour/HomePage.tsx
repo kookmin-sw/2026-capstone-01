@@ -1,5 +1,5 @@
 ﻿import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent } from "react";
+import type { CSSProperties, MouseEvent, UIEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   addTourPlaceFavorite,
@@ -241,6 +241,23 @@ function getBackendCategory(item: TourPlaceApiItem): PlaceCategory {
   return String(category || "Other");
 }
 
+function formatCategoryLabel(value: string): string {
+  const parts = value
+    .split("/")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const uniqueParts = Array.from(
+    new Map(parts.map((item) => [item.toLowerCase(), item])).values()
+  );
+  const normalized = uniqueParts.length > 0 ? uniqueParts.join(" / ") : value;
+
+  return normalized
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase());
+}
+
 function getCategoryGroup(category: string): string {
   const normalized = category.trim().toLowerCase();
 
@@ -336,7 +353,7 @@ function mapTourPlace(item: TourPlaceApiItem): Place {
     id: String(item.id || item.place_id || crypto.randomUUID()),
     initialIsFavorite: item.is_favorite === true,
     name: String(item.display_name || item.name || item.title || "Unnamed place"),
-    category: getBackendCategory(item),
+    category: formatCategoryLabel(getBackendCategory(item)),
     groupCategory: getCategoryGroup(getBackendCategory(item)),
     raw: item,
     tags: sanitizeTags(item.tags),
@@ -443,11 +460,14 @@ export default function HomePage() {
   const navigate = useNavigate();
   const observerRef = useRef<HTMLDivElement | null>(null);
   const categoryFilterRef = useRef<HTMLDivElement | null>(null);
+  const bodyScrollerRef = useRef<HTMLDivElement | null>(null);
+  const lastScrollTopRef = useRef(0);
 
   const [categoryFilterFade, setCategoryFilterFade] = useState({
     left: false,
     right: false,
   });
+  const [isHeaderHidden, setIsHeaderHidden] = useState(false);
 
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
@@ -985,199 +1005,184 @@ export default function HomePage() {
     ? `${locationCoordinatesText} · ${locationAccuracyText}`
     : locationCoordinatesText;
 
+  function handleBodyScroll(event: UIEvent<HTMLDivElement>) {
+    const nextScrollTop = Math.max(event.currentTarget.scrollTop, 0);
+    const delta = nextScrollTop - lastScrollTopRef.current;
+
+    if (nextScrollTop <= 8) {
+      setIsHeaderHidden(false);
+    } else if (delta > 5 && nextScrollTop > 72) {
+      setIsHeaderHidden(true);
+    } else if (delta < -5) {
+      setIsHeaderHidden(false);
+    }
+
+    lastScrollTopRef.current = nextScrollTop;
+  }
+
   return (
     <div style={styles.page}>
       <div style={styles.shell}>
-        <header style={styles.header}>
-          <div>
-            <p style={styles.eyebrow}>Trip Finder</p>
-            <h1 style={styles.headerTitle}>Explore Nearby Places</h1>
-          </div>
-          <div style={styles.headerActions}>
-            <NotificationBell buttonStyle={styles.myPageButton} />
-            <button
-              type="button"
-              style={styles.myPageButton}
-              aria-label="Open chat"
-              onClick={() => navigate("/chat")}
-            >
-              <ChatIcon />
-            </button>
-          </div>
-        </header>
+        <div
+          ref={bodyScrollerRef}
+          style={styles.bodyScroller}
+          onScroll={handleBodyScroll}
+        >
+          <HomeHeader
+            searchInput={searchInput}
+            onOpenSearch={openSearchSheet}
+            isHidden={isHeaderHidden}
+          />
 
-        <section style={styles.searchPanel}>
-          <div style={styles.searchRow}>
-            <label style={styles.searchWrap}>
-              <input
-                value={searchInput}
-                onClick={openSearchSheet}
-                onFocus={(event) => {
-                  event.target.blur();
-                  openSearchSheet();
-                }}
-                placeholder="Search places by name or keyword"
-                style={styles.searchInput}
-                readOnly
-              />
+          <section style={styles.locationSection}>
+            <div style={styles.locationBar}>
               <button
-              type="button"
-              style={styles.searchAction}
-              aria-label="Search"
-              onClick={openSearchSheet}
+                type="button"
+                style={styles.locationButton}
+                onClick={requestCurrentLocation}
               >
-                <SearchIcon></SearchIcon>
+                Use my location
               </button>
-            </label>
-          </div>
+            </div>
+          </section>
 
-          <div style={styles.locationBar}>
-            <button
-              type="button"
-              style={styles.locationButton}
-              onClick={requestCurrentLocation}
-            >
-              Use my location
-            </button>
-          </div>
-        </section>
+          <section style={styles.filtersSection}>
+            <div ref={categoryFilterRef}
+              className="filter-group-scroll"
+              style={{
+                ...styles.filterGroup,
+                justifyContent: "flex-start",
+                WebkitMaskImage: getFilterMask(
+                  categoryFilterFade.left,
+                  categoryFilterFade.right
+                ),
+                maskImage: getFilterMask(
+                  categoryFilterFade.left,
+                  categoryFilterFade.right
+                ),
+              }}>
+              <div style={styles.categoryFilterContent}>
+                {categoryFilters.map((category) => {
+                  const isActive = activeCategory === category;
+                  return (
+                    <button
+                      key={category}
+                      style={{
+                        ...styles.filterChip,
+                        ...(isActive ? styles.filterChipActive : {}),
+                      }}
+                      onClick={() => setActiveCategory(category)}
+                    >
+                      {category}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-        <section style={styles.filtersSection}>
-          <div ref={categoryFilterRef}
-            className="filter-group-scroll"
-            style={{
-              ...styles.filterGroup,
-              justifyContent: "flex-start",
-              WebkitMaskImage: getFilterMask(
-                categoryFilterFade.left,
-                categoryFilterFade.right
-              ),
-              maskImage: getFilterMask(
-                categoryFilterFade.left,
-                categoryFilterFade.right
-              ),
-            }}>
-            <div style={styles.categoryFilterContent}>
-              {categoryFilters.map((category) => {
-                const isActive = activeCategory === category;
+            <div style={styles.filterGroup}>
+              {SORT_FILTERS.map((sort) => {
+                const isActive = activeSort === sort;
                 return (
                   <button
-                    key={category}
+                    key={sort}
                     style={{
-                      ...styles.filterChip,
-                      ...(isActive ? styles.filterChipActive : {}),
+                      ...styles.secondaryChip,
+                      ...(isActive ? styles.secondaryChipActive : {}),
                     }}
-                    onClick={() => setActiveCategory(category)}
+                    onClick={() => setActiveSort(sort)}
                   >
-                    {category}
+                    {sort}
                   </button>
                 );
               })}
             </div>
-          </div>
+          </section>
 
-          <div style={styles.filterGroup}>
-            {SORT_FILTERS.map((sort) => {
-              const isActive = activeSort === sort;
-              return (
-                <button
-                  key={sort}
-                  style={{
-                    ...styles.secondaryChip,
-                    ...(isActive ? styles.secondaryChipActive : {}),
-                  }}
-                  onClick={() => setActiveSort(sort)}
+          <section style={visiblePlaces.length > 0
+            ? styles.listSection
+            : styles.emptyListSection}>
+            {visiblePlaces.length > 0 ? (
+              visiblePlaces.map((place) => (
+                <article
+                  key={place.id}
+                  className="interactive-card"
+                  style={styles.card}
+                  onClick={() => openPlaceDetail(place)}
                 >
-                  {sort}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        <section style={visiblePlaces.length > 0
-          ? styles.listSection
-          : styles.emptyListSection}>
-          {visiblePlaces.length > 0 ? (
-            visiblePlaces.map((place) => (
-              <article
-                key={place.id}
-                className="interactive-card"
-                style={styles.card}
-                onClick={() => openPlaceDetail(place)}
-              >
-                <div style={styles.thumbnail}>
-                </div>
-
-                <div style={styles.cardBody}>
-                  <div style={styles.cardTop}>
-                    <div>
-                      <p style={styles.cardCategory}>{place.category}</p>
-                      <h2 style={styles.cardTitle}>{place.name}</h2>
-                    </div>
-                    <button
-                      type="button"
-                      style={{
-                        ...styles.favoriteButton,
-                        ...(favoriteActionIds.includes(place.id)
-                          ? styles.favoriteButtonPending
-                          : {}),
-                      }}
-                      onClick={(event: MouseEvent<HTMLButtonElement>) => {
-                        event.stopPropagation();
-                        void toggleFavorite(place);
-                      }}
-                      aria-label={`Toggle favorite for ${place.name}`}
-                      disabled={favoriteActionIds.includes(place.id)}
-                    >
-                      <BookmarkIcon filled={place.isFavorite} />
-                    </button>
+                  <div style={styles.thumbnail}>
                   </div>
 
-                  <p style={styles.cardDescription}>{place.description}</p>
+                  <div style={styles.cardBody}>
+                    <div style={styles.cardTop}>
+                      <div>
+                        <p style={styles.cardCategory}>{place.category}</p>
+                        <h2 style={styles.cardTitle}>{place.name}</h2>
+                      </div>
+                      <button
+                        type="button"
+                        style={{
+                          ...styles.favoriteButton,
+                          ...(favoriteActionIds.includes(place.id)
+                            ? styles.favoriteButtonPending
+                            : {}),
+                        }}
+                        onClick={(event: MouseEvent<HTMLButtonElement>) => {
+                          event.stopPropagation();
+                          void toggleFavorite(place);
+                        }}
+                        aria-label={`Toggle favorite for ${place.name}`}
+                        disabled={favoriteActionIds.includes(place.id)}
+                      >
+                        <BookmarkIcon filled={place.isFavorite} />
+                      </button>
+                    </div>
 
-                  <div style={styles.cardMeta}>
-                    <div style={styles.inlineTags}>
-                      {place.tags.map((tag) => (
-                        <span key={tag} style={styles.inlineTag}>
-                          {tag}
+                    <p style={styles.cardDescription}>{place.description}</p>
+
+                    <div style={styles.cardMeta}>
+                      <div style={styles.inlineTags}>
+                        {place.tags.map((tag) => (
+                          <span key={tag} style={styles.inlineTag}>
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                      <div style={styles.metaRight}>
+                        <span style={styles.reviewText}>
+                          {formatRating(place.rating, place.reviewCount)}
                         </span>
-                      ))}
-                    </div>
-                    <div style={styles.metaRight}>
-                      <span style={styles.reviewText}>
-                        {formatRating(place.rating, place.reviewCount)}
-                      </span>
-                      <span style={styles.distance}>
-                        {formatDistance(place.distanceKm)}
-                      </span>
+                        <span style={styles.distance}>
+                          {formatDistance(place.distanceKm)}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </article>
-            ))
-          ) : (
-            <div style={styles.emptyState}>
-              <p style={styles.emptyTitle}>
-                {locationStatus === "detecting"
-                  ? "Finding places near you..."
-                  : placesError ||
-                  (activeSort === "Favorites"
-                    ? "No favorite places yet."
-                    : "No places available yet.")}
-              </p>
-              <p style={styles.emptyCopy}>
-                {activeSort === "Favorites"
-                  ? "Add a place to favorites and it will appear here in latest-added order."
-                  : "Search again or adjust your filters to find nearby places."}
-              </p>
-            </div>
-          )}
+                </article>
+              ))
+            ) : (
+              <div style={styles.emptyState}>
+                <p style={styles.emptyTitle}>
+                  {locationStatus === "detecting"
+                    ? "Finding places near you..."
+                    : placesError ||
+                    (activeSort === "Favorites"
+                      ? "No favorite places yet."
+                      : "No places available yet.")}
+                </p>
+                <p style={styles.emptyCopy}>
+                  {activeSort === "Favorites"
+                    ? "Add a place to favorites and it will appear here in latest-added order."
+                    : "Search again or adjust your filters to find nearby places."}
+                </p>
+              </div>
+            )}
 
-          <div ref={observerRef} style={styles.scrollSentinel}>
-            {sentinelText}
-          </div>
-        </section>
+            <div ref={observerRef} style={styles.scrollSentinel}>
+              {sentinelText}
+            </div>
+          </section>
+        </div>
       </div>
 
       {selectedPlace ? (
@@ -1442,23 +1447,62 @@ function SearchIcon() {
   );
 }
 
-function ChatIcon() {
+function HomeHeader({
+  searchInput,
+  onOpenSearch,
+  isHidden,
+}: {
+  searchInput: string;
+  onOpenSearch: () => void;
+  isHidden: boolean;
+}) {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M5.2 18.4c-1.7-1.4-2.7-3.4-2.7-5.7 0-4.6 4.1-8.2 9.5-8.2s9.5 3.6 9.5 8.2-4.1 8.2-9.5 8.2c-1.2 0-2.3-.2-3.4-.5L4.5 21.5c-.7.2-1.2-.5-.9-1.1l1.6-2Z"
-        stroke="currentColor"
-        strokeWidth="1.9"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M8 12.4h8M8 9.2h5.6"
-        stroke="currentColor"
-        strokeWidth="1.9"
-        strokeLinecap="round"
-      />
-    </svg>
+    <header
+      style={{
+        ...styles.homeHeader,
+        opacity: isHidden ? 0 : 1,
+        pointerEvents: isHidden ? "none" : "auto",
+        transform: isHidden
+          ? "translate3d(0, calc(-100% - 8px), 0)"
+          : "translate3d(0, 0, 0)",
+      }}
+    >
+      <div style={styles.header}>
+        <div>
+          <p style={styles.eyebrow}>Trip Finder</p>
+          <h1 style={styles.headerTitle}>Explore Nearby Places</h1>
+        </div>
+        <div style={styles.headerActions}>
+          <NotificationBell buttonStyle={styles.myPageButton} />
+        </div>
+      </div>
+
+      <div style={styles.searchPanel}>
+        <div style={styles.searchRow}>
+          <label style={styles.searchWrap}>
+            <input
+              value={searchInput}
+              onClick={onOpenSearch}
+              onFocus={(event) => {
+                event.target.blur();
+                onOpenSearch();
+              }}
+              placeholder="Search places by name or keyword"
+              style={styles.searchInput}
+              readOnly
+            />
+            <button
+              type="button"
+              style={styles.searchAction}
+              aria-label="Search"
+              onClick={onOpenSearch}
+            >
+              <SearchIcon />
+            </button>
+          </label>
+        </div>
+      </div>
+    </header>
   );
 }
 
@@ -1545,27 +1589,64 @@ const styles: Record<string, CSSProperties> = {
     animation: "spin 0.8s linear infinite",
   },
   page: {
-    minHeight: "var(--app-viewport-height)",
-    padding: "calc(20px + var(--app-safe-top)) 0 40px",
-    background: "transparent",
+    height: "calc(var(--app-viewport-height) - var(--app-bottom-nav-reserved))",
+    minHeight: "calc(var(--app-viewport-height) - var(--app-bottom-nav-reserved))",
+    overflow: "visible",
+    background:
+      "linear-gradient(180deg, #d5f6f5 0%, #d9f5f2 30%, #eef4ef 58%, #fafafa 100%)",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   shell: {
+    position: "relative",
     width: "100%",
     maxWidth: 760,
+    height: "100%",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
-    gap: 18,
+    overflow: "visible",
+  },
+  bodyScroller: {
+    flex: 1,
+    minHeight: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    overflowY: "auto",
+    overflowX: "hidden",
+    overscrollBehavior: "contain",
+    WebkitOverflowScrolling: "touch",
+    paddingBottom: 40,
+    background:
+      "linear-gradient(180deg, rgba(221,246,244,0.98) 0%, rgba(230,244,240,0.94) 28%, rgba(250,250,250,1) 52%)",
+    transition: "padding-top 220ms ease",
   },
 
   /* ── Header ─────────────────────────────── */
+  homeHeader: {
+    position: "sticky",
+    top: 0,
+    zIndex: 20,
+    flexShrink: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    paddingTop: "calc(20px + var(--app-safe-top))",
+    paddingBottom: 12,
+    boxSizing: "border-box",
+    marginBottom: -1,
+    background:
+      "linear-gradient(180deg, rgba(211,246,245,1) 0%, rgba(220,247,245,0.98) 68%, rgba(221,246,244,0.98) 100%)",
+    transition:
+      "transform 240ms ease, opacity 180ms ease",
+    willChange: "transform, opacity",
+  },
   header: {
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 16,
-    padding: "16px 16px 12px",
+    padding: "16px 16px 0",
   },
   eyebrow: {
     margin: 0,
@@ -1579,7 +1660,7 @@ const styles: Record<string, CSSProperties> = {
     margin: "2px 0 0",
     fontSize: "clamp(1.15rem, 3.7vw, 2rem)",
     fontWeight: 800,
-    lineHeight: 1.1,
+    lineHeight: 1.25,
     color: "var(--text-primary)",
   },
   headerActions: {
@@ -1638,6 +1719,10 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 28,
     background: "transparent",
   },
+  locationSection: {
+    padding: "0 16px",
+    background: "transparent",
+  },
   searchRow: {
     display: "flex",
     alignItems: "center",
@@ -1673,7 +1758,6 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   locationBar: {
-    marginTop: 14,
     display: "flex",
     flexWrap: "wrap",
     gap: 10,
@@ -1696,15 +1780,17 @@ const styles: Record<string, CSSProperties> = {
   filtersSection: {
     display: "flex",
     flexDirection: "column",
-    margin: "0 16px 0.8rem",
+    margin: "0",
+    padding: "0 16px 0.8rem",
     gap: 8,
-    overflow: "hidden",
+    minHeight: 54,
+    overflow: "visible",
   },
   filterGroup: {
     display: "flex",
     flexWrap: "nowrap",
     gap: "0.3rem",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     alignItems: "center",
     overflowX: "auto",
     overflowY: "hidden",
@@ -1712,12 +1798,13 @@ const styles: Record<string, CSSProperties> = {
     msOverflowStyle: "none",
     width: "100%",
     minWidth: 0,
+    minHeight: 23,
   },
   categoryFilterContent: {
     display: "flex",
     flexWrap: "nowrap",
     gap: "0.3rem",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     alignItems: "center",
     minWidth: "100%",
     width: "max-content",
@@ -1726,8 +1813,8 @@ const styles: Record<string, CSSProperties> = {
   filterChip: {
     border: "transparent",
     borderRadius: 999,
-    padding: "0.25rem 0.7rem",
-    alignContent: "center",
+    padding: "0.3rem 0.7rem 0.35rem",
+    lineHeight: 1.4,
     background: "#fff",
     color: "var(--neutral-500)",
     fontWeight: 500,
@@ -1743,13 +1830,15 @@ const styles: Record<string, CSSProperties> = {
   secondaryChip: {
     border: "transparent",
     borderRadius: 999,
-    padding: "0.25rem 0.7rem",
+    padding: "0.3rem 0.7rem 0.35rem",
+    lineHeight: 1.4,
     background: "#fff",
     color: "var(--neutral-500)",
     fontWeight: 500,
     fontSize: "0.7rem",
     cursor: "pointer",
     whiteSpace: "nowrap",
+    flexShrink: 0,
   },
   secondaryChipActive: {
     background: "#01C0C0",
@@ -1763,16 +1852,24 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: "var(--shadow-soft)",
     paddingTop: 12,
   },
+  emptyListSection: {
+    display: "flex",
+    flexDirection: "column",
+    minHeight: 220,
+  },
   card: {
     display: "grid",
-    gridTemplateColumns: "6.5rem 1fr",
-    gap: 16,
+    gridTemplateColumns: "minmax(5.75rem, 6.5rem) minmax(0, 1fr)",
+    gap: 14,
     padding: "0.8rem 16px",
-    height: "10rem",
+    minHeight: "9.25rem",
     cursor: "pointer",
   },
   thumbnail: {
-    minHeight: 116,
+    width: "100%",
+    aspectRatio: "1 / 1.24",
+    minHeight: 108,
+    maxHeight: 132,
     borderRadius: 22,
     display: "flex",
     alignItems: "flex-end",
@@ -1782,11 +1879,11 @@ const styles: Record<string, CSSProperties> = {
     background: "linear-gradient(160deg, rgba(5,181,187,0.18), rgba(248,180,0,0.14))",
   },
   cardBody: {
-    display: "grid",
-    gridTemplateRows: "auto auto 1fr auto",
+    display: "flex",
+    flexDirection: "column",
     gap: 6,
     minWidth: 0,
-    position: "relative",
+    minHeight: 0,
   },
   cardTop: {
     display: "flex",
@@ -1799,14 +1896,14 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--brand-primary-deep)",
     fontSize: "0.8rem",
     fontWeight: 700,
-    lineHeight: "1rem",
+    lineHeight: 1.25,
   },
   cardTitle: {
     margin: "2px 0 0",
     color: "var(--text-primary)",
     fontSize: "1.1rem",
     fontWeight: 700,
-    lineHeight: 1.05,
+    lineHeight: 1.35,
     display: "-webkit-box",
     WebkitLineClamp: 2,
     WebkitBoxOrient: "vertical",
@@ -1827,7 +1924,7 @@ const styles: Record<string, CSSProperties> = {
   cardDescription: {
     margin: 0,
     color: "var(--neutral-500)",
-    lineHeight: "0.96rem",
+    lineHeight: 1.5,
     fontSize: "0.75rem",
     display: "-webkit-box",
     WebkitLineClamp: 2,
@@ -1835,11 +1932,13 @@ const styles: Record<string, CSSProperties> = {
     overflow: "hidden",
   },
   cardMeta: {
+    marginTop: "auto",
     display: "flex",
     justifyContent: "space-between",
     gap: 12,
     alignItems: "flex-end",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
+    minWidth: 0,
   },
   inlineTags: {
     display: "flex",
@@ -1859,23 +1958,21 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     alignItems: "flex-end",
     gap: 4,
+    marginLeft: "auto",
+    flexShrink: 0,
   },
   distance: {
-    position: "absolute",
-    right: 0,
-    bottom: 0,
     color: "var(--neutral-600)",
     fontWeight: 800,
     fontSize: "0.9rem",
+    whiteSpace: "nowrap",
   },
   reviewText: {
-    position: "absolute",
-    left: 0,
-    bottom: 0,
     color: "var(--neutral-600)",
     textAlign: "left",
     fontSize: "0.7rem",
     paddingBottom: 2,
+    whiteSpace: "nowrap",
   },
   emptyState: {
     padding: "48px 20px",

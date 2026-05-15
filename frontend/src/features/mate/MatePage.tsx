@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, CSSProperties, MouseEvent } from "react";
+import type { ChangeEvent, CSSProperties, MouseEvent, RefObject } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   createTripMatePost,
@@ -41,11 +41,12 @@ import {
   type RecommendationCandidate,
   type RecommendedTraveler,
 } from "../../utils/mateRecommendation";
+import { showAppToast } from "../../utils/appToast";
 import FeedPopup from "../../components/FeedPopup";
 import ChatPage from "../friend-chat/ChatPage";
 
 const COMPANION_FILTERS = ["all", "sole", "friend", "couple", "family"] as const;
-const COMPANION_OPTIONS: CompanionType[] = ["friend", "family", "couple", "sole"];
+const COMPANION_OPTIONS: CompanionType[] = ["friend", "couple", "sole"];
 const GENDER_OPTIONS: PreferredGender[] = ["any", "male", "female"];
 
 const COMPANION_LABELS: Record<CompanionType | "all", string> = {
@@ -76,6 +77,8 @@ const EMPTY_FORM = {
   preferred_age_max: 35,
 };
 
+type MatePostForm = typeof EMPTY_FORM;
+
 type Tab = "list" | "write";
 type MainTab = "mate" | "chat";
 type MateFriendState = {
@@ -88,7 +91,9 @@ export default function MatePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const locationState = location.state as { mainTab?: MainTab } | null;
-  const searchRef = useRef<HTMLInputElement>(null);
+  const staticSearchRef = useRef<HTMLInputElement>(null);
+  const headerStackRef = useRef<HTMLDivElement>(null);
+  const lastScrollYRef = useRef(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const draftTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const draftFormRef = useRef(EMPTY_FORM);
@@ -117,6 +122,7 @@ export default function MatePage() {
 
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [chatSearchInput, setChatSearchInput] = useState("");
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [suggestedUsers, setSuggestedUsers] = useState<FriendSearchUser[]>([]);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
@@ -138,6 +144,8 @@ export default function MatePage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [menuOpenPostId, setMenuOpenPostId] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [pendingDeletePost, setPendingDeletePost] = useState<TripMatePost | null>(null);
+  const [isDeletingPost, setIsDeletingPost] = useState(false);
 
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
@@ -146,11 +154,62 @@ export default function MatePage() {
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [imageUploading, setImageUploading] = useState(false);
+  const [fixedHeaderHeight, setFixedHeaderHeight] = useState(0);
+  const [headerVisible, setHeaderVisible] = useState(true);
 
   useEffect(() => {
     draftFormRef.current = form;
     draftImageUrlsRef.current = imageUrls;
   }, [form, imageUrls]);
+
+  useEffect(() => {
+    const header = headerStackRef.current;
+    if (!header) return;
+
+    const syncHeaderHeight = () => {
+      setFixedHeaderHeight(header.getBoundingClientRect().height);
+    };
+
+    syncHeaderHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", syncHeaderHeight);
+      return () => window.removeEventListener("resize", syncHeaderHeight);
+    }
+
+    const observer = new ResizeObserver(syncHeaderHeight);
+    observer.observe(header);
+    window.addEventListener("resize", syncHeaderHeight);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", syncHeaderHeight);
+    };
+  }, [mainTab, tab]);
+
+  useEffect(() => {
+    lastScrollYRef.current = window.scrollY;
+    setHeaderVisible(true);
+
+    const handleScroll = () => {
+      const nextScrollY = Math.max(0, window.scrollY || document.documentElement.scrollTop);
+      const delta = nextScrollY - lastScrollYRef.current;
+      const revealAfter = Math.max(120, fixedHeaderHeight - 24);
+
+      if (nextScrollY <= 12) {
+        setHeaderVisible(true);
+      } else if (delta < -6 && nextScrollY > revealAfter) {
+        setHeaderVisible(true);
+      } else if (delta > 8) {
+        setHeaderVisible(false);
+      }
+
+      lastScrollYRef.current = nextScrollY;
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [fixedHeaderHeight, mainTab, tab]);
 
   async function loadSearchHistory(): Promise<void> {
     try {
@@ -464,7 +523,7 @@ export default function MatePage() {
     ]);
     setSearchHistory((current) => current.filter((item) => item !== term));
     setShowHistory(true);
-    searchRef.current?.focus();
+    staticSearchRef.current?.focus();
   }
 
   async function handleClearSearchHistory(): Promise<void> {
@@ -697,23 +756,20 @@ export default function MatePage() {
 
   async function handleSubmit(): Promise<void> {
     if (imageUploading) {
-      window.alert("Please wait until the image upload is complete.");
+      showAppToast({
+        title: "Please wait until the image upload is complete.",
+        variant: "error",
+      });
       return;
     }
 
-    if (
-      !form.title.trim() ||
-      !form.content.trim() ||
-      !form.region.trim() ||
-      !form.travel_start_date ||
-      !form.travel_end_date
-    ) {
-      window.alert("Please fill in all required fields.");
-      return;
-    }
-
-    if (form.content.trim().length < 10) {
-      window.alert("Please enter at least 10 characters in the intro.");
+    const validationError = getMatePostValidationError(form);
+    if (validationError) {
+      showAppToast({
+        title: validationError.title,
+        message: validationError.message,
+        variant: "error",
+      });
       return;
     }
 
@@ -771,14 +827,28 @@ export default function MatePage() {
   }
 
   async function handleDeletePost(post: TripMatePost): Promise<void> {
+    if (isDeletingPost) return;
     setMenuOpenPostId(null);
-    if (!window.confirm(`Delete "${post.title}"?`)) return;
+    setPendingDeletePost(post);
+  }
 
+  async function confirmDeletePost(): Promise<void> {
+    if (!pendingDeletePost || isDeletingPost) return;
+
+    setIsDeletingPost(true);
     try {
-      await deleteTripMatePost(post.post_id);
-      setPosts((current) => current.filter((item) => item.post_id !== post.post_id));
+      await deleteTripMatePost(pendingDeletePost.post_id);
+      setPosts((current) =>
+        current.filter((item) => item.post_id !== pendingDeletePost.post_id)
+      );
+      if (selectedPost?.post_id === pendingDeletePost.post_id) {
+        setSelectedPost(null);
+      }
+      setPendingDeletePost(null);
     } catch {
       window.alert("Failed to delete the post.");
+    } finally {
+      setIsDeletingPost(false);
     }
   }
 
@@ -811,6 +881,190 @@ export default function MatePage() {
     }
   }
 
+  const renderMateSearchPanel = (inputRef: RefObject<HTMLInputElement | null>) => (
+    <section style={styles.searchPanel}>
+      <div style={styles.searchRow}>
+        <label style={styles.searchWrap}>
+          <input
+            ref={inputRef}
+            value={searchInput}
+            onChange={(event) => {
+              setSearchInput(event.target.value);
+              setShowHistory(true);
+            }}
+            onFocus={() => {
+              setShowHistory(true);
+              void loadSearchHistory();
+            }}
+            onBlur={() => window.setTimeout(() => setShowHistory(false), 220)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                handleSearch(searchInput);
+              }
+            }}
+            placeholder="Search by region or keyword"
+            style={styles.searchInput}
+          />
+        </label>
+        <button
+          type="button"
+          style={styles.searchAction}
+          onMouseDown={() => handleSearch(searchInput)}
+          aria-label="Search"
+        >
+          <SearchIcon />
+        </button>
+      </div>
+
+      {hasSearchSuggestions ? (
+        <div style={styles.historyPanel}>
+          <div style={styles.historyHeader}>
+            <span style={styles.historyTitle}>
+              {searchInput.trim() ? "Suggestions" : "Recent Searches"}
+            </span>
+            {visibleSearchHistory.length > 0 ? (
+              <button
+                type="button"
+                style={styles.linkButton}
+                onMouseDown={() => void handleClearSearchHistory()}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+          {suggestionLoading ? <p style={styles.suggestionHint}>Searching users...</p> : null}
+          {suggestedUsers.length > 0 ? (
+            <div style={styles.historyList}>
+              {suggestedUsers.map((user) => (
+                <button
+                  key={user.user_id}
+                  type="button"
+                  style={styles.suggestionUserItem}
+                  onMouseDown={() => handleSearch(user.user_name)}
+                >
+                  <img
+                    src={user.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
+                    alt=""
+                    style={styles.suggestionAvatar}
+                  />
+                  <span style={styles.suggestionUserText}>
+                    <strong style={styles.suggestionName}>{user.user_name}</strong>
+                    <span style={styles.suggestionMeta}>{user.user_id}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div style={styles.historyList}>
+            {visibleSearchHistory.map((term) => (
+              <div key={term} style={styles.historyItem}>
+                <button
+                  type="button"
+                  style={styles.historyTerm}
+                  onMouseDown={() => handleSearch(term)}
+                >
+                  {term}
+                </button>
+                <button
+                  type="button"
+                  style={styles.iconButton}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void handleDeleteSearchHistory(term);
+                  }}
+                  aria-label={`Delete ${term}`}
+                >
+                  x
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+
+  const renderChatSearchPanel = (inputRef: RefObject<HTMLInputElement | null>) => (
+    <section style={styles.searchPanel}>
+      <label style={styles.searchRow}>
+        <span style={styles.searchWrap}>
+          <input
+            ref={inputRef}
+            type="search"
+            value={chatSearchInput}
+            onChange={(event) => setChatSearchInput(event.target.value)}
+            placeholder="Search"
+            style={styles.searchInput}
+          />
+        </span>
+        <span style={styles.searchAction} aria-hidden="true">
+          <SearchIcon />
+        </span>
+      </label>
+    </section>
+  );
+
+  const renderHeaderStack = (inputRef: RefObject<HTMLInputElement | null>) => (
+    <>
+      <header style={styles.header}>
+        <div>
+          <p style={styles.eyebrow}>Trip Mate</p>
+          <h1 style={styles.headerTitle}>{mainTab === "mate" ? "Mate" : "Chat"}</h1>
+        </div>
+        <div style={styles.headerActions}>
+          {mainTab === "mate" ? (
+            <button
+              type="button"
+              style={styles.headerButton}
+              onClick={() => handleTabChange(tab === "list" ? "write" : "list")}
+            >
+              {tab === "list" ? "Post" : "Mate"}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                style={styles.headerIconButton}
+                onClick={openChatGroupCreate}
+                aria-label="Create group chat"
+              >
+                <img src="/icon-plus.svg" alt="" style={styles.headerIcon} />
+              </button>
+              <button
+                type="button"
+                style={styles.headerIconButton}
+                onClick={openChatFriendManager}
+                aria-label="Manage friends"
+              >
+                <img src="/user-add-alt.png" alt="" style={styles.headerIcon} />
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      <section style={styles.tabPanel}>
+        {(["mate", "chat"] as const).map((item) => (
+          <button
+            key={item}
+            type="button"
+            style={{
+              ...styles.tabButton,
+              ...(mainTab === item ? styles.tabButtonActive : {}),
+            }}
+            onClick={() => handleMainTabChange(item)}
+          >
+            {item === "mate" ? "Mate" : "Chat"}
+          </button>
+        ))}
+      </section>
+
+      {mainTab === "mate" && tab === "list" ? renderMateSearchPanel(inputRef) : null}
+      {mainTab === "chat" ? renderChatSearchPanel(inputRef) : null}
+    </>
+  );
+
   return (
     <div style={styles.page}>
       <style>
@@ -821,169 +1075,30 @@ export default function MatePage() {
         `}
       </style>
       <div style={styles.shell}>
-        <header style={styles.header}>
-          <div>
-            <p style={styles.eyebrow}>Trip Mate</p>
-            <h1 style={styles.headerTitle}>{mainTab === "mate" ? "Mate" : "Chat"}</h1>
-          </div>
-          <div style={styles.headerActions}>
-            {mainTab === "mate" ? (
-              <button
-                type="button"
-                style={styles.headerButton}
-                onClick={() => handleTabChange(tab === "list" ? "write" : "list")}
-              >
-                {tab === "list" ? "Post" : "Mate"}
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  style={styles.headerIconButton}
-                  onClick={openChatGroupCreate}
-                  aria-label="Create group chat"
-                >
-                  <img src="/icon-plus.svg" alt="" style={styles.headerIcon} />
-                </button>
-                <button
-                  type="button"
-                  style={styles.headerIconButton}
-                  onClick={openChatFriendManager}
-                  aria-label="Manage friends"
-                >
-                  <img src="/user-add-alt.png" alt="" style={styles.headerIcon} />
-                </button>
-              </>
-            )}
-          </div>
-        </header>
+        <div
+          ref={headerStackRef}
+          style={{
+            ...styles.fixedHeader,
+            ...(headerVisible ? styles.fixedHeaderVisible : {}),
+          }}
+        >
+          {renderHeaderStack(staticSearchRef)}
+        </div>
 
-        <section style={styles.tabPanel}>
-          {(["mate", "chat"] as const).map((item) => (
-            <button
-              key={item}
-              type="button"
-              style={{
-                ...styles.tabButton,
-                ...(mainTab === item ? styles.tabButtonActive : {}),
-              }}
-              onClick={() => handleMainTabChange(item)}
-            >
-              {item === "mate" ? "Mate" : "Chat"}
-            </button>
-          ))}
-        </section>
+        <div style={{ height: fixedHeaderHeight }} aria-hidden="true" />
 
         {mainTab === "chat" ? (
           <section style={styles.chatEmbed}>
-            <ChatPage embedded hideHeader />
+            <ChatPage
+              embedded
+              hideHeader
+              hideSearch
+              searchQuery={chatSearchInput}
+              onSearchQueryChange={setChatSearchInput}
+            />
           </section>
         ) : tab === "list" ? (
           <>
-            <section style={styles.searchPanel}>
-              <div style={styles.searchRow}>
-                <label style={styles.searchWrap}>
-                  <input
-                    ref={searchRef}
-                    value={searchInput}
-                    onChange={(event) => {
-                      setSearchInput(event.target.value);
-                      setShowHistory(true);
-                    }}
-                    onFocus={() => {
-                      setShowHistory(true);
-                      void loadSearchHistory();
-                    }}
-                    onBlur={() => window.setTimeout(() => setShowHistory(false), 220)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        handleSearch(searchInput);
-                      }
-                    }}
-                    placeholder="Search by region or keyword"
-                    style={styles.searchInput}
-                  />
-                </label>
-                <button
-                  type="button"
-                  style={styles.searchAction}
-                  onMouseDown={() => handleSearch(searchInput)}
-                  aria-label="Search"
-                >
-                  <SearchIcon />
-                </button>
-              </div>
-
-              {hasSearchSuggestions ? (
-                <div style={styles.historyPanel}>
-                  <div style={styles.historyHeader}>
-                    <span style={styles.historyTitle}>
-                      {searchInput.trim() ? "Suggestions" : "Recent Searches"}
-                    </span>
-                    {visibleSearchHistory.length > 0 ? (
-                      <button
-                        type="button"
-                        style={styles.linkButton}
-                        onMouseDown={() => void handleClearSearchHistory()}
-                      >
-                        Clear
-                      </button>
-                    ) : null}
-                  </div>
-                  {suggestionLoading ? (
-                    <p style={styles.suggestionHint}>Searching users...</p>
-                  ) : null}
-                  {suggestedUsers.length > 0 ? (
-                    <div style={styles.historyList}>
-                      {suggestedUsers.map((user) => (
-                        <button
-                          key={user.user_id}
-                          type="button"
-                          style={styles.suggestionUserItem}
-                          onMouseDown={() => handleSearch(user.user_name)}
-                        >
-                          <img
-                            src={user.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
-                            alt=""
-                            style={styles.suggestionAvatar}
-                          />
-                          <span style={styles.suggestionUserText}>
-                            <strong style={styles.suggestionName}>{user.user_name}</strong>
-                            <span style={styles.suggestionMeta}>{user.user_id}</span>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div style={styles.historyList}>
-                    {visibleSearchHistory.map((term) => (
-                      <div key={term} style={styles.historyItem}>
-                        <button
-                          type="button"
-                          style={styles.historyTerm}
-                          onMouseDown={() => handleSearch(term)}
-                        >
-                          {term}
-                        </button>
-                        <button
-                          type="button"
-                          style={styles.iconButton}
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            void handleDeleteSearchHistory(term);
-                          }}
-                          aria-label={`Delete ${term}`}
-                        >
-                          x
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </section>
-
             {searchQuery ? (
               <section style={styles.userSearchPanel}>
                 <div style={styles.userSearchHeader}>
@@ -1130,8 +1245,18 @@ export default function MatePage() {
                   <article
                     key={post.post_id}
                     className="interactive-card"
-                    style={styles.card}
-                    onClick={() => {
+                    style={{
+                      ...styles.card,
+                      ...(menuOpenPostId === post.post_id ? styles.cardMenuOpen : {}),
+                    }}
+                    onClick={(event) => {
+                      if (
+                        event.target instanceof HTMLElement &&
+                        event.target.closest("[data-post-menu='true']")
+                      ) {
+                        return;
+                      }
+
                       if (menuOpenPostId === post.post_id) {
                         setMenuOpenPostId(null);
                         return;
@@ -1173,24 +1298,41 @@ export default function MatePage() {
                     </div>
 
                     {menuOpenPostId === post.post_id ? (
-                      <div style={styles.postMenu}>
+                      <div
+                        data-post-menu="true"
+                        style={styles.postMenu}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+
+                          const action = event.target instanceof HTMLElement
+                            ? event.target.closest<HTMLButtonElement>("[data-menu-action]")
+                                ?.dataset.menuAction
+                            : undefined;
+
+                          if (action === "edit") {
+                            handleStartEdit(post);
+                          }
+
+                          if (action === "delete") {
+                            void handleDeletePost(post);
+                          }
+                        }}
+                      >
                         <button
                           type="button"
+                          data-menu-action="edit"
                           style={styles.menuButton}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleStartEdit(post);
-                          }}
+                          onMouseDown={(event) => event.stopPropagation()}
                         >
                           Edit
                         </button>
                         <button
                           type="button"
+                          data-menu-action="delete"
                           style={{ ...styles.menuButton, ...styles.dangerText }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleDeletePost(post);
-                          }}
+                          onMouseDown={(event) => event.stopPropagation()}
                         >
                           Delete
                         </button>
@@ -1313,6 +1455,7 @@ export default function MatePage() {
                   <input
                     type="date"
                     value={form.travel_start_date}
+                    min={getTodayDateInputValue()}
                     onChange={(event) =>
                       setForm({ ...form, travel_start_date: event.target.value })
                     }
@@ -1323,6 +1466,7 @@ export default function MatePage() {
                   <input
                     type="date"
                     value={form.travel_end_date}
+                    min={getTodayDateInputValue()}
                     onChange={(event) =>
                       setForm({ ...form, travel_end_date: event.target.value })
                     }
@@ -1353,8 +1497,8 @@ export default function MatePage() {
                 <Field label="Min Age">
                   <input
                     type="number"
-                    min={18}
-                    max={99}
+                    min={20}
+                    max={100}
                     value={form.preferred_age_min}
                     onChange={(event) =>
                       setForm({
@@ -1366,7 +1510,7 @@ export default function MatePage() {
                       setForm((current) => ({
                         ...current,
                         preferred_age_min: Math.max(
-                          18,
+                          20,
                           Math.min(current.preferred_age_min, current.preferred_age_max)
                         ),
                       }))
@@ -1377,8 +1521,8 @@ export default function MatePage() {
                 <Field label="Max Age">
                   <input
                     type="number"
-                    min={18}
-                    max={99}
+                    min={20}
+                    max={100}
                     value={form.preferred_age_max}
                     onChange={(event) =>
                       setForm({
@@ -1391,7 +1535,7 @@ export default function MatePage() {
                         ...current,
                         preferred_age_max: Math.max(
                           current.preferred_age_min,
-                          Math.min(current.preferred_age_max, 99)
+                          Math.min(current.preferred_age_max, 100)
                         ),
                       }))
                     }
@@ -1520,6 +1664,7 @@ export default function MatePage() {
             handleStartEdit(selectedPost);
             setSelectedPost(null);
           }}
+          onDelete={() => void handleDeletePost(selectedPost)}
           onViewProfile={() => {
             setFeedPopupUserId(selectedPost.user_id);
             setSelectedPost(null);
@@ -1528,6 +1673,19 @@ export default function MatePage() {
             void handleStartChat(selectedPost);
             setSelectedPost(null);
           }}
+        />
+      ) : null}
+
+      {pendingDeletePost ? (
+        <MateConfirmDialog
+          title="Delete this mate post?"
+          message={`"${pendingDeletePost.title}" will be permanently deleted.`}
+          confirmLabel="Delete"
+          busy={isDeletingPost}
+          onCancel={() => {
+            if (!isDeletingPost) setPendingDeletePost(null);
+          }}
+          onConfirm={() => void confirmDeletePost()}
         />
       ) : null}
 
@@ -1642,7 +1800,6 @@ function UserSearchCard({
           <span style={styles.userResultStyles}>
             {user.travel_styles.length > 0 ? user.travel_styles.join(" / ") : "No styles"}
           </span>
-          <span style={styles.userResultId}>{user.user_id}</span>
         </div>
       </div>
       <div style={styles.userResultActions}>
@@ -1776,6 +1933,7 @@ function PostModal({
   onImageClick,
   onToggleFriend,
   onEdit,
+  onDelete,
   onViewProfile,
   onChat,
 }: {
@@ -1788,6 +1946,7 @@ function PostModal({
   onImageClick: (url: string) => void;
   onToggleFriend: () => void;
   onEdit: () => void;
+  onDelete: () => void;
   onViewProfile: () => void;
   onChat: () => void;
 }) {
@@ -1798,7 +1957,6 @@ function PostModal({
   return (
     <div style={styles.modalOverlay} onClick={onClose}>
       <div style={styles.modalCard} onClick={(event) => event.stopPropagation()}>
-        <div style={styles.sheetHandle} />
         <div style={styles.modalHero}>
           <div style={styles.modalHeroTop}>
             <span style={styles.modalCategory}>{COMPANION_LABELS[post.companion_type]}</span>
@@ -1854,9 +2012,18 @@ function PostModal({
 
           <div style={styles.modalButtonGrid}>
             {isOwnPost ? (
-              <button type="button" style={styles.primaryButton} onClick={onEdit}>
-                Edit Post
-              </button>
+              <>
+                <button type="button" style={styles.primaryButton} onClick={onEdit}>
+                  Edit Post
+                </button>
+                <button
+                  type="button"
+                  style={{ ...styles.secondaryButton, ...styles.deleteActionButton }}
+                  onClick={onDelete}
+                >
+                  Delete Post
+                </button>
+              </>
             ) : null}
             {canAddFriend ? (
               <button
@@ -1872,15 +2039,68 @@ function PostModal({
                     : "Add Friend"}
               </button>
             ) : null}
-            <button type="button" style={styles.secondaryButton} onClick={onViewProfile}>
-              View Feed
-            </button>
+            {!isOwnPost ? (
+              <button type="button" style={styles.secondaryButton} onClick={onViewProfile}>
+                View Feed
+              </button>
+            ) : null}
             {!isOwnPost ? (
               <button type="button" style={styles.secondaryButton} onClick={onChat}>
                 Chat
               </button>
             ) : null}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MateConfirmDialog({
+  title,
+  message,
+  confirmLabel,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div style={styles.confirmBackdrop} onClick={busy ? undefined : onCancel}>
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        style={styles.confirmCard}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <strong style={styles.confirmTitle}>{title}</strong>
+        <p style={styles.confirmMessage}>{message}</p>
+        <div style={styles.confirmActions}>
+          <button
+            type="button"
+            style={styles.confirmCancelButton}
+            disabled={busy}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            style={{
+              ...styles.confirmDeleteButton,
+              ...(busy ? styles.buttonDisabled : {}),
+            }}
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            {busy ? "Deleting..." : confirmLabel}
+          </button>
         </div>
       </div>
     </div>
@@ -2087,6 +2307,108 @@ function HeartIcon({ filled }: { filled: boolean }) {
   );
 }
 
+function getMatePostValidationError(
+  form: MatePostForm
+): { title: string; message?: string } | null {
+  const title = form.title.trim();
+  const region = form.region.trim();
+  const intro = form.content.trim();
+  const minAge = Number(form.preferred_age_min);
+  const maxAge = Number(form.preferred_age_max);
+
+  if (!title) {
+    return {
+      title: "Please add a title.",
+      message: "Tell other travelers what kind of trip you are planning.",
+    };
+  }
+
+  if (!region) {
+    return {
+      title: "Please enter a region.",
+      message: "Add the area or city where you want to meet.",
+    };
+  }
+
+  if (!form.travel_start_date) {
+    return {
+      title: "Please choose a start date.",
+      message: "Your mate post needs a travel start date.",
+    };
+  }
+
+  if (form.travel_start_date < getTodayDateInputValue()) {
+    return {
+      title: "Please choose today or a future date.",
+      message: "The start date must be today or later.",
+    };
+  }
+
+  if (!form.travel_end_date) {
+    return {
+      title: "Please choose an end date.",
+      message: "Your mate post needs a travel end date.",
+    };
+  }
+
+  if (form.travel_end_date < getTodayDateInputValue()) {
+    return {
+      title: "Please choose today or a future end date.",
+      message: "The end date must be today or later.",
+    };
+  }
+
+  if (form.travel_start_date > form.travel_end_date) {
+    return {
+      title: "Please check your travel dates.",
+      message: "The end date cannot be earlier than the start date.",
+    };
+  }
+
+  if (!Number.isFinite(minAge) || minAge < 20 || minAge > 100) {
+    return {
+      title: "Please check the minimum age.",
+      message: "Minimum age must be between 20 and 100.",
+    };
+  }
+
+  if (!Number.isFinite(maxAge) || maxAge < 20 || maxAge > 100) {
+    return {
+      title: "Please check the maximum age.",
+      message: "Maximum age must be between 20 and 100.",
+    };
+  }
+
+  if (minAge > maxAge) {
+    return {
+      title: "Please check the age range.",
+      message: "Minimum age cannot be greater than maximum age.",
+    };
+  }
+
+  if (!intro) {
+    return {
+      title: "Please write an intro.",
+      message: "Share your plan, pace, or what kind of mate you are looking for.",
+    };
+  }
+
+  if (intro.length < 10) {
+    return {
+      title: "Please enter at least 10 characters in the intro.",
+      message: "A little more detail helps others understand your trip.",
+    };
+  }
+
+  return null;
+}
+
+function getTodayDateInputValue(): string {
+  const now = new Date();
+  const timezoneOffsetMs = now.getTimezoneOffset() * 60 * 1000;
+  return new Date(now.getTime() - timezoneOffsetMs).toISOString().slice(0, 10);
+}
+
 function toErrorMessage(error: unknown, fallback: string): string {
   const apiError = error as {
     response?: {
@@ -2188,8 +2510,7 @@ function toFriendlyValidationMessage(errorItem: {
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
-    padding:
-      "calc(24px + var(--app-safe-top)) 16px calc(40px + var(--app-bottom-nav-reserved))",
+    padding: "0 16px calc(40px + var(--app-bottom-nav-reserved))",
     background:
       "linear-gradient(180deg, #e4f7f7 0px, #e4f7f7 145px, #ffffff 145px, #ffffff 38%, #f2f3f5 100%)",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
@@ -2202,12 +2523,36 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     gap: 18,
   },
+  fixedHeader: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 30,
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+    padding: "calc(24px + var(--app-safe-top)) 16px 12px",
+    background:
+      "linear-gradient(180deg, #e4f7f7 0px, #e4f7f7 121px, #ffffff 121px, #ffffff 100%)",
+    opacity: 0,
+    pointerEvents: "none",
+    transform: "translateY(calc(-100% - 16px))",
+    transition: "transform 240ms ease, opacity 180ms ease",
+  },
+  fixedHeaderVisible: {
+    opacity: 1,
+    pointerEvents: "auto",
+    transform: "translateY(0)",
+  },
   header: {
+    width: "100%",
+    maxWidth: 760,
+    margin: "0 auto",
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 16,
-    paddingTop: 8,
   },
   eyebrow: {
     margin: 0,
@@ -2294,6 +2639,9 @@ const styles: Record<string, CSSProperties> = {
   },
   searchPanel: {
     position: "relative",
+    width: "100%",
+    maxWidth: 760,
+    margin: "0 auto",
     padding: 0,
     borderRadius: 0,
     background: "transparent",
@@ -2696,6 +3044,10 @@ const styles: Record<string, CSSProperties> = {
     background: "rgba(255,255,255,0.92)",
     boxShadow: "var(--shadow-soft)",
     cursor: "pointer",
+    zIndex: 1,
+  },
+  cardMenuOpen: {
+    zIndex: 15,
   },
   cardHeader: {
     display: "flex",
@@ -2769,7 +3121,7 @@ const styles: Record<string, CSSProperties> = {
     position: "absolute",
     right: 18,
     top: 58,
-    zIndex: 12,
+    zIndex: 20,
     display: "flex",
     flexDirection: "column",
     minWidth: 132,
@@ -2789,6 +3141,9 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   dangerText: {
+    color: "#dc2626",
+  },
+  deleteActionButton: {
     color: "#dc2626",
   },
   cardBody: {
@@ -3132,12 +3487,69 @@ const styles: Record<string, CSSProperties> = {
     background: "rgba(24,26,32,0.42)",
     animation: "fadeInOverlay 220ms ease-out",
   },
+  confirmBackdrop: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 90,
+    display: "grid",
+    placeItems: "center",
+    padding: 24,
+    background: "rgba(15,23,42,0.34)",
+    backdropFilter: "blur(2px)",
+  },
+  confirmCard: {
+    width: "min(336px, 100%)",
+    borderRadius: 20,
+    padding: 20,
+    background: "rgba(255,255,255,0.98)",
+    border: "1px solid rgba(255,255,255,0.82)",
+    boxShadow:
+      "0 28px 80px rgba(15,23,42,0.34), 0 10px 28px rgba(15,23,42,0.18)",
+    textAlign: "center",
+  },
+  confirmTitle: {
+    display: "block",
+    color: "var(--text-primary)",
+    fontSize: "1.08rem",
+    lineHeight: 1.25,
+  },
+  confirmMessage: {
+    margin: "8px 0 0",
+    color: "var(--neutral-700)",
+    fontSize: "0.88rem",
+    lineHeight: 1.45,
+  },
+  confirmActions: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+    marginTop: 18,
+  },
+  confirmCancelButton: {
+    minHeight: 42,
+    border: "1px solid var(--border-soft)",
+    borderRadius: 14,
+    background: "#ffffff",
+    color: "var(--text-secondary)",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  confirmDeleteButton: {
+    minHeight: 42,
+    border: "none",
+    borderRadius: 14,
+    background: "#dc2626",
+    color: "#ffffff",
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 12px 24px rgba(220,38,38,0.24)",
+  },
   modalCard: {
     width: "100%",
     maxWidth: 760,
     maxHeight: "88dvh",
     overflowY: "auto",
-    borderRadius: "32px 32px 0 0",
+    borderRadius: "24px 24px 0 0",
     background: "var(--surface-panel)",
     boxShadow: "0 28px 72px rgba(24,26,32,0.18)",
     animation: "slideUpModal 280ms cubic-bezier(0.22, 1, 0.36, 1)",
@@ -3232,7 +3644,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
-    borderRadius: "32px 32px 0 0",
+    borderRadius: "24px 24px 0 0",
     background: "linear-gradient(160deg, rgba(5,181,187,0.2), rgba(248,180,0,0.18))",
   },
   modalHeroTop: {
@@ -3367,7 +3779,7 @@ const styles: Record<string, CSSProperties> = {
   menuBackdrop: {
     position: "fixed",
     inset: 0,
-    zIndex: 10,
+    zIndex: 5,
     background: "transparent",
   },
 };

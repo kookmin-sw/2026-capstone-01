@@ -60,7 +60,7 @@ export default function MenuPage() {
   useEffect(() => {
     return () => {
       previewUrls.forEach((url) => URL.revokeObjectURL(url));
-      window.speechSynthesis.cancel();
+      cancelSpeech();
     };
   }, [previewUrls]);
 
@@ -234,7 +234,7 @@ export default function MenuPage() {
     setExchangeRate(null);
     setPartySize(1);
     setStep("upload");
-    window.speechSynthesis.cancel();
+    cancelSpeech();
     utteranceRef.current = null;
   };
 
@@ -276,14 +276,18 @@ export default function MenuPage() {
   const handleSpeak = () => {
     // Stop if already playing
     if (speaking) {
-      window.speechSynthesis.cancel();
+      cancelSpeech();
       setSpeaking(false);
       utteranceRef.current = null;
       return;
     }
     if (!koreanOrderMessage.trim()) return;
 
-    const utterance = new SpeechSynthesisUtterance(koreanOrderMessage);
+    const SpeechSynthesisUtteranceCtor = getSpeechSynthesisUtterance();
+    const speechSynthesis = getSpeechSynthesis();
+    if (!SpeechSynthesisUtteranceCtor || !speechSynthesis) return;
+
+    const utterance = new SpeechSynthesisUtteranceCtor(koreanOrderMessage);
     utterance.lang = "ko-KR";
     utterance.rate = 0.88;   // slightly slower for clarity
     utterance.pitch = 1.0;
@@ -291,7 +295,7 @@ export default function MenuPage() {
     utterance.onend = () => { setSpeaking(false); utteranceRef.current = null; };
     utterance.onerror = () => { setSpeaking(false); utteranceRef.current = null; };
     utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
+    speechSynthesis.speak(utterance);
   };
 
   const handleBackButton = () => {
@@ -835,6 +839,27 @@ function mapResultsToMenuItems(results: MenuOcrPageResult[]): MenuItem[] {
       category: menu.category ?? "기타",
     }))
   );
+}
+
+function getSpeechSynthesis(): SpeechSynthesis | null {
+  if (typeof window === "undefined") return null;
+  return window.speechSynthesis ?? null;
+}
+
+function getSpeechSynthesisUtterance(): typeof SpeechSynthesisUtterance | null {
+  if (typeof window === "undefined") return null;
+  return typeof window.SpeechSynthesisUtterance === "function"
+    ? window.SpeechSynthesisUtterance
+    : null;
+}
+
+function cancelSpeech(): void {
+  try {
+    getSpeechSynthesis()?.cancel();
+  } catch {
+    // Android WebView can expose partial Web Speech support. Leaving the page
+    // should never break route transitions if speech cleanup fails.
+  }
 }
 
 const styles: Record<string, CSSProperties> = {
