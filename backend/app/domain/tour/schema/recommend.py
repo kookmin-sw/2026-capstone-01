@@ -108,6 +108,7 @@ class TourPlaceDetailResponse(BaseModel):
     reason: str = Field(..., description="Reason and highlights (English).")  # 추천 이유
     estimated_cost_krw: int = Field(..., ge=0, description="Estimated per-person spend in KRW. 0 does NOT necessarily mean free — it may also indicate a missing/unknown estimate. Do not render as 'Free' without independent verification.")  # 예상 1인 지출 (0이라도 반드시 무료를 의미하지 않음)
     stay_minutes: int = Field(..., gt=0, description="Recommended stay in minutes (positive).")  # 권장 체류 시간 (양수)
+    photos: List[str] = Field(default_factory=list, description="Photo URL list (empty if no image available).")  # 사진 URL 목록 (없으면 빈 배열)
 
 
 class TourMovementHopResponse(BaseModel):

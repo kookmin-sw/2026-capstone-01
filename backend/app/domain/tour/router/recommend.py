@@ -7,6 +7,11 @@ from app.domain.tour.schema.recommend import (
     TourRecommendRequest,
     TourRecommendResponse,
 )
+from app.domain.tour.service.exception import (
+    TourRecommendCredentialExpiredError,
+    TourRecommendQuotaExceededError,
+    TourRecommendVendorError,
+)
 from app.domain.tour.service.recommend import RecommendService
 
 
@@ -30,6 +35,12 @@ async def recommend_tour(
     except ValueError as e:
         # 추가 장소 미존재 등 입력 검증 실패
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error("여행 추천 실패: {}", e)
-        raise HTTPException(status_code=500, detail="Failed to generate tour recommendation.")
+    except TourRecommendCredentialExpiredError as e:
+        logger.critical("Gemini 인증 만료 / 권한 거부: {}", e)
+        raise HTTPException(status_code=503, detail="여행 추천 서비스가 일시 중단되었습니다.")
+    except TourRecommendQuotaExceededError as e:
+        logger.warning("Gemini 쿼터 소진: {}", e)
+        raise HTTPException(status_code=429, detail="요청이 많아 처리하지 못했습니다. 잠시 후 다시 시도해주세요.")
+    except TourRecommendVendorError as e:
+        logger.error("Gemini 벤더 오류: {}", e)
+        raise HTTPException(status_code=502, detail="여행 추천에 실패했습니다.")

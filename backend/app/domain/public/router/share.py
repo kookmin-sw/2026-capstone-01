@@ -56,6 +56,7 @@ def _to_public_plan_response(plan) -> PublicPlanResponse:
                 address=i.address,
                 visit_time=i.visit_time,
                 rating=i.rating,
+                photos=i.photos,
             )
             for i in plan.items
         ],

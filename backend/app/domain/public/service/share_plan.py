@@ -48,7 +48,7 @@ class SharePlanService:
     # ──────────────────── 내부 변환 유틸 ────────────────────
 
     @staticmethod
-    def _to_public_plan_item_dto(item: TourPlanItem, rating) -> PublicPlanItemData:
+    def _to_public_plan_item_dto(item: TourPlanItem, rating, photos: list[str]) -> PublicPlanItemData:
         return PublicPlanItemData(
             item_id=item.item_id,
             day_number=item.day_number,
@@ -58,6 +58,7 @@ class SharePlanService:
             address=item.address,
             visit_time=item.visit_time,
             rating=rating,
+            photos=photos,
         )
 
     def _to_public_plan_dto(
@@ -70,7 +71,8 @@ class SharePlanService:
         for i in items:
             raw = place_map.get(i.place_id)
             rating = raw.get("rating") if raw else None
-            item_dtos.append(self._to_public_plan_item_dto(i, rating))
+            photos = (raw.get("photos") or []) if raw else []
+            item_dtos.append(self._to_public_plan_item_dto(i, rating, photos))
 
         return PublicPlanData(
             plan_id=plan.plan_id,

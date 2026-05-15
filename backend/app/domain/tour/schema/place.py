@@ -49,6 +49,7 @@ class PlaceDetailResponse(BaseModel):
     accessibility: Optional[List[str]] = Field(None, description="접근성 정보")
     parking: Optional[List[str]] = Field(None, description="주차 정보")
     reviews: List[PlaceReviewResponse] = Field(..., description="리뷰 목록")
+    photos: List[str] = Field(default_factory=list, description="사진 URL 목록 (없으면 빈 배열)")
 
 
 class PlaceResponse(PlaceDetailResponse):

@@ -19,7 +19,10 @@
     - X 안 누른 상태에서 좋아요 취소→재좋아요 → unique 충돌 → service 가 `DuplicateKeyError` catch & skip (멱등). 스팸 방지.
 
 cascade 정리 (service 레이어 책임 — Mongo 는 자동 삭제되지 않음):
-    - 유저 탈퇴 → `delete_many({$or:[{recipient_id:u},{actor_id:u}]})`
+    - 유저 탈퇴 → `delete_many({$or:[{recipient_id:u},{actor_id:u}]})` (hard delete)
+    - 게시글 삭제 → `update_many({target_type, target_id}, {display:false})` (soft hide).
+      좋아요 취소 항목 보존 정책과는 비대칭 — 원본 게시글이 사라진 알림은 deep link 404
+      가 확정이라 인박스에 남길 가치 없음. 댓글 단건 삭제는 cascade 안 함.
 
 문서 라이프사이클:
     INSERT (RDB 커밋 후, best-effort) → display 토글 / read_at 갱신 → 30일 TTL hard delete
@@ -117,8 +120,9 @@ class InboxItem(Document):
                 partialFilterExpression={"display": True},
             ),
             # 탈퇴 시 actor_id 매칭 정리. recipient_id 는 위 compound 인덱스 prefix 로 커버.
-            # (게시물/댓글 삭제는 cascade 안 함 — 좋아요 취소 항목 보존 정책과 대칭. stale
-            # 항목은 deep link 클릭 시 클라가 404 처리, TTL 30일로 자연 정리.)
+            # 게시글 삭제 cascade (`hide_by_target`) 는 `(target_type, target_id)` 매칭 —
+            # 별도 인덱스 없이 collection scan. 게시글 삭제 빈도가 낮고 best-effort 호출이라
+            # 인박스 컬렉션 크기 임계치 넘으면 인덱스 추가 검토.
             IndexModel(
                 [("actor_id", ASCENDING)],
                 name="ix_inbox_actor",

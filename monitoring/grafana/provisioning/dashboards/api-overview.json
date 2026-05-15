@@ -89,7 +89,7 @@
       "id": 20,
       "title": "인증 실패 (kind 별)",
       "type": "timeseries",
-      "description": "auth.py 의 11 가지 실패 분기. bearer / cookie / register 카테고리로 묶어 본다.",
+      "description": "auth.py 의 11 가지 실패 분기. bearer (API 키) / login (유저 JWT — X-Auth-Token 헤더 또는 쿠키) / register (회원 상태) 카테고리로 묶어 본다.",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 9, "w": 12, "x": 0, "y": 13},
       "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
