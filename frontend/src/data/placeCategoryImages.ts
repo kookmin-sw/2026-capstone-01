@@ -1,5 +1,3 @@
-export const PLACE_CATEGORY_IMAGE_PLACEHOLDER = "이미지 링크";
-
 export const PLACE_CATEGORY_IMAGE_LINKS: Record<string, string> = {
   "Accommodation (B&B)": "https://images.unsplash.com/photo-1629140727571-9b5c6f6267b4?q=80&w=327&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
   "airport shuttle service": "https://images.unsplash.com/photo-1599968125154-d2cd5a46808a?q=80&w=870&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
