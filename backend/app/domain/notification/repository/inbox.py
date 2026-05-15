@@ -11,14 +11,17 @@
       cap 으로 999+ 표시 지원 — `count_documents(limit=cap+1)`.
     - hide / mark_read: query 에 `recipient_id` 포함해 atomic 권한 검증. 다른 유저 항목에
       대한 modify 시도는 매칭 실패 → modified_count=0.
-    - cascade delete: 유저 탈퇴 시만 hard delete (recipient/actor 매칭). 게시물/댓글 삭제는
-      cascade 안 함 — 좋아요 취소 항목 보존 정책과 대칭, stale 은 TTL 30일로 자연 정리.
+    - cascade delete: 유저 탈퇴 시만 hard delete (recipient/actor 매칭). 게시글 삭제는
+      hard delete 가 아닌 soft hide (`display=False`) — 좋아요 취소 항목 보존 정책과는
+      비대칭이지만 deep link 404 회피 + 작성자가 자기 게시글 정리 시 인박스도 함께 정리되는 자연스러운 UX. 
+      TTL 30일로 자연 정리.
 """
 from typing import Optional
 from datetime import datetime, timezone
 from beanie import PydanticObjectId
 
 from app.domain.notification.model.inbox import InboxItem
+from app.core.instrumentation import measure_mongo_op
 
 
 # 인박스 페이지 크기 — 모바일 한 화면에 fit.
@@ -36,6 +39,7 @@ class InboxRepository:
 
     # ──────────────────── Create ────────────────────
 
+    @measure_mongo_op("insert", "inbox")
     async def insert(self, item: InboxItem) -> InboxItem:
         """인박스 항목 1건 insert.
 
@@ -49,6 +53,7 @@ class InboxRepository:
 
     # ──────────────────── Read (목록 — 커서 페이지네이션) ────────────────────
 
+    @measure_mongo_op("find", "inbox")
     async def find_by_recipient(
         self,
         recipient_id: str,
@@ -72,6 +77,7 @@ class InboxRepository:
 
     # ──────────────────── Read (미읽음 카운트) ────────────────────
 
+    @measure_mongo_op("count", "inbox")
     async def count_unread(self, recipient_id: str, cap: int = UNREAD_COUNT_CAP) -> int:
         """미읽음 항목 카운트 — `display=true AND read_at=null`.
 
@@ -87,6 +93,7 @@ class InboxRepository:
 
     # ──────────────────── Update (X 버튼 / 읽음 처리) ────────────────────
 
+    @measure_mongo_op("update", "inbox")
     async def hide(self, inbox_item_id: PydanticObjectId, recipient_id: str) -> bool:
         """X 버튼 — `display=False` 토글. 본인 소유 검증을 query 안에 포함 (atomic).
 
@@ -102,6 +109,7 @@ class InboxRepository:
         return res.modified_count == 1
 
 
+    @measure_mongo_op("update", "inbox")
     async def mark_all_read(self, recipient_id: str) -> int:
         """인박스 진입 시 미읽음 일괄 읽음 처리. 변경된 row 수 반환.
 
@@ -116,8 +124,33 @@ class InboxRepository:
         return res.modified_count
 
 
+    # ──────────────────── Cascade (게시글 삭제 — soft hide) ────────────────────
+
+    @measure_mongo_op("update", "inbox")
+    async def hide_by_target(self, target_type: str, target_id: str) -> int:
+        """게시글 삭제 cascade — `(target_type, target_id)` 매칭 항목 일괄 soft hide.
+
+        `display=True` 인 항목만 대상 (멱등 — 이미 X 로 숨긴 항목은 안 건드림).
+        한 game 의 LIKE / COMMENT 알림이 모두 정리됨 (target_id 단일 매칭이라 type
+        분기 불필요). dedup unique index 가 partial filter (`display: true`) 라
+        숨김 처리 후 동일 (recipient, actor, target) 새 항목 가능성 자체는 열리지만,
+        호출 contract 상 게시글 삭제 직후라 새 좋아요/댓글 알림이 발생할 수 없음.
+
+        인박스 인덱스가 `(target_type, target_id)` 를 prefix 로 두지 않아 
+        collection scan — 게시글 삭제 빈도가 낮고 fire-and-forget best-effort 라 수용. 
+        인박스 컬렉션 크기가 임계치 넘으면 인덱스 추가 검토.
+        """
+        coll = InboxItem.get_motor_collection()
+        res = await coll.update_many(
+            {"target_type": target_type, "target_id": target_id, "display": True},
+            {"$set": {"display": False}},
+        )
+        return res.modified_count
+
+
     # ──────────────────── Cascade (유저 탈퇴만) ────────────────────
 
+    @measure_mongo_op("delete", "inbox")
     async def delete_by_user(self, user_id: str) -> int:
         """유저 탈퇴 cascade — recipient 또는 actor 매칭 항목 일괄 hard delete.
 

@@ -2,6 +2,7 @@ from typing import Literal, Optional
 import re
 
 from app.domain.tour.model.place import Place
+from app.core.instrumentation import measure_mongo_op
 
 
 # 장소 조회 개수
@@ -47,6 +48,7 @@ class PlaceRepository:
 
     # ──────────────────── Read (거리순 조회) ────────────────────
 
+    @measure_mongo_op("aggregate", "place")
     async def find_nearby(
         self,
         lat: float,
@@ -74,6 +76,7 @@ class PlaceRepository:
 
     # ──────────────────── Read (키워드 검색 + 거리순) ────────────────────
 
+    @measure_mongo_op("aggregate", "place")
     async def search_nearby(
         self,
         lat: float,
@@ -98,11 +101,13 @@ class PlaceRepository:
 
     # ──────────────────── Read (place_id 배치 조회) ────────────────────
 
+    @measure_mongo_op("find_one", "place")
     async def find_by_place_id(self, place_id: str) -> Optional[dict]:
         """place_id로 장소 단건 조회"""
         collection = Place.get_motor_collection()
         return await collection.find_one({"place_id": place_id})
 
+    @measure_mongo_op("find", "place")
     async def find_by_place_ids(self, place_ids: list[str]) -> list[dict]:
         """place_id 목록으로 장소 배치 조회"""
         if not place_ids:

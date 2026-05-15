@@ -15,11 +15,17 @@ export type LastMessageContent = string | SystemContent | null;
 export interface ChatPeer {
   user_id: string | null;
   user_name: string | null;
-  profile_image_url?: string | null;
+  profile_image_url: string | null;
 }
 
 export interface ChatRoomMember extends ChatPeer {
   role?: string | null;
+}
+
+export interface ChatUserProfile {
+  user_id: string;
+  user_name: string;
+  profile_image_url: string | null;
 }
 
 export interface LastMessagePreview {
@@ -66,6 +72,10 @@ export interface ChatMessageListResponse {
   messages: ChatMessage[];
   has_more: boolean;
   next_cursor: number | null;
+}
+
+export interface ChatUserProfileListResponse {
+  items: ChatUserProfile[];
 }
 
 export interface MessageEditResponse {
@@ -132,6 +142,28 @@ export async function getChatMessages({
     }
   );
   return data;
+}
+
+export async function getChatRoomMembers(
+  chatRoomId: string
+): Promise<ChatUserProfileListResponse> {
+  const { data } = await client.get<ChatUserProfileListResponse>(
+    `/api/chat/rooms/${encodeURIComponent(chatRoomId)}/members`
+  );
+  return {
+    items: Array.isArray(data.items) ? data.items : [],
+  };
+}
+
+export async function getInvitableChatRoomFriends(
+  chatRoomId: string
+): Promise<ChatUserProfileListResponse> {
+  const { data } = await client.get<ChatUserProfileListResponse>(
+    `/api/chat/rooms/${encodeURIComponent(chatRoomId)}/invitable-friends`
+  );
+  return {
+    items: Array.isArray(data.items) ? data.items : [],
+  };
 }
 
 export async function inviteChatRoomMembers(

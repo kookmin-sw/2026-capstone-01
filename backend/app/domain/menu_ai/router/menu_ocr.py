@@ -2,6 +2,11 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Request, Depends, UploadFile, File
 from dependency_injector.wiring import Provide, inject
 
+from app.domain.menu_ai.service.exception import (
+    MenuOcrCredentialExpiredError,
+    MenuOcrQuotaExceededError,
+    MenuOcrVendorError,
+)
 from app.domain.menu_ai.service.menu_ocr import MenuOcrService
 from app.domain.menu_ai.schema.menu_ocr import (
     MenuResponse, MenuOcrResponse, MenuOcrBatchResponse,
@@ -36,9 +41,15 @@ async def ocr_menu(
         result = await ocr_service.ocr_single(image_bytes, file.content_type)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error("메뉴 OCR 실패: {}", e)
-        raise HTTPException(status_code=500, detail="메뉴 인식에 실패했습니다.")
+    except MenuOcrCredentialExpiredError as e:
+        logger.critical("Gemini 인증 만료 / 권한 거부: {}", e)
+        raise HTTPException(status_code=503, detail="메뉴 인식 서비스가 일시 중단되었습니다.")
+    except MenuOcrQuotaExceededError as e:
+        logger.warning("Gemini 쿼터 소진: {}", e)
+        raise HTTPException(status_code=429, detail="요청이 많아 처리하지 못했습니다. 잠시 후 다시 시도해주세요.")
+    except MenuOcrVendorError as e:
+        logger.error("Gemini 벤더 오류: {}", e)
+        raise HTTPException(status_code=502, detail="메뉴 인식에 실패했습니다.")
 
     return _to_ocr_response(result)
 
@@ -70,9 +81,15 @@ async def ocr_menu_batch(
         result = await ocr_service.ocr_batch(images)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error("메뉴 OCR 배치 실패: {}", e)
-        raise HTTPException(status_code=500, detail="메뉴 인식에 실패했습니다.")
+    except MenuOcrCredentialExpiredError as e:
+        logger.critical("Gemini 인증 만료 / 권한 거부 (batch): {}", e)
+        raise HTTPException(status_code=503, detail="메뉴 인식 서비스가 일시 중단되었습니다.")
+    except MenuOcrQuotaExceededError as e:
+        logger.warning("Gemini 쿼터 소진 (batch): {}", e)
+        raise HTTPException(status_code=429, detail="요청이 많아 처리하지 못했습니다. 잠시 후 다시 시도해주세요.")
+    except MenuOcrVendorError as e:
+        logger.error("Gemini 벤더 오류 (batch): {}", e)
+        raise HTTPException(status_code=502, detail="메뉴 인식에 실패했습니다.")
 
     return MenuOcrBatchResponse(
         results=[_to_ocr_response(r) for r in result.results]

@@ -1,412 +1,898 @@
-import type { CSSProperties } from "react";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { registerUser } from "../api/auth/auth";
-import type { RegisterFormState } from "./RegisterPage";
 
-type Option = {
-  key: string;
-  label: string;
-  note?: string;
+const MINT = "#01c0c0";
+const DARK_MINT = "#008888";
+const GOLD = "#936b00";
+const PURPLE = "#6b4fa8";
+const GRAY1 = "#f6f6f6";
+const GRAY2 = "#eaeaea";
+const GRAY4 = "#848484";
+const GRAY5 = "#4d4d4d";
+const GRAY6 = "#222";
+const GRAY_AAA = "#aaa";
+
+const imgPlane = "/krip_register_plane.png";
+const imgLogo = "/krip_register_logo.png";
+
+// LoginPage sends { email, name } — RegisterPage (legacy) sent { registerForm }
+type RegisterLocationState = {
+  email?: string;
+  name?: string;
+  registerForm?: Record<string, unknown>;
+} | null;
+
+export interface OnboardingData {
+  nickname: string;
+  age: string;
+  gender: string;
+  travelStyles: string[];
+  foodPrefs: string[];
+  budget: string;
+  walking: string;
+  schedule: string;
+  transport: string[];
+  activeTime: string[];
+  companion: string;
+  communication: string;
+  planning: string;
+}
+
+// ─── Value → API key maps ────────────────────────────────────────────────────
+
+const MIN_AGE = 20;
+const MAX_AGE = 100;
+
+const TRAVEL_STYLE_KEY: Record<string, string> = {
+  Activity: "activity",
+  "Famous Attractions": "famous_attractions",
+  Healing: "healing",
+  "Culture & History": "culture_history",
+  Shopping: "shopping",
+  "Food Tour": "food_tour",
+  "Photo Aesthetic": "photo_aesthetic",
+  "Festival & Event": "festival_event",
+  Nature: "nature",
+  Traditional: "traditional",
+  Trekking: "trekking",
+  "Hidden Gems": "hidden_gems",
+  "Art Exhibition": "art_exhibition",
+  "Theme Park": "theme_park",
 };
 
-interface OnboardingLocationState {
-  registerForm?: RegisterFormState;
+const FOOD_KEY: Record<string, string> = {
+  Halal: "food_halal",
+  Vegetarian: "food_vegetarian",
+  Foodie: "foodie",
+  "Cafe Lover": "cafe_lover",
+};
+
+const SCHEDULE_KEY: Record<string, string> = {
+  Relaxed: "density_relaxed",
+  Packed: "density_packed",
+};
+
+const BUDGET_KEY: Record<string, string> = {
+  Saving: "budget_saving",
+  Moderate: "budget_moderate",
+  Premium: "budget_premium",
+};
+
+const WALKING_KEY: Record<string, string> = {
+  Low: "walking_low",
+  Medium: "walking_medium",
+  High: "walking_high",
+};
+
+const TRANSPORT_KEY: Record<string, string> = {
+  "Public Transit": "transport_public",
+  Car: "transport_car",
+  Taxi: "transport_taxi",
+};
+
+const ACTIVE_TIME_KEY: Record<string, string> = {
+  Daytime: "daytime",
+  Nightlife: "nightlife",
+  "Night View": "night_view",
+};
+
+const COMPANION_KEY: Record<string, string> = {
+  Independent: "companion_independent",
+  Together: "companion_together",
+  Flexible: "companion_flexible",
+};
+
+const COMMUNICATION_KEY: Record<string, string> = {
+  "High Communication": "communication_high",
+  "Low Communication": "communication_low",
+};
+
+const PLANNING_KEY: Record<string, string> = {
+  Planner: "planner",
+  Spontaneous: "spontaneous",
+  Follower: "follower",
+};
+
+function mapArray(values: string[], map: Record<string, string>): string[] {
+  const allowed = new Set(Object.values(map));
+  return values
+    .map((value) => map[value] ?? value.trim().toLowerCase())
+    .filter((value) => allowed.has(value));
 }
 
-interface OnboardingFormState {
-  travel_styles: string[];
-  food_preferences: string[];
-  density_preference: string;
-  budget_preference: string;
-  walking_preference: string;
-  transport_preferences: string[];
-  companion_preference: string;
-  time_preferences: string[];
-  communication_preference: string;
-  planning_preference: string;
+function toOnboardingPayload(data: OnboardingData) {
+  return {
+    travel_styles: Array.from(
+      new Set(
+        [
+          ...mapArray(data.travelStyles, TRAVEL_STYLE_KEY),
+          ...mapArray(data.foodPrefs, FOOD_KEY),
+          SCHEDULE_KEY[data.schedule] ?? data.schedule,
+          BUDGET_KEY[data.budget] ?? data.budget,
+          WALKING_KEY[data.walking] ?? data.walking,
+          ...mapArray(data.transport, TRANSPORT_KEY),
+          COMPANION_KEY[data.companion] ?? data.companion,
+          ...mapArray(data.activeTime, ACTIVE_TIME_KEY),
+          COMMUNICATION_KEY[data.communication] ?? data.communication,
+          PLANNING_KEY[data.planning] ?? data.planning,
+        ]
+          .map((value) => value.trim().toLowerCase())
+          .filter(Boolean)
+      )
+    ),
+  };
 }
 
-const TRAVEL_STYLE_OPTIONS: Option[] = [
-  { key: "activity", label: "Activity" },
-  { key: "famous_attractions", label: "Famous Attractions" },
-  { key: "healing", label: "Healing" },
-  { key: "culture_history", label: "Culture & History" },
-  { key: "shopping", label: "Shopping" },
-  { key: "food_tour", label: "Food Tour" },
-  { key: "photo_aesthetic", label: "Photo Aesthetic" },
-  { key: "festival_event", label: "Festival & Event" },
-  { key: "nature", label: "Nature" },
-  { key: "traditional", label: "Traditional" },
-  { key: "trekking", label: "Trekking" },
-  { key: "hidden_gems", label: "Hidden Gems" },
-  { key: "art_exhibition", label: "Art Exhibition" },
-  { key: "theme_park", label: "Theme Park" },
+// ─── Shared UI components ────────────────────────────────────────────────────
+
+function StepDots({ current, total }: { current: number; total: number }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 16px" }}>
+      {Array.from({ length: total }).map((_, i) => (
+        <div
+          key={i}
+          style={{
+            width: i === current ? 12 : 8,
+            height: i === current ? 12 : 8,
+            borderRadius: "50%",
+            background: i === current ? MINT : GRAY2,
+            transition: "all 0.25s",
+            flexShrink: 0,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function QuestionTitle({ text }: { text: string }) {
+  return (
+    <div style={{ padding: "0 16px" }}>
+      <p
+        style={{
+          fontFamily: "Pretendard Variable,sans-serif",
+          fontWeight: 700,
+          fontSize: 24,
+          color: GRAY6,
+          lineHeight: "32px",
+          margin: 0,
+          whiteSpace: "pre-line",
+        }}
+      >
+        {text}
+      </p>
+    </div>
+  );
+}
+
+function SectionLabel({ text, color = DARK_MINT }: { text: string; color?: string }) {
+  return (
+    <div style={{ padding: "0 16px" }}>
+      <p
+        style={{
+          fontFamily: "Pretendard Variable,sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+          color,
+          margin: 0,
+          lineHeight: "16px",
+        }}
+      >
+        {text}
+      </p>
+    </div>
+  );
+}
+
+function Chip({
+  label,
+  selected,
+  onClick,
+  accentColor = MINT,
+}: {
+  label: string;
+  selected: boolean;
+  onClick: () => void;
+  accentColor?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: 36,
+        padding: "0 14px",
+        borderRadius: 100,
+        cursor: "pointer",
+        border: selected ? `1.5px solid ${accentColor}` : `1px solid ${GRAY2}`,
+        background: selected ? `${accentColor}18` : "#fff",
+        fontFamily: "Pretendard Variable,sans-serif",
+        fontWeight: 600,
+        fontSize: 13,
+        color: selected ? accentColor : GRAY5,
+        whiteSpace: "nowrap",
+        transition: "all 0.15s",
+        flexShrink: 0,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function BudgetCard({
+  title,
+  sub,
+  selected,
+  onClick,
+}: {
+  title: string;
+  sub: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        flex: 1,
+        border: selected ? `1.5px solid ${MINT}` : `1px solid ${GRAY2}`,
+        background: selected ? `${MINT}14` : "#fff",
+        borderRadius: 16,
+        padding: "10px 8px",
+        cursor: "pointer",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        transition: "all 0.15s",
+        gap: 2,
+      }}
+    >
+      <span
+        style={{
+          fontFamily: "Pretendard Variable,sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+          color: selected ? MINT : GRAY5,
+        }}
+      >
+        {title}
+      </span>
+      <span
+        style={{
+          fontFamily: "Pretendard Variable,sans-serif",
+          fontWeight: 400,
+          fontSize: 11,
+          color: GRAY4,
+        }}
+      >
+        {sub}
+      </span>
+    </button>
+  );
+}
+
+function NextButton({
+  onNext,
+  canProceed,
+  label = "Next",
+}: {
+  onNext: () => void;
+  canProceed: boolean;
+  label?: string;
+}) {
+  return (
+    <div style={{ padding: "0 17px 32px", flexShrink: 0 }}>
+      <button
+        type="button"
+        onClick={canProceed ? onNext : undefined}
+        style={{
+          width: "100%",
+          height: 56,
+          borderRadius: 50,
+          border: "none",
+          background: canProceed ? MINT : GRAY2,
+          cursor: canProceed ? "pointer" : "default",
+          fontFamily: "Pretendard Variable,sans-serif",
+          fontWeight: 700,
+          fontSize: 17,
+          color: canProceed ? "#fff" : GRAY_AAA,
+          transition: "all 0.2s",
+        }}
+      >
+        {label}
+      </button>
+    </div>
+  );
+}
+
+function ChipRow({ children }: { children: ReactNode }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "0 16px" }}>
+      {children}
+    </div>
+  );
+}
+
+function TextInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  min,
+  max,
+  inputMode,
+  error,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: string;
+  min?: number;
+  max?: number;
+  inputMode?: "numeric" | "text" | "search" | "tel" | "url" | "email" | "decimal";
+  error?: string;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
+      <label
+        style={{
+          fontFamily: "Pretendard Variable,sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+          color: DARK_MINT,
+        }}
+      >
+        {label}
+      </label>
+      <input
+        type={type}
+        value={value}
+        name={label.toLowerCase().replace(/[^a-z0-9]+/g, "_")}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        min={min}
+        max={max}
+        inputMode={inputMode}
+        style={{
+          height: 48,
+          borderRadius: 50,
+          border: `1px solid ${error ? "#ef4444" : GRAY2}`,
+          background: error ? "rgba(239,68,68,0.06)" : GRAY1,
+          outline: "none",
+          padding: "0 18px",
+          fontFamily: "Pretendard Variable,sans-serif",
+          fontSize: 15,
+          color: GRAY6,
+        }}
+      />
+      {error ? (
+        <p
+          style={{
+            margin: "0 4px",
+            color: "#ef4444",
+            fontFamily: "Pretendard Variable,sans-serif",
+            fontSize: 12,
+            fontWeight: 700,
+            lineHeight: "16px",
+          }}
+        >
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
+      <label
+        style={{
+          fontFamily: "Pretendard Variable,sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+          color: DARK_MINT,
+        }}
+      >
+        {label}
+      </label>
+      <div
+        style={{
+          height: 48,
+          borderRadius: 50,
+          border: `1px solid ${GRAY2}`,
+          background: GRAY2,
+          padding: "0 18px",
+          display: "flex",
+          alignItems: "center",
+          fontFamily: "Pretendard Variable,sans-serif",
+          fontSize: 15,
+          color: GRAY4,
+          userSelect: "none",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function PageShell({
+  children,
+  onBack,
+  showBack = true,
+}: {
+  children: ReactNode;
+  onBack?: () => void;
+  showBack?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        minHeight: "var(--app-viewport-height, 100vh)",
+        width: "100%",
+        background: "#fff",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      {showBack && (
+        <div style={{ padding: "16px 6px 4px", flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={onBack}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "10px 10px",
+            }}
+          >
+            <svg width="11" height="20" viewBox="0 0 11 20" fill="none">
+              <path
+                d="M9.5 1.5L1.5 10l8 8.5"
+                stroke={GRAY6}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          scrollbarWidth: "none",
+          paddingTop: showBack ? 0 : 28,
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─── Page components ─────────────────────────────────────────────────────────
+
+type PageProps = {
+  data: OnboardingData;
+  setData: (d: Partial<OnboardingData>) => void;
+  onNext: () => void;
+  onBack: () => void;
+  email?: string;
+};
+
+function Page1({ data, setData, onNext, onBack, email }: PageProps) {
+  const isAgeValid = Boolean(data.age);
+  const ageError = "";
+  const canProceed =
+    data.nickname.trim().length > 0 &&
+    isAgeValid &&
+    data.gender.length > 0;
+
+  return (
+    <PageShell onBack={onBack} showBack={false}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingTop: 4 }}>
+        <StepDots current={0} total={5} />
+        <QuestionTitle text={"Tell us a little\nabout yourself!"} />
+        <div style={{ padding: "0 16px" }}>
+          <span style={{ fontFamily: "Pretendard Variable,sans-serif", fontWeight: 700, fontSize: 11, color: MINT, letterSpacing: 1.2 }}>
+            ONBOARDING
+          </span>
+        </div>
+        {email ? <ReadOnlyField label="Email" value={email} /> : null}
+        <TextInput label="Nickname *" value={data.nickname} onChange={(v) => setData({ nickname: v })} placeholder="What should we call you?" />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
+          <label
+            style={{
+              fontFamily: "Pretendard Variable,sans-serif",
+              fontWeight: 700,
+              fontSize: 13,
+              color: DARK_MINT,
+            }}
+          >
+            Age *
+          </label>
+          <select
+            value={data.age}
+            onChange={(e) => setData({ age: e.target.value })}
+            style={{
+              height: 48,
+              borderRadius: 50,
+              border: `1px solid ${ageError ? "#ef4444" : GRAY2}`,
+              background: ageError ? "rgba(239,68,68,0.06)" : GRAY1,
+              outline: "none",
+              padding: "0 18px",
+              fontFamily: "Pretendard Variable,sans-serif",
+              fontSize: 15,
+              color: data.age ? GRAY6 : GRAY_AAA,
+              appearance: "none",
+              WebkitAppearance: "none",
+              cursor: "pointer",
+            }}
+          >
+            <option value="" disabled hidden>Select your age</option>
+            {Array.from({ length: MAX_AGE - MIN_AGE + 1 }, (_, i) => {
+              const age = MIN_AGE + i;
+              return (
+                <option key={age} value={String(age)} style={{ color: GRAY6 }}>
+                  {age}
+                </option>
+              );
+            })}
+          </select>
+          {ageError ? (
+            <p
+              style={{
+                margin: "0 4px",
+                color: "#ef4444",
+                fontFamily: "Pretendard Variable,sans-serif",
+                fontSize: 12,
+                fontWeight: 700,
+                lineHeight: "16px",
+              }}
+            >
+              {ageError}
+            </p>
+          ) : null}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
+          <span style={{ fontFamily: "Pretendard Variable,sans-serif", fontWeight: 700, fontSize: 13, color: DARK_MINT }}>
+            Gender *
+          </span>
+          <div style={{ display: "flex", gap: 8 }}>
+            {["Male", "Female"].map((g) => (
+              <Chip key={g} label={g} selected={data.gender === g} onClick={() => setData({ gender: g })} />
+            ))}
+          </div>
+        </div>
+        <div style={{ height: 20 }} />
+      </div>
+      <NextButton onNext={onNext} canProceed={canProceed} />
+    </PageShell>
+  );
+}
+
+const TRAVEL_STYLES = [
+  "Activity", "Famous Attractions", "Healing", "Culture & History", "Shopping",
+  "Food Tour", "Photo Aesthetic", "Festival & Event", "Nature", "Traditional",
+  "Trekking", "Hidden Gems", "Art Exhibition", "Theme Park",
 ];
 
-const FOOD_OPTIONS: Option[] = [
-  { key: "food_halal", label: "Halal" },
-  { key: "food_vegetarian", label: "Vegetarian" },
-  { key: "foodie", label: "Foodie" },
-  { key: "cafe_lover", label: "Cafe Lover" },
+function Page2({ data, setData, onNext, onBack }: PageProps) {
+  const toggle = (s: string) => {
+    const arr = data.travelStyles;
+    setData({ travelStyles: arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s] });
+  };
+  return (
+    <PageShell onBack={onBack}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingTop: 4, paddingBottom: 24 }}>
+        <StepDots current={1} total={5} />
+        <QuestionTitle text={"What is your preferred\ntravel style?"} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <SectionLabel text="Travel Styles" color={DARK_MINT} />
+          <div style={{ padding: "0 16px 4px", fontFamily: "Pretendard Variable,sans-serif", fontSize: 12, color: GRAY4 }}>Multiple choice</div>
+          <ChipRow>
+            {TRAVEL_STYLES.map((s) => (
+              <Chip key={s} label={s} selected={data.travelStyles.includes(s)} onClick={() => toggle(s)} />
+            ))}
+          </ChipRow>
+        </div>
+      </div>
+      <NextButton onNext={onNext} canProceed={data.travelStyles.length > 0} />
+    </PageShell>
+  );
+}
+
+const FOOD_PREFS = ["Halal", "Vegetarian", "Foodie", "Cafe Lover"];
+const WALKING_OPTS = ["Low", "Medium", "High"];
+const BUDGET_OPTS = [
+  { title: "Saving", sub: "$40-$70 / day" },
+  { title: "Moderate", sub: "$100-$200 / day" },
+  { title: "Premium", sub: "$250+ / day" },
 ];
 
-const DENSITY_OPTIONS: Option[] = [
-  { key: "density_relaxed", label: "Relaxed" },
-  { key: "density_packed", label: "Packed" },
-];
+function Page3({ data, setData, onNext, onBack }: PageProps) {
+  const toggleFood = (s: string) => {
+    const arr = data.foodPrefs;
+    setData({ foodPrefs: arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s] });
+  };
+  const canProceed = data.foodPrefs.length > 0 && data.budget.length > 0 && data.walking.length > 0;
+  return (
+    <PageShell onBack={onBack}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingTop: 4, paddingBottom: 24 }}>
+        <StepDots current={2} total={5} />
+        <QuestionTitle text={"What are your food\nand budget preferences?"} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <SectionLabel text="Food Preferences" color={DARK_MINT} />
+          <div style={{ padding: "0 16px 4px", fontFamily: "Pretendard Variable,sans-serif", fontSize: 12, color: GRAY4 }}>Multiple choice</div>
+          <ChipRow>
+            {FOOD_PREFS.map((f) => (
+              <Chip key={f} label={f} selected={data.foodPrefs.includes(f)} onClick={() => toggleFood(f)} />
+            ))}
+          </ChipRow>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <SectionLabel text="Budget" color={GOLD} />
+          <div style={{ padding: "0 16px 4px", fontFamily: "Pretendard Variable,sans-serif", fontSize: 12, color: GRAY4 }}>Choose one</div>
+          <div style={{ display: "flex", gap: 8, padding: "0 16px" }}>
+            {BUDGET_OPTS.map((b) => (
+              <BudgetCard key={b.title} title={b.title} sub={b.sub} selected={data.budget === b.title} onClick={() => setData({ budget: b.title })} />
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <SectionLabel text="Walking Preference" color={DARK_MINT} />
+          <div style={{ padding: "0 16px 4px", fontFamily: "Pretendard Variable,sans-serif", fontSize: 12, color: GRAY4 }}>Choose one</div>
+          <ChipRow>
+            {WALKING_OPTS.map((w) => (
+              <Chip key={w} label={w} selected={data.walking === w} onClick={() => setData({ walking: w })} />
+            ))}
+          </ChipRow>
+        </div>
+      </div>
+      <NextButton onNext={onNext} canProceed={canProceed} />
+    </PageShell>
+  );
+}
 
-const BUDGET_OPTIONS: Option[] = [
-  { key: "budget_saving", label: "Saving", note: "$40-$70 / day" },
-  { key: "budget_moderate", label: "Moderate", note: "$100-$200 / day" },
-  { key: "budget_premium", label: "Premium", note: "$250+ / day" },
-];
+const SCHEDULE_OPTS = ["Relaxed", "Packed"];
+const TRANSPORT_OPTS = ["Public Transit", "Car", "Taxi"];
+const ACTIVE_TIME_OPTS = ["Daytime", "Nightlife", "Night View"];
 
-const WALKING_OPTIONS: Option[] = [
-  { key: "walking_low", label: "Low" },
-  { key: "walking_medium", label: "Medium" },
-  { key: "walking_high", label: "High" },
-];
+function Page4({ data, setData, onNext, onBack }: PageProps) {
+  const toggleTransport = (s: string) => {
+    const arr = data.transport;
+    setData({ transport: arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s] });
+  };
+  const toggleActive = (s: string) => {
+    const arr = data.activeTime;
+    setData({ activeTime: arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s] });
+  };
+  const canProceed = data.schedule.length > 0 && data.transport.length > 0 && data.activeTime.length > 0;
+  return (
+    <PageShell onBack={onBack}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingTop: 4, paddingBottom: 24 }}>
+        <StepDots current={3} total={5} />
+        <QuestionTitle text={"How do you travel\nday to day?"} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <SectionLabel text="Schedule Density" color={GOLD} />
+          <div style={{ padding: "0 16px 4px", fontFamily: "Pretendard Variable,sans-serif", fontSize: 12, color: GRAY4 }}>Choose one</div>
+          <ChipRow>
+            {SCHEDULE_OPTS.map((s) => (
+              <Chip key={s} label={s} selected={data.schedule === s} onClick={() => setData({ schedule: s })} accentColor={GOLD} />
+            ))}
+          </ChipRow>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <SectionLabel text="Transportation" color={DARK_MINT} />
+          <div style={{ padding: "0 16px 4px", fontFamily: "Pretendard Variable,sans-serif", fontSize: 12, color: GRAY4 }}>Multiple choice</div>
+          <ChipRow>
+            {TRANSPORT_OPTS.map((t) => (
+              <Chip key={t} label={t} selected={data.transport.includes(t)} onClick={() => toggleTransport(t)} />
+            ))}
+          </ChipRow>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <SectionLabel text="Active Time" color={PURPLE} />
+          <div style={{ padding: "0 16px 4px", fontFamily: "Pretendard Variable,sans-serif", fontSize: 12, color: GRAY4 }}>Multiple choice</div>
+          <ChipRow>
+            {ACTIVE_TIME_OPTS.map((a) => (
+              <Chip key={a} label={a} selected={data.activeTime.includes(a)} onClick={() => toggleActive(a)} accentColor={PURPLE} />
+            ))}
+          </ChipRow>
+        </div>
+      </div>
+      <NextButton onNext={onNext} canProceed={canProceed} />
+    </PageShell>
+  );
+}
 
-const TRANSPORT_OPTIONS: Option[] = [
-  { key: "transport_public", label: "Public Transit" },
-  { key: "transport_car", label: "Car" },
-  { key: "transport_taxi", label: "Taxi" },
-];
+const COMPANION_OPTS = ["Independent", "Together", "Flexible"];
+const COMMUNICATION_OPTS = ["High Communication", "Low Communication"];
+const PLANNING_OPTS = ["Planner", "Spontaneous", "Follower"];
 
-const COMPANION_OPTIONS: Option[] = [
-  { key: "companion_independent", label: "Independent" },
-  { key: "companion_together", label: "Together" },
-  { key: "companion_flexible", label: "Flexible" },
-];
+function Page5({ data, setData, onNext, onBack }: PageProps) {
+  const canProceed = data.companion.length > 0 && data.communication.length > 0 && data.planning.length > 0;
+  return (
+    <PageShell onBack={onBack}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingTop: 4, paddingBottom: 24 }}>
+        <StepDots current={4} total={5} />
+        <QuestionTitle text={"Last step! How do\nyou like to travel?"} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <SectionLabel text="Companion Style" color={DARK_MINT} />
+          <div style={{ padding: "0 16px 4px", fontFamily: "Pretendard Variable,sans-serif", fontSize: 12, color: GRAY4 }}>Choose one</div>
+          <ChipRow>
+            {COMPANION_OPTS.map((c) => (
+              <Chip key={c} label={c} selected={data.companion === c} onClick={() => setData({ companion: c })} />
+            ))}
+          </ChipRow>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <SectionLabel text="Communication Style" color={GOLD} />
+          <div style={{ padding: "0 16px 4px", fontFamily: "Pretendard Variable,sans-serif", fontSize: 12, color: GRAY4 }}>Choose one</div>
+          <ChipRow>
+            {COMMUNICATION_OPTS.map((c) => (
+              <Chip key={c} label={c} selected={data.communication === c} onClick={() => setData({ communication: c })} accentColor={GOLD} />
+            ))}
+          </ChipRow>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <SectionLabel text="Planning Style" color={PURPLE} />
+          <div style={{ padding: "0 16px 4px", fontFamily: "Pretendard Variable,sans-serif", fontSize: 12, color: GRAY4 }}>Choose one</div>
+          <ChipRow>
+            {PLANNING_OPTS.map((p) => (
+              <Chip key={p} label={p} selected={data.planning === p} onClick={() => setData({ planning: p })} accentColor={PURPLE} />
+            ))}
+          </ChipRow>
+        </div>
+      </div>
+      <NextButton onNext={onNext} canProceed={canProceed} label="Finish" />
+    </PageShell>
+  );
+}
 
-const TIME_OPTIONS: Option[] = [
-  { key: "daytime", label: "Daytime" },
-  { key: "nightlife", label: "Nightlife" },
-  { key: "night_view", label: "Night View" },
-];
+// ─── Complete page ────────────────────────────────────────────────────────────
 
-const COMMUNICATION_OPTIONS: Option[] = [
-  { key: "communication_high", label: "High Communication" },
-  { key: "communication_low", label: "Low Communication" },
-];
+function CompletePage({ onStart, loading, error }: { onStart: () => void; loading: boolean; error: string }) {
+  return (
+    <div style={{ minHeight: "var(--app-viewport-height, 100vh)", width: "100%", background: "linear-gradient(157deg, rgba(1,192,192,0.55) 0%, rgba(199,245,245,1) 40%, rgba(255,251,239,0.6) 100%)", display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: "56px 24px 0", flexShrink: 0 }}>
+        <p style={{ fontFamily: "Pretendard Variable,sans-serif", fontWeight: 700, fontSize: 32, color: "#fff", lineHeight: "38px", margin: 0 }}>
+          {"Let's start traveling"}
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+          <p style={{ fontFamily: "Pretendard Variable,sans-serif", fontWeight: 700, fontSize: 32, color: "#fff", lineHeight: "38px", margin: 0 }}>with</p>
+          <img src={imgLogo} alt="Krip" style={{ height: 28, objectFit: "contain" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+        </div>
+      </div>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 24px" }}>
+        <img src={imgPlane} alt="" style={{ width: "100%", maxWidth: 340, objectFit: "contain" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+      </div>
+      {error ? (
+        <div style={{ margin: "0 24px 12px", padding: "10px 16px", background: "rgba(220,38,38,0.12)", borderRadius: 12, color: "#c00", fontFamily: "Pretendard Variable,sans-serif", fontSize: 13, textAlign: "center" }}>
+          {error}
+        </div>
+      ) : null}
+      <div style={{ padding: "0 24px 48px", flexShrink: 0 }}>
+        <button type="button" onClick={loading ? undefined : onStart} style={{ width: "100%", height: 56, borderRadius: 50, border: "none", background: loading ? GRAY2 : MINT, cursor: loading ? "default" : "pointer", fontFamily: "Pretendard Variable,sans-serif", fontWeight: 700, fontSize: 17, color: loading ? GRAY_AAA : "#fff", transition: "all 0.2s" }}>
+          {loading ? "Signing up…" : "Start Traveling"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
-const PLANNING_OPTIONS: Option[] = [
-  { key: "planner", label: "Planner" },
-  { key: "spontaneous", label: "Spontaneous" },
-  { key: "follower", label: "Follower" },
-];
+// ─── Root ────────────────────────────────────────────────────────────────────
 
-const INITIAL_ONBOARDING_FORM: OnboardingFormState = {
-  travel_styles: [],
-  food_preferences: [],
-  density_preference: "",
-  budget_preference: "",
-  walking_preference: "",
-  transport_preferences: [],
-  companion_preference: "",
-  time_preferences: [],
-  communication_preference: "",
-  planning_preference: "",
+const EMPTY: OnboardingData = {
+  nickname: "", age: "", gender: "",
+  travelStyles: [], foodPrefs: [], budget: "", walking: "",
+  schedule: "", transport: [], activeTime: [],
+  companion: "", communication: "", planning: "",
 };
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
-  const { state } = useLocation() as { state: OnboardingLocationState | null };
-  const registerForm = state?.registerForm;
+  const { state } = useLocation() as { state: RegisterLocationState };
+
+  const email =
+    state?.email ??
+    (state?.registerForm?.email as string | undefined) ??
+    "";
+  const initialNickname =
+    state?.name ??
+    (state?.registerForm?.user_name as string | undefined) ??
+    "";
+
+  const [step, setStep] = useState(0);
+  const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [form, setForm] = useState<OnboardingFormState>(INITIAL_ONBOARDING_FORM);
+  const [data, setDataState] = useState<OnboardingData>({ ...EMPTY, nickname: initialNickname });
 
-  function toggleMulti(key: keyof OnboardingFormState, value: string): void {
-    setForm((current) => {
-      const selected = current[key] as string[];
-      return {
-        ...current,
-        [key]: selected.includes(value)
-          ? selected.filter((item) => item !== value)
-          : [...selected, value],
-      };
-    });
-  }
+  const setData = (patch: Partial<OnboardingData>) =>
+    setDataState((prev) => ({ ...prev, ...patch }));
+  const next = () => setStep((s) => Math.min(s + 1, 4));
+  const back = () => setStep((s) => Math.max(s - 1, 0));
 
-  function setSingle(key: keyof OnboardingFormState, value: string): void {
-    setForm((current) => ({ ...current, [key]: value }));
-  }
-
-  function validate(): boolean {
-    if (!registerForm) {
-      setError("Please complete traveler details first.");
-      return false;
+  async function handleComplete(): Promise<void> {
+    if (!email) { setError("Email is missing. Please log in again."); return; }
+    const age = Number(data.age);
+    if (!Number.isInteger(age) || age < MIN_AGE || age > MAX_AGE) {
+      setError(`Age must be between ${MIN_AGE} and ${MAX_AGE}.`);
+      setDone(false);
+      setStep(0);
+      return;
     }
-
-    if (
-      form.travel_styles.length === 0 ||
-      form.food_preferences.length === 0 ||
-      !form.density_preference ||
-      !form.budget_preference ||
-      !form.walking_preference ||
-      form.transport_preferences.length === 0 ||
-      !form.companion_preference ||
-      form.time_preferences.length === 0 ||
-      !form.communication_preference ||
-      !form.planning_preference
-    ) {
-      setError("Please complete every onboarding section.");
-      return false;
-    }
-
-    return true;
-  }
-
-  async function handleSubmit(): Promise<void> {
-    setError("");
-    if (!validate() || !registerForm) return;
-
     setLoading(true);
+    setError("");
     try {
       await registerUser({
-        ...registerForm,
-        age: Number(registerForm.age),
-        ...form,
+        email,
+        user_name: data.nickname,
+        phone_number: "",
+        age: Number(data.age),
+        gender: data.gender.toLowerCase(),
+        nationality: "korea",
+        ...toOnboardingPayload(data),
       });
       navigate("/home");
     } catch (e) {
-      const message =
-        e instanceof Error ? e.message : "Something went wrong while completing sign up.";
-      setError(message);
+      setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
   }
 
-  return (
-    <div style={s.wrapper}>
-      <div style={s.card}>
-        <div style={s.header}>
-          <Progress current={2} total={2} />
-          <span style={s.step}>Onboarding</span>
-          <h2 style={s.title}>Travel Preferences</h2>
-          <p style={s.sub}>Choose what fits your trip style so KRIP can personalize recommendations.</p>
-        </div>
+  if (!email) {
+    navigate("/login", { replace: true });
+    return null;
+  }
 
-        <div style={s.sections}>
-          <ChoiceSection
-            label="Travel Styles (multiple choice) *"
-            options={TRAVEL_STYLE_OPTIONS}
-            selected={form.travel_styles}
-            onToggle={(key) => toggleMulti("travel_styles", key)}
-          />
-          <ChoiceSection
-            label="Food Preferences (multiple choice) *"
-            options={FOOD_OPTIONS}
-            selected={form.food_preferences}
-            onToggle={(key) => toggleMulti("food_preferences", key)}
-          />
-          <ChoiceSection
-            label="Schedule Density (choose one) *"
-            options={DENSITY_OPTIONS}
-            selected={form.density_preference}
-            onToggle={(key) => setSingle("density_preference", key)}
-          />
-          <ChoiceSection
-            label="Budget Preference (choose one) *"
-            options={BUDGET_OPTIONS}
-            selected={form.budget_preference}
-            onToggle={(key) => setSingle("budget_preference", key)}
-          />
-          <ChoiceSection
-            label="Walking Preference (choose one) *"
-            options={WALKING_OPTIONS}
-            selected={form.walking_preference}
-            onToggle={(key) => setSingle("walking_preference", key)}
-          />
-          <ChoiceSection
-            label="Transportation (multiple choice) *"
-            options={TRANSPORT_OPTIONS}
-            selected={form.transport_preferences}
-            onToggle={(key) => toggleMulti("transport_preferences", key)}
-          />
-          <ChoiceSection
-            label="Companion Style (choose one) *"
-            options={COMPANION_OPTIONS}
-            selected={form.companion_preference}
-            onToggle={(key) => setSingle("companion_preference", key)}
-          />
-          <ChoiceSection
-            label="Active Time (multiple choice) *"
-            options={TIME_OPTIONS}
-            selected={form.time_preferences}
-            onToggle={(key) => toggleMulti("time_preferences", key)}
-          />
-          <ChoiceSection
-            label="Communication Style (choose one) *"
-            options={COMMUNICATION_OPTIONS}
-            selected={form.communication_preference}
-            onToggle={(key) => setSingle("communication_preference", key)}
-          />
-          <ChoiceSection
-            label="Planning Style (choose one) *"
-            options={PLANNING_OPTIONS}
-            selected={form.planning_preference}
-            onToggle={(key) => setSingle("planning_preference", key)}
-          />
-        </div>
+  if (done) {
+    return <CompletePage onStart={() => void handleComplete()} loading={loading} error={error} />;
+  }
 
-        {error && <p style={s.error}>{error}</p>}
+  const pages = [
+    <Page1 key={0} data={data} setData={setData} onNext={next} onBack={() => navigate("/login")} email={email} />,
+    <Page2 key={1} data={data} setData={setData} onNext={next} onBack={back} />,
+    <Page3 key={2} data={data} setData={setData} onNext={next} onBack={back} />,
+    <Page4 key={3} data={data} setData={setData} onNext={next} onBack={back} />,
+    <Page5 key={4} data={data} setData={setData} onNext={() => setDone(true)} onBack={back} />,
+  ];
 
-        <div style={s.actions}>
-          <button
-            type="button"
-            style={s.backBtn}
-            onClick={() => navigate("/register", { state: registerForm })}
-            disabled={loading}
-          >
-            Back
-          </button>
-          <button
-            type="button"
-            style={{ ...s.submitBtn, opacity: loading ? 0.7 : 1 }}
-            onClick={() => void handleSubmit()}
-            disabled={loading}
-          >
-            {loading ? "Submitting..." : "Complete Sign Up"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  return <>{pages[step]}</>;
 }
-
-function ChoiceSection({
-  label,
-  options,
-  selected,
-  onToggle,
-}: {
-  label: string;
-  options: Option[];
-  selected: string[] | string;
-  onToggle: (key: string) => void;
-}) {
-  return (
-    <section style={s.choiceSection}>
-      <h3 style={s.sectionTitle}>{label}</h3>
-      <div style={s.styleGrid}>
-        {options.map(({ key, label: optionLabel, note }) => {
-          const isSelected = Array.isArray(selected)
-            ? selected.includes(key)
-            : selected === key;
-          return (
-            <button
-              key={key}
-              type="button"
-              style={{ ...s.styleBtn, ...(isSelected ? s.styleBtnActive : {}) }}
-              onClick={() => onToggle(key)}
-            >
-              <span>{optionLabel}</span>
-              {note && <small style={s.note}>{note}</small>}
-            </button>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function Progress({ current, total }: { current: number; total: number }) {
-  return (
-    <div style={s.progressWrap}>
-      <div style={s.progressText}>Step {current} of {total}</div>
-      <div style={s.progressTrack}>
-        <div style={{ ...s.progressFill, width: `${(current / total) * 100}%` }} />
-      </div>
-    </div>
-  );
-}
-
-const s: Record<string, CSSProperties> = {
-  wrapper: {
-    minHeight: "100dvh",
-    background:
-      "radial-gradient(circle at top left, rgba(5,181,187,0.16), transparent 32%), radial-gradient(circle at top right, rgba(5,181,187,0.1), transparent 34%), linear-gradient(180deg, rgba(228,247,247,0.68), transparent 28%), var(--surface-base)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "24px 16px",
-    fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
-  },
-  card: {
-    background: "rgba(255,255,255,0.94)",
-    borderRadius: 24,
-    padding: "32px 28px",
-    width: "100%",
-    maxWidth: 560,
-    boxShadow: "var(--shadow-soft)",
-    border: "1px solid var(--border-soft)",
-  },
-  header: { marginBottom: 24 },
-  progressWrap: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 },
-  progressText: { color: "var(--brand-primary-deep)", fontSize: "0.78rem", fontWeight: 800 },
-  progressTrack: { width: "100%", height: 8, borderRadius: 999, background: "rgba(5,181,187,0.12)", overflow: "hidden" },
-  progressFill: { height: "100%", borderRadius: 999, background: "linear-gradient(135deg, var(--brand-primary), #12c0c6)" },
-  step: { fontSize: "0.75rem", fontWeight: 700, color: "var(--brand-primary-deep)", textTransform: "uppercase", letterSpacing: "0.1em" },
-  title: { margin: "6px 0 4px", fontSize: "1.5rem", fontWeight: 800, color: "var(--text-primary)" },
-  sub: { margin: 0, fontSize: "0.85rem", color: "var(--neutral-700)" },
-  sections: { display: "flex", flexDirection: "column", gap: 18 },
-  choiceSection: { display: "flex", flexDirection: "column", gap: 8 },
-  sectionTitle: {
-    margin: 0,
-    fontSize: "0.82rem",
-    fontWeight: 700,
-    color: "var(--neutral-700)",
-  },
-  styleGrid: { display: "flex", flexWrap: "wrap", gap: 8 },
-  styleBtn: {
-    minHeight: 38,
-    display: "inline-flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
-    padding: "8px 14px",
-    borderRadius: 20,
-    border: "1.5px solid rgba(5,181,187,0.14)",
-    background: "rgba(255,255,255,0.86)",
-    color: "var(--neutral-700)",
-    fontWeight: 700,
-    cursor: "pointer",
-    fontSize: "0.85rem",
-  },
-  styleBtnActive: {
-    background: "linear-gradient(135deg, rgba(5,181,187,0.18), rgba(228,247,247,0.96))",
-    border: "1.5px solid rgba(5,181,187,0.12)",
-    color: "var(--text-primary)",
-  },
-  note: { color: "var(--brand-primary-deep)", fontSize: "0.72rem", fontWeight: 800 },
-  error: { margin: "12px 0 0", color: "#e05555", fontSize: "0.85rem", textAlign: "center" },
-  actions: { display: "grid", gridTemplateColumns: "0.45fr 1fr", gap: 10, marginTop: 24 },
-  backBtn: {
-    width: "100%",
-    padding: "14px 0",
-    borderRadius: 14,
-    border: "1.5px solid rgba(5,181,187,0.16)",
-    background: "rgba(255,255,255,0.86)",
-    color: "var(--neutral-700)",
-    fontSize: "1rem",
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  submitBtn: {
-    width: "100%",
-    padding: "14px 0",
-    borderRadius: 14,
-    border: "1px solid rgba(5,181,187,0.18)",
-    background: "linear-gradient(135deg, var(--brand-primary), #12c0c6)",
-    color: "#ffffff",
-    fontSize: "1rem",
-    fontWeight: 800,
-    cursor: "pointer",
-    boxShadow: "0 12px 24px rgba(5,181,187,0.22)",
-  },
-};

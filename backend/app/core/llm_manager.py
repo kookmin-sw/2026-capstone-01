@@ -5,6 +5,7 @@ import httpx
 from enum import Enum
 
 from app.config.setting import settings
+from app.core.instrumentation import GeminiInstrumentationHandler
 
 
 class ModelName(str, Enum):
@@ -28,12 +29,19 @@ class LLMManager:
 
 
     def initialize(self) -> bool:
-        """모든 Gemini 모델을 초기화합니다."""
+        """모든 Gemini 모델을 초기화합니다.
+
+        모든 ChatGoogleGenerativeAI 인스턴스에 GeminiInstrumentationHandler 를 callbacks 로
+        부착해 external_call duration / result + token_usage 메트릭을 자동 수집한다.
+        """
         if not self._initialized:
+
+            handler = GeminiInstrumentationHandler()
             for model in ModelName:
                 self._models[model.value] = ChatGoogleGenerativeAI(
                     model=model.value,
                     google_api_key=settings.GOOGLE_GEMINI_API_KEY,
+                    callbacks=[handler],
                 )
             self._initialized = True
 

@@ -1,6 +1,7 @@
 from typing import List
 from datetime import datetime
 
+from app.core.instrumentation import measure_mongo_op
 from app.domain.auth.model.withdrawal_request import WithdrawalRequest
 
 
@@ -13,6 +14,7 @@ class WithdrawalRequestRepository:
 
     # ──────────────────── Upsert ────────────────────
 
+    @measure_mongo_op("update", "withdrawal_request")
     async def upsert(
         self,
         user_id: str,
@@ -39,6 +41,7 @@ class WithdrawalRequestRepository:
 
     # ──────────────────── Read ────────────────────
 
+    @measure_mongo_op("find", "withdrawal_request")
     async def find_due(self, now: datetime) -> List[WithdrawalRequest]:
         """`scheduled_purge_at <= now` 인 모든 요청 조회.
 
@@ -52,6 +55,7 @@ class WithdrawalRequestRepository:
 
     # ──────────────────── Delete ────────────────────
 
+    @measure_mongo_op("delete", "withdrawal_request")
     async def delete_by_user_id(self, user_id: str) -> None:
         """user_id 의 탈퇴 요청 doc 삭제 — 영구 삭제 사이클의 최종 단계에서 호출.
 

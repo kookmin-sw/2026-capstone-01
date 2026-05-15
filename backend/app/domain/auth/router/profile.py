@@ -10,6 +10,7 @@ from app.domain.auth.service.exception import (
 )
 from app.domain.auth.schema.profile import (
     ProfileResponse,
+    ProfileUpdateRequest,
     ProfileImageResponse,
     OtherUserProfileResponse,
     OtherUserProfileListResponse,
@@ -59,6 +60,49 @@ async def get_my_profile(
         raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
         # "존재하지 않는 유저입니다." 등
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return ProfileResponse(
+        user_id=profile.user_id,
+        auth_provider=profile.auth_provider.value,
+        status=profile.status.value,
+        email=profile.email,
+        user_name=profile.user_name,
+        phone_number=profile.phone_number,
+        age=profile.age,
+        gender=profile.gender,
+        travel_styles=profile.travel_styles,
+        nationality=profile.nationality,
+        profile_image_url=profile.profile_image_url,
+        notification_muted=profile.notification_muted,
+    )
+
+
+@router.patch("/me")
+@inject
+async def update_my_profile(
+    request: Request,
+    body: ProfileUpdateRequest,
+    profile_service: ProfileService = Depends(Provide[Container.profile_service]),
+) -> ProfileResponse:
+    """내 프로필 수정 — 변경할 필드만 포함하는 부분 수정.
+
+    수정 가능: email, user_name, phone_number, age, gender, nationality, travel_styles
+    수정 불가 (별도 엔드포인트):
+        - profile_image_url → POST/PUT/DELETE /profile/image
+        - notification_muted → /notification/mute
+        - status            → /auth/withdraw
+        - auth_provider     → 영구 불변
+    """
+    user_id: str = request.state.user_id
+
+    updates = body.model_dump(exclude_none=True)
+
+    try:
+        profile = await profile_service.update_profile(user_id, updates)
+    except ProfileNotRegisteredError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
     return ProfileResponse(

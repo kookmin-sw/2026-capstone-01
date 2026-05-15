@@ -9,6 +9,7 @@ from typing import Any, Optional
 from pymongo import ASCENDING, DESCENDING
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
 
+from app.core.instrumentation import measure_mongo_op
 from app.domain.chat.model.chat_message import COLLECTION_NAME
 
 
@@ -19,6 +20,7 @@ class ChatMessageRepository:
 
     # ──────────────────── Create ────────────────────
 
+    @measure_mongo_op("insert", "chat_message")
     async def insert(self, document: dict) -> None:
         """메시지 1건 insert.
 
@@ -31,6 +33,7 @@ class ChatMessageRepository:
 
     # ──────────────────── Read (단건) ────────────────────
 
+    @measure_mongo_op("find_one", "chat_message")
     async def get_max_server_seq(self, chat_room_id: str) -> int:
         """방의 최대 server_seq. 없으면 0 반환 (`incr_fast` → -1 이후 복구 경로의 base).
 
@@ -48,6 +51,7 @@ class ChatMessageRepository:
 
     # ──────────────────── Read (목록 — 히스토리 페이징) ────────────────────
 
+    @measure_mongo_op("find", "chat_message")
     async def find_before(
         self,
         chat_room_id: str,
@@ -69,6 +73,7 @@ class ChatMessageRepository:
         return [doc async for doc in cursor]
 
 
+    @measure_mongo_op("find", "chat_message")
     async def find_after(
         self,
         chat_room_id: str,
@@ -86,11 +91,13 @@ class ChatMessageRepository:
         return [doc async for doc in cursor]
 
 
+    @measure_mongo_op("find_one", "chat_message")
     async def find_by_id(self, message_id: str) -> Optional[dict]:
         """단일 메시지 조회. 편집/삭제 권한 체크 용."""
         return await self.collection.find_one({"_id": message_id})
 
 
+    @measure_mongo_op("find", "chat_message")
     async def find_by_ids(self, message_ids: list[str]) -> dict[str, dict]:
         """여러 `_id` 를 한 번에 조회해 `{id: doc}` 맵 반환. 방 리스트 미리보기 배치용.
 
@@ -103,6 +110,7 @@ class ChatMessageRepository:
         return {doc["_id"]: doc async for doc in cursor}
 
 
+    @measure_mongo_op("aggregate", "chat_message")
     async def find_last_by_rooms(self, room_ids: list[str]) -> dict[str, dict]:
         """여러 방의 **각 방별 최신 메시지 1건** 을 배치 aggregate 로 조회.
 
@@ -140,6 +148,7 @@ class ChatMessageRepository:
         }
 
 
+    @measure_mongo_op("count", "chat_message")
     async def count_after_seq(
         self,
         chat_room_id: str,
@@ -171,6 +180,7 @@ class ChatMessageRepository:
 
     # ──────────────────── Update (편집 / 삭제) ────────────────────
 
+    @measure_mongo_op("update", "chat_message")
     async def update_content(
         self, message_id: str, new_content: Any, edited_at: datetime,
     ) -> bool:
@@ -187,6 +197,7 @@ class ChatMessageRepository:
         return res.modified_count == 1
 
 
+    @measure_mongo_op("update", "chat_message")
     async def soft_delete(self, message_id: str, deleted_at: datetime) -> bool:
         """soft delete — `deleted_at` 세팅 + `content=null`. 실제 row 는 보존.
 

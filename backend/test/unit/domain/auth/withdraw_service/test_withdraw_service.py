@@ -310,3 +310,86 @@ class _RaisingQuery:
 
     async def delete(self):
         raise RuntimeError("mongo down")
+
+
+# ──────────────────────────────────────────────────────────────────
+# chat 도메인 cleanup 훅 통합 — request_withdraw / purge 두 시점 분리 검증
+# ──────────────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestRevokeUserChatState:
+    """post-commit 훅 — chat 활성 세션 즉시 종료 위임 (UserPurgeCacheService 호출)."""
+
+    async def test_delegates_to_chat_purge_revoke(
+        self, service, user_purge_cache_service_mock,
+    ):
+        """단순 위임 — `chat_purge.revoke_all_sessions(user_id)` 호출."""
+        await service.revoke_user_chat_state(user_id="USER_a")
+
+        user_purge_cache_service_mock.revoke_all_sessions.assert_awaited_once_with("USER_a")
+
+    async def test_does_not_touch_cleanup_user_data(
+        self, service, user_purge_cache_service_mock,
+    ):
+        """request_withdraw post-commit 단계 — 데이터성 cleanup 은 purge 시점 책임."""
+        await service.revoke_user_chat_state(user_id="USER_a")
+
+        user_purge_cache_service_mock.cleanup_user_data.assert_not_awaited()
+
+
+@pytest.mark.unit
+class TestRequestWithdrawDoesNotCallChatHookInTransaction:
+    """`request_withdraw` 는 `@transactional` — chat 훅이 트랜잭션 내부에서 호출되면
+    미커밋 상태의 INACTIVE 가 race 만든다. 호출자(router)가 post-commit 분리 호출 보장."""
+
+    async def test_chat_purge_not_called_during_request_withdraw(
+        self, service, user_repo_mock, user_purge_cache_service_mock,
+    ):
+        from app.domain.auth.model.user import UserStatus
+
+        user = UserFactory.create(status=UserStatus.ACTIVE)
+        user_repo_mock.find_by_id.return_value = user
+
+        await service.request_withdraw(user_id=user.user_id)
+
+        user_purge_cache_service_mock.revoke_all_sessions.assert_not_awaited()
+        user_purge_cache_service_mock.cleanup_user_data.assert_not_awaited()
+
+
+@pytest.mark.unit
+class TestPurgeExternalCallsChatCleanup:
+    """`_purge_external` 의 Redis 단계에 chat 도메인 cleanup 추가됨 — TTL 없는 unread DEL.
+
+    `invalidate_registered_cache` 패턴과 동일 — `_purge_external` 은 chat 훅을
+    try/except 없이 호출하며, 실패 swallow 는 `UserPurgeCacheService` 자체의
+    책임 (별도 단독 테스트가 fail-open 동작 검증).
+    """
+
+    async def test_cleanup_user_data_called(
+        self, service, user_purge_cache_service_mock,
+    ):
+        await service._purge_external(user_id="USER_a")
+
+        user_purge_cache_service_mock.cleanup_user_data.assert_awaited_once_with("USER_a")
+
+    async def test_cleanup_called_after_invalidate_registered_cache(
+        self, service, user_purge_cache_service_mock, invalidate_cache_mock,
+    ):
+        """호출 순서: REGISTERED 캐시 무효화 → chat cleanup → 마지막 doc 청소.
+
+        chat cleanup 이 REGISTERED 무효화 전에 호출되면 의도와 다르므로 순서 검증.
+        """
+        from unittest.mock import call
+
+        # 두 mock 호출을 한 통화 시퀀스로 추적하기 위한 manager
+        from unittest.mock import MagicMock
+
+        manager = MagicMock()
+        manager.attach_mock(invalidate_cache_mock, "invalidate")
+        manager.attach_mock(user_purge_cache_service_mock.cleanup_user_data, "chat_cleanup")
+
+        await service._purge_external(user_id="USER_a")
+
+        # invalidate 가 chat_cleanup 보다 먼저 호출됐는지
+        names = [c[0] for c in manager.mock_calls]
+        assert names.index("invalidate") < names.index("chat_cleanup")

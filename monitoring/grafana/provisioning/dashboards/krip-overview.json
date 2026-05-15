@@ -1,0 +1,127 @@
+{
+  "title": "Krip 시스템 종합",
+  "uid": "krip-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "time": {"from": "now-1h", "to": "now"},
+  "refresh": "30s",
+  "tags": ["krip", "overview"],
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "백엔드 가동 상태",
+      "type": "stat",
+      "description": "FastAPI 백엔드 프로세스가 살아있는지. up=1 이면 정상.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "다운", "color": "red"}, "1": {"text": "정상", "color": "green"}}}
+          ],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "up{job=\"backend\"}", "legendFormat": "backend", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "title": "Deep Canary (4-ping)",
+      "type": "stat",
+      "description": "Postgres + Mongo + Redis hot/dedupe 4종 ping 의 최근 성공 여부. probe_success=1 이면 모두 정상.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "실패", "color": "red"}, "1": {"text": "정상", "color": "green"}}}
+          ]
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "probe_success{instance=\"http://backend:8000/health/deep\"}", "legendFormat": "deep", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "title": "외부 의존성 (5종)",
+      "type": "stat",
+      "description": "Naver Cloud / Papago / Gemini / FCM / OAuth 외부 API 도달 가능 개수. 5/5 가 정상.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 4}, {"color": "green", "value": 5}]}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "sum(probe_success{job=\"blackbox-external\"})", "legendFormat": "도달 가능", "refId": "A"}]
+    },
+    {
+      "id": 4,
+      "title": "활성 시리즈 수 (카디널리티)",
+      "type": "stat",
+      "description": "Prometheus 가 보유한 시계열 수. Phase 3 budget 기준 ±20% 게이트.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5000}, {"color": "red", "value": 50000}]}
+        }
+      },
+      "options": {"colorMode": "value", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "prometheus_tsdb_head_series", "legendFormat": "시리즈", "refId": "A"}]
+    },
+    {
+      "id": 10,
+      "title": "요청 처리율 (RPS, 1분)",
+      "type": "timeseries",
+      "description": "초당 처리한 HTTP 요청 수. /metrics, /health, /health/deep, /ready 는 제외.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "sum(rate(http_requests_total[1m]))", "legendFormat": "전체", "refId": "A"}]
+    },
+    {
+      "id": 11,
+      "title": "5xx 에러율",
+      "type": "timeseries",
+      "description": "전체 요청 대비 5xx 응답의 비율. 1% 가 일반적 경보 임계.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {"drawStyle": "line", "fillOpacity": 25, "lineWidth": 2},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.005}, {"color": "red", "value": 0.01}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1)", "legendFormat": "5xx 비율", "refId": "A"}]
+    },
+    {
+      "id": 20,
+      "title": "응답 시간 분포 (p50 / p95 / p99)",
+      "type": "timeseries",
+      "description": "전체 핸들러 합산 응답 시간 백분위. p99 가 0.5s 를 넘으면 경보.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "C"}
+      ]
+    }
+  ]
+}

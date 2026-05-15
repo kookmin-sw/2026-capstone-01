@@ -67,11 +67,14 @@ class WithdrawService:
         cancel UI 로 라우팅. `/api/auth/withdraw/cancel` 은 prefix 제외 대상이라 419 우회.
     """
 
-    def __init__(self, uow: UnitOfWork, inbox_service: InboxService):
+    def __init__(self, uow: UnitOfWork, inbox_service: InboxService, user_purge_cache_service):
+        # user_purge_cache_service 는 chat 도메인 서비스 — type hint 생략으로 순환 import 회피
+        # (friend.UserBlockService ← chat.BlockCacheService 와 동일 패턴).
         self.uow = uow
         self.inbox_service = inbox_service
         self.storage = get_object_storage()
         self.withdrawal_request_repo = WithdrawalRequestRepository()
+        self._chat_purge = user_purge_cache_service
 
 
     # ──────────────────── HTTP: 탈퇴 요청 (soft) ────────────────────
@@ -124,6 +127,18 @@ class WithdrawService:
         return purge_at
 
 
+    async def revoke_user_chat_state(self, user_id: str) -> None:
+        """`request_withdraw` post-commit 훅 — chat 활성 세션 즉시 종료.
+
+        `invalidate_registered_cache` 와 동일 이유 (트랜잭션 내부 호출 시 미커밋 상태 race)
+        로 별도 메서드로 분리되어 router 가 commit 이후 호출. INACTIVE 전환 후 TTL(90s)
+        만료를 기다리지 않고 활성 WS 세션을 즉시 revoke 해 탈퇴 유저의 송수신 윈도우 차단.
+
+        chat 도메인 키 조작은 `UserPurgeCacheService` 가 책임 — 도메인 경계 유지.
+        """
+        await self._chat_purge.revoke_all_sessions(user_id)
+
+
     # ──────────────────── 스케줄러: 영구 삭제 (hard) ────────────────────
 
     async def purge(self, user_id: str) -> None:
@@ -141,7 +156,7 @@ class WithdrawService:
                         tripmate_search_history, tour_search_history,
                         withdrawal_request (자기 자신)
             3. Object Storage: uploads/perm/{user_id}/* 전체 삭제
-            4. Redis: REGISTERED 캐시 무효화
+            4. Redis: REGISTERED 캐시 무효화 + chat 도메인 cleanup (unread:{uid} 등)
 
         외부 리소스(2~4)는 개별 try/except 로 격리한다. 한 단계가 실패해도 다음 단계는
         계속 진행하며, 실패는 로그로만 남겨 orphan 데이터가 남을 수 있으나 유저 참조 경로
@@ -308,6 +323,10 @@ class WithdrawService:
         # 등으로 다시 채워졌을 가능성에 대한 방어. TTL(24h) 보다 길게 살아있을 일은 없으나
         # 보수적으로 한 번 더 정리.)
         await invalidate_registered_cache(user_id)
+
+        # chat 도메인 데이터성 키 (unread:{user_id} 등) — TTL 없어 명시 정리 필요.
+        # 도메인 경계 유지를 위해 chat 의 cleanup 훅 통해 호출.
+        await self._chat_purge.cleanup_user_data(user_id)
 
         # withdrawal_request 자체 — 모든 정리 끝난 뒤 마지막에 제거
         try:

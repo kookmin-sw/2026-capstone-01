@@ -1,0 +1,40 @@
+# Blackbox exporter config
+#
+# 두 모듈 정의:
+#   - http_alive  : 외부 의존성 probe. 4xx 도 alive 인정 — 외부 API root GET 이
+#                   401/403/404 인 케이스가 정상이라 status code 가 아닌 "TLS + 응답 수신"
+#                   만 검증. 5xx / timeout / connection refused 만 진짜 down.
+#   - http_2xx    : backend /health, /health/deep, /ready probe. strict 200 — 503 fail.
+#
+# 추후 가능 모듈: TLS 만료 / DNS 검증 등.
+
+modules:
+  # 우리 backend 의 /health, /health/deep, /ready 용 — 200 만 success
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      preferred_ip_protocol: ip4
+      valid_status_codes: []        # default = 2xx 만 success
+      method: GET
+      follow_redirects: true
+      fail_if_ssl: false
+      fail_if_not_ssl: false
+      tls_config:
+        insecure_skip_verify: false
+
+  # 외부 의존성 alive probe — 외부 API endpoint 는 root GET 에 4xx 가 정상 (auth required / not found)
+  # 우리 의도는 "DNS 해석 + TLS 핸드셰이크 + HTTP 응답 = 서비스 살아있음" 만 검증.
+  # 4xx 도 alive 신호로 인정. 5xx / connection refused / timeout 만 진짜 down.
+  http_alive:
+    prober: http
+    timeout: 15s
+    http:
+      preferred_ip_protocol: ip4
+      valid_status_codes: [200, 201, 204, 301, 302, 304, 400, 401, 403, 404]
+      method: GET
+      follow_redirects: false       # redirect 자체가 alive 신호
+      fail_if_ssl: false
+      fail_if_not_ssl: true         # HTTPS 강제
+      tls_config:
+        insecure_skip_verify: false

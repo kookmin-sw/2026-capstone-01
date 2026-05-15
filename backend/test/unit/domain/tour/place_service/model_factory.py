@@ -54,6 +54,7 @@ class PlaceRawFactory:
             "accessibility": None,
             "parking": None,
             "reviews": [],
+            "photos": [],
         }
         raw.update(extra)
         return raw

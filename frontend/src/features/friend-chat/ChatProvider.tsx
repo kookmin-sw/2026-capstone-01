@@ -9,8 +9,11 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { Capacitor } from "@capacitor/core";
 import { getMyProfile } from "../../api/auth";
 import { getFriendDetail } from "../../api/friend";
+import { readAccessToken } from "../../api/client";
+import { removeToken } from "../../utils/tokens";
 import {
   createDirectChatRoom,
   getChatMessages,
@@ -74,7 +77,7 @@ interface ChatContextValue {
   messagesByRoom: Record<string, ChatMessage[]>;
   roomPageStateByRoom: Record<string, RoomPageState>;
   refreshRooms: () => Promise<void>;
-  openDirectChat: (userId: string) => Promise<ChatRoom>;
+  openDirectChat: (userId: string) => ChatRoom | null;
   ensureRoom: (roomId: string) => Promise<ChatRoom>;
   setActiveRoomId: (roomId: string) => void;
   loadInitialMessages: (roomId: string) => Promise<void>;
@@ -121,6 +124,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const inFlightReadRef = useRef<{ roomId: string; serverSeq: number } | null>(null);
   const lastReadSeqByRoomRef = useRef<Record<string, number>>({});
   const peerImageCacheRef = useRef<Record<string, string | null>>({});
+  const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>("closed");
@@ -190,7 +194,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setRoomsLoading(true);
     try {
       const response = await getChatRooms();
-      setRooms(await enrichRoomProfileImages(response.items));
+      const visibleRooms = response.items.filter(isVisibleChatRoom);
+      setRooms(await enrichRoomProfileImages(visibleRooms));
     } finally {
       setRoomsLoading(false);
     }
@@ -458,11 +463,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return room;
   }, [enrichRoomProfileImages]);
 
-  const openDirectChat = useCallback(async (userId: string): Promise<ChatRoom> => {
-    const [room] = await enrichRoomProfileImages([await createDirectChatRoom(userId)]);
-    setRooms((current) => moveRoomToTop(upsertRoom(current, room), room.chat_room_id));
-    return room;
-  }, [enrichRoomProfileImages]);
+  // Returns an existing real direct-chat room for the given peer, or null if none exists yet.
+  // Rooms with no last_message are treated as non-existent so draft mode is preserved.
+  // Room creation is handled lazily in ChatRoomPage when the first message is sent.
+  const openDirectChat = useCallback((userId: string): ChatRoom | null => {
+    return (
+      roomsRef.current.find(
+        (room) =>
+          room.type === "direct" &&
+          room.peer?.user_id === userId &&
+          Boolean(room.last_message)
+      ) ?? null
+    );
+  }, []);
 
   const sendMessagePayload = useCallback(
     (clientMsgId: string): void => {
@@ -613,6 +626,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     async (roomId: string): Promise<void> => {
       try {
         const [room] = await enrichRoomProfileImages([await getChatRoom(roomId)]);
+        // Skip empty direct rooms — they should not appear in the room list
+        if (!isVisibleChatRoom(room)) return;
         setRooms((current) => moveRoomToTop(upsertRoom(current, room), room.chat_room_id));
       } catch {
         reportChatNetworkError({
@@ -689,17 +704,32 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           confirmOptimisticMessage(event);
           return;
         case "message.new":
+          if (hasSeenChatMessage(messagesByRoomRef.current, event.message)) {
+            return;
+          }
+          if (
+            event.message.sender_id !== currentUserIdRef.current &&
+            event.message.chat_room_id !== activeRoomIdRef.current &&
+            notifiedMessageIdsRef.current.has(getChatMessageNotificationKey(event.message))
+          ) {
+            return;
+          }
           mergeServerMessages(event.message.chat_room_id, [event.message]);
           updateRoomLastMessage(event.message);
           if (event.message.sender_id !== currentUserIdRef.current) {
             if (event.message.chat_room_id !== activeRoomIdRef.current) {
-              incrementStoredChatUnreadCount(event.message.chat_room_id);
+              const notificationKey = getChatMessageNotificationKey(event.message);
+              if (!notifiedMessageIdsRef.current.has(notificationKey)) {
+                notifiedMessageIdsRef.current.add(notificationKey);
+                trimNotifiedMessageIds(notifiedMessageIdsRef.current);
+                incrementStoredChatUnreadCount(event.message.chat_room_id);
+                dispatchChatToast(
+                  event.message,
+                  getRoomTitle(roomsRef.current, event.message.chat_room_id),
+                  getRoomProfileImageUrl(roomsRef.current, event.message.chat_room_id)
+                );
+              }
             }
-            dispatchChatToast(
-              event.message,
-              getRoomTitle(roomsRef.current, event.message.chat_room_id),
-              getRoomProfileImageUrl(roomsRef.current, event.message.chat_room_id)
-            );
           }
           if (event.message.chat_room_id === activeRoomIdRef.current) {
             sendRead(event.message.chat_room_id, event.message.server_seq);
@@ -776,11 +806,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         case "session_revoked":
           if (event.session_id === sessionIdRef.current) {
             shouldReconnectRef.current = false;
+            removeToken();
+            setConnectionState("closed");
             navigate("/login", { replace: true });
           }
           return;
         case "auth_expired":
           shouldReconnectRef.current = false;
+          removeToken();
+          setConnectionState("closed");
           navigate("/login", { replace: true });
           return;
         case "server_error":
@@ -855,7 +889,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     function connect(): void {
       setConnectionState(reconnectAttemptRef.current > 0 ? "reconnecting" : "connecting");
-      const ws = new WebSocket(getChatWebSocketUrl());
+      const token = readAccessToken();
+      const ws =
+        Capacitor.isNativePlatform() && token
+          ? new WebSocket(getChatWebSocketUrl(), ["krip.chat.v1", `auth.${token}`])
+          : new WebSocket(getChatWebSocketUrl());
       socketRef.current = ws;
 
       ws.onopen = () => {
@@ -882,10 +920,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (socketEvent.code === 4001 || socketEvent.code === 4403) {
+        if (socketEvent.code === 4001) {
           shouldReconnectRef.current = false;
+          removeToken();
           setConnectionState("closed");
           navigate("/login", { replace: true });
+          return;
+        }
+
+        if (socketEvent.code === 4019) {
+          shouldReconnectRef.current = false;
+          setConnectionState("closed");
+          navigate("/register", { replace: true });
+          return;
+        }
+
+        if (socketEvent.code === 4403) {
+          shouldReconnectRef.current = false;
+          setConnectionState("closed");
+          reportChatNetworkError({
+            action: "websocket_origin_rejected",
+            detail: "WebSocket origin rejected.",
+            extra: socketEvent.reason,
+          });
           return;
         }
 
@@ -1082,6 +1139,32 @@ function sortByServerSeq(a: ChatMessage, b: ChatMessage): number {
   return a.server_seq - b.server_seq;
 }
 
+function hasSeenChatMessage(
+  messagesByRoom: Record<string, ChatMessage[]>,
+  message: ChatMessage
+): boolean {
+  return (messagesByRoom[message.chat_room_id] ?? []).some((item) => {
+    if (message.message_id && item.message_id === message.message_id) return true;
+    if (message.server_seq !== Number.MAX_SAFE_INTEGER) {
+      return item.server_seq === message.server_seq;
+    }
+    return false;
+  });
+}
+
+function getChatMessageNotificationKey(message: ChatMessage): string {
+  if (message.message_id) return message.message_id;
+  return `${message.chat_room_id}:${message.server_seq}:${message.sender_id || ""}`;
+}
+
+function trimNotifiedMessageIds(ids: Set<string>): void {
+  if (ids.size <= 500) return;
+  const removeCount = ids.size - 500;
+  Array.from(ids)
+    .slice(0, removeCount)
+    .forEach((id) => ids.delete(id));
+}
+
 function dispatchChatToast(
   message: ChatMessage,
   roomTitle: string,
@@ -1102,6 +1185,7 @@ function dispatchChatToast(
 function incrementStoredChatUnreadCount(roomId: string): void {
   const storageKey = "krip-chat-unread-by-room";
   let unreadByRoom: Record<string, number> = {};
+  clearLegacyChatUnreadStorage();
 
   try {
     const raw = window.localStorage.getItem(storageKey);
@@ -1120,6 +1204,7 @@ function incrementStoredChatUnreadCount(roomId: string): void {
 
 function clearStoredChatUnreadCount(roomId: string): void {
   const storageKey = "krip-chat-unread-by-room";
+  clearLegacyChatUnreadStorage();
 
   try {
     const raw = window.localStorage.getItem(storageKey);
@@ -1136,6 +1221,15 @@ function clearStoredChatUnreadCount(roomId: string): void {
     window.localStorage.removeItem(storageKey);
     window.dispatchEvent(new Event("krip:friend-chat-notifications-updated"));
   }
+}
+
+function clearLegacyChatUnreadStorage(): void {
+  [
+    "krip-chat-unread-count",
+    "krip:chat-unread-count",
+    "krip-chat-unread",
+    "krip:chat-unread",
+  ].forEach((key) => window.localStorage.removeItem(key));
 }
 
 function getRoomTitle(rooms: ChatRoom[], roomId: string): string {
@@ -1222,6 +1316,13 @@ function clearRetryTimer(
 
   window.clearTimeout(timerId);
   delete retryTimers[clientMsgId];
+}
+
+// A direct room with no last_message is considered a ghost room (created but never used).
+// These should not appear in the room list; they are hidden until the first message is sent.
+function isVisibleChatRoom(room: ChatRoom): boolean {
+  if (room.type !== "direct") return true;
+  return Boolean(room.last_message);
 }
 
 function isPermanentSendFailure(reason: string): boolean {

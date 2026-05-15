@@ -132,6 +132,7 @@ def _to_place_response(place) -> PlaceResponse:
             )
             for r in place.reviews
         ],
+        photos=place.photos,
         distance=place.distance,
         is_favorite=place.is_favorite,
     )
@@ -267,5 +268,6 @@ def _to_favorite_response(fav) -> FavoritePlaceResponse:
                 )
                 for r in place.reviews
             ],
+            photos=place.photos,
         ),
     )

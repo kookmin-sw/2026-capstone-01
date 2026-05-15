@@ -17,6 +17,7 @@ class PublicPlanItemData:
     address: str
     visit_time: Optional[str]
     rating: Optional[float]
+    photos: List[str]
 
 
 @dataclass

@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM python:3.11.11-slim
 
 WORKDIR /backend
 
@@ -26,7 +26,9 @@ COPY app ./app
 COPY migration ./migration
 COPY alembic.ini ./
 
-EXPOSE 8000
+EXPOSE 8000 9090
+# 8000 = 사용자 트래픽 (FastAPI). 9090 = /metrics
+# 9090 은 docker-compose 의 expose: 만 두고 ports: 절대 금지. monitoring-network 내부 / k8s NetworkPolicy 로만 도달.
 
 # Run
 CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

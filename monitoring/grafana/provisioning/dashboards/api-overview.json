@@ -1,0 +1,114 @@
+{
+  "title": "API 트래픽 (RED)",
+  "uid": "krip-api",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "time": {"from": "now-1h", "to": "now"},
+  "refresh": "30s",
+  "tags": ["krip", "api", "red"],
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "요청 처리율 (5분 평균)",
+      "type": "stat",
+      "description": "최근 5분간 평균 RPS. 트래픽 증감의 큰 그림.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 2}},
+      "options": {"colorMode": "value", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "sum(rate(http_requests_total[5m]))", "legendFormat": "RPS", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "title": "5xx 에러 비율 (5분)",
+      "type": "stat",
+      "description": "전체 요청 대비 5xx 비율. 0.5% 이상 주의, 1% 이상 위험.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 3,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.005}, {"color": "red", "value": 0.01}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1)", "legendFormat": "5xx", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "title": "응답 시간 p95 (5분)",
+      "type": "stat",
+      "description": "전체 핸들러 합산 p95. SLO 임계 0.5s.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.2}, {"color": "red", "value": 0.5}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "A"}]
+    },
+    {
+      "id": 10,
+      "title": "핸들러별 RPS (상위)",
+      "type": "timeseries",
+      "description": "어느 endpoint 가 트래픽을 흡수하는지. 카디널리티 폭주 차단을 위해 should_group_untemplated=true 적용.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 4},
+      "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (handler) (rate(http_requests_total[1m]))", "legendFormat": "{{handler}}", "refId": "A"}]
+    },
+    {
+      "id": 11,
+      "title": "응답 시간 백분위 (p50 / p95 / p99)",
+      "type": "timeseries",
+      "description": "응답 시간 분포 추이. 세 곡선의 간격이 벌어지면 long-tail 의심.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 4},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "C"}
+      ]
+    },
+    {
+      "id": 20,
+      "title": "인증 실패 (kind 별)",
+      "type": "timeseries",
+      "description": "auth.py 의 11 가지 실패 분기. bearer (API 키) / login (유저 JWT — X-Auth-Token 헤더 또는 쿠키) / register (회원 상태) 카테고리로 묶어 본다.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 13},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "rate(auth_failures_total[5m])", "legendFormat": "{{kind}}", "refId": "A"}]
+    },
+    {
+      "id": 21,
+      "title": "Deep Canary 4-ping 응답 시간",
+      "type": "timeseries",
+      "description": "/health/deep 의 4 store 동시 ping 응답 시간. RED 와 분리해 외부 의존성 latency 가 사용자 트래픽 분포를 오염시키지 않게 별도 추적.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 13},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le, result) (rate(deep_canary_duration_seconds_bucket[5m])))", "legendFormat": "p95 {{result}}", "refId": "A"},
+        {"expr": "histogram_quantile(0.99, sum by (le, result) (rate(deep_canary_duration_seconds_bucket[5m])))", "legendFormat": "p99 {{result}}", "refId": "B"}
+      ]
+    }
+  ]
+}

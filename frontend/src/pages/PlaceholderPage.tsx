@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { navigateBackOrFallback } from "../utils/navigation";
 
 export default function PlaceholderPage() {
   const navigate = useNavigate();
@@ -10,7 +11,11 @@ export default function PlaceholderPage() {
       <div style={styles.card}>
         <h1 style={styles.title}>Detail Screen Coming Soon</h1>
         <p style={styles.copy}>Current route params: {JSON.stringify(params)}</p>
-        <button type="button" style={styles.button} onClick={() => navigate(-1)}>
+        <button
+          type="button"
+          style={styles.button}
+          onClick={() => navigateBackOrFallback(navigate, "/home")}
+        >
           Go Back
         </button>
       </div>
@@ -20,11 +25,11 @@ export default function PlaceholderPage() {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
+    minHeight: "var(--app-viewport-height)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
+    padding: "calc(24px + var(--app-safe-top)) 16px 24px",
     background: "#ffffff",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },

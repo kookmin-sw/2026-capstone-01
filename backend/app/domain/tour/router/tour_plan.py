@@ -363,6 +363,7 @@ def _to_plan_item_response(item) -> PlanItemResponse:
         address=item.address,
         visit_time=item.visit_time,
         rating=item.rating,
+        photos=item.photos,
     )
 
 

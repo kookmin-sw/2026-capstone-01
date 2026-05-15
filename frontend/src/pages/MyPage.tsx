@@ -6,8 +6,10 @@ import {
   getMyProfile,
   logoutUser,
   replaceMyProfileImage,
+  updateMyProfile,
   uploadMyProfileImage,
   withdrawUser,
+  type ProfilePreferencesPayload,
   type UserProfile,
 } from "../api/auth/auth";
 import {
@@ -35,8 +37,114 @@ import {
   type FeedPost,
   type FeedVisibility,
 } from "../api/feed";
+import { showAppToast } from "../utils/appToast";
 
-const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.svg";
+const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
+
+type PreferenceOption = {
+  key: string;
+  label: string;
+};
+
+const TRAVEL_STYLE_OPTIONS: PreferenceOption[] = [
+  { key: "activity", label: "Activity" },
+  { key: "famous_attractions", label: "Famous Attractions" },
+  { key: "healing", label: "Healing" },
+  { key: "culture_history", label: "Culture & History" },
+  { key: "shopping", label: "Shopping" },
+  { key: "food_tour", label: "Food Tour" },
+  { key: "photo_aesthetic", label: "Photo Aesthetic" },
+  { key: "festival_event", label: "Festival & Event" },
+  { key: "nature", label: "Nature" },
+  { key: "traditional", label: "Traditional" },
+  { key: "trekking", label: "Trekking" },
+  { key: "hidden_gems", label: "Hidden Gems" },
+  { key: "art_exhibition", label: "Art Exhibition" },
+  { key: "theme_park", label: "Theme Park" },
+];
+
+const FOOD_OPTIONS: PreferenceOption[] = [
+  { key: "food_halal", label: "Halal" },
+  { key: "food_vegetarian", label: "Vegetarian" },
+  { key: "foodie", label: "Foodie" },
+  { key: "cafe_lover", label: "Cafe Lover" },
+];
+
+const DENSITY_OPTIONS: PreferenceOption[] = [
+  { key: "density_relaxed", label: "Relaxed" },
+  { key: "density_packed", label: "Packed" },
+];
+
+const BUDGET_OPTIONS: PreferenceOption[] = [
+  { key: "budget_saving", label: "Saving" },
+  { key: "budget_moderate", label: "Moderate" },
+  { key: "budget_premium", label: "Premium" },
+];
+
+const WALKING_OPTIONS: PreferenceOption[] = [
+  { key: "walking_low", label: "Low" },
+  { key: "walking_medium", label: "Medium" },
+  { key: "walking_high", label: "High" },
+];
+
+const TRANSPORT_OPTIONS: PreferenceOption[] = [
+  { key: "transport_public", label: "Public Transit" },
+  { key: "transport_car", label: "Car" },
+  { key: "transport_taxi", label: "Taxi" },
+];
+
+const COMPANION_OPTIONS: PreferenceOption[] = [
+  { key: "companion_independent", label: "Independent" },
+  { key: "companion_together", label: "Together" },
+  { key: "companion_flexible", label: "Flexible" },
+];
+
+const TIME_OPTIONS: PreferenceOption[] = [
+  { key: "daytime", label: "Daytime" },
+  { key: "nightlife", label: "Nightlife" },
+  { key: "night_view", label: "Night View" },
+];
+
+const COMMUNICATION_OPTIONS: PreferenceOption[] = [
+  { key: "communication_high", label: "High Communication" },
+  { key: "communication_low", label: "Low Communication" },
+];
+
+const PLANNING_OPTIONS: PreferenceOption[] = [
+  { key: "planner", label: "Planner" },
+  { key: "spontaneous", label: "Spontaneous" },
+  { key: "follower", label: "Follower" },
+];
+
+type FeedUploadStatus = "uploading" | "failed";
+
+type FeedPostItem = FeedPost & {
+  uploadStatus?: FeedUploadStatus;
+  uploadProgress?: number;
+  uploadFile?: File;
+  uploadPreviewUrl?: string;
+  uploadCaption?: string;
+  uploadVisibility?: FeedVisibility;
+  uploadError?: string;
+};
+
+type FeedConfirmState =
+  | { type: "delete-post" }
+  | { type: "delete-comment"; comment: FeedComment };
+
+const EMPTY_PREFERENCES: ProfilePreferencesPayload = {
+  travel_styles: [],
+  food_preferences: [],
+  density_preference: "",
+  budget_preference: "",
+  walking_preference: "",
+  transport_preferences: [],
+  companion_preference: "",
+  time_preferences: [],
+  communication_preference: "",
+  planning_preference: "",
+};
+
 
 export default function MyPage() {
   const navigate = useNavigate();
@@ -49,12 +157,13 @@ export default function MyPage() {
   const [isDeletingProfileImage, setIsDeletingProfileImage] = useState(false);
   const [isProfileImageMenuOpen, setIsProfileImageMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isStatusEditing, setIsStatusEditing] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("");
-  const [statusDraft, setStatusDraft] = useState("");
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [preferenceDraft, setPreferenceDraft] =
+    useState<ProfilePreferencesPayload>(EMPTY_PREFERENCES);
+  const [isPreferenceEditing, setIsPreferenceEditing] = useState(false);
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
 
-  const [feedPosts, setFeedPosts] = useState<FeedPost[]>([]);
+  const [feedPosts, setFeedPosts] = useState<FeedPostItem[]>([]);
   const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
   const [isFeedLoading, setIsFeedLoading] = useState(false);
   const [isFeedUploading, setIsFeedUploading] = useState(false);
@@ -72,6 +181,10 @@ export default function MyPage() {
   const [isFeedPostMenuOpen, setIsFeedPostMenuOpen] = useState(false);
   const [commentInput, setCommentInput] = useState("");
   const [isFeedActionRunning, setIsFeedActionRunning] = useState(false);
+  const [feedConfirm, setFeedConfirm] = useState<FeedConfirmState | null>(null);
+  const [pendingAccountAction, setPendingAccountAction] = useState<
+    "logout" | "withdraw" | null
+  >(null);
   const [savedPlans, setSavedPlans] = useState<PlanSummaryResponse[]>([]);
   const [isLoadingPlans, setIsLoadingPlans] = useState(false);
   const [planMessage, setPlanMessage] = useState("");
@@ -83,9 +196,7 @@ export default function MyPage() {
       .then((data) => {
         setProfile(data);
         if (data) {
-          const nextStatus = getInitialStatusMessage(data);
-          setStatusMessage(nextStatus);
-          setStatusDraft(nextStatus);
+          setPreferenceDraft(toPreferencePayload(data));
         }
       })
       .catch(() => setProfile(null));
@@ -189,18 +300,41 @@ export default function MyPage() {
     }
   }
 
-  function handleFeedFileSelect(event: React.ChangeEvent<HTMLInputElement>): void {
+  async function handleFeedFileSelect(
+    event: React.ChangeEvent<HTMLInputElement>
+  ): Promise<void> {
     const file = event.target.files?.[0];
     if (!file) return;
 
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-      window.alert("Please choose a JPG, PNG, or WEBP image.");
+      showAppToast({
+        title: "Unsupported file type.",
+        message: "Please upload a JPG, PNG, or WEBP image.",
+        variant: "error",
+        placement: "center",
+      });
       event.target.value = "";
       return;
     }
 
     if (file.size > 10 * 1024 * 1024) {
-      window.alert("Please choose an image smaller than 10MB.");
+      showAppToast({
+        title: "File too large.",
+        message: "Please upload an image smaller than 10MB.",
+        variant: "error",
+        placement: "center",
+      });
+      event.target.value = "";
+      return;
+    }
+
+    if (await isAnimatedFeedImage(file)) {
+      showAppToast({
+        title: "Unsupported image file.",
+        message: "Animated WEBP/APNG images are not supported.",
+        variant: "error",
+        placement: "center",
+      });
       event.target.value = "";
       return;
     }
@@ -217,19 +351,87 @@ export default function MyPage() {
       return;
     }
 
+    const uploadFile = feedFile;
+    const uploadCaption = feedCaption;
+    const uploadVisibility = feedVisibility;
+    const uploadPreviewUrl = URL.createObjectURL(uploadFile);
+    const temporaryPostId = `upload-${Date.now()}`;
+
+    setFeedPosts((current) =>
+      [
+        createOptimisticFeedPost({
+          postId: temporaryPostId,
+          file: uploadFile,
+          previewUrl: uploadPreviewUrl,
+          caption: uploadCaption,
+          visibility: uploadVisibility,
+        }),
+        ...current,
+      ].slice(0, 100)
+    );
+
+    closeFeedComposer();
     setIsFeedUploading(true);
     setFeedError("");
 
     try {
       const post = await createFeedPost({
-        file: feedFile,
-        visibility: feedVisibility,
-        caption: feedCaption,
+        file: uploadFile,
+        visibility: uploadVisibility,
+        caption: uploadCaption,
+        onUploadProgress: (progress) =>
+          updateOptimisticFeedPost(temporaryPostId, { uploadProgress: progress }),
       });
-      setFeedPosts((current) => [post, ...current].slice(0, 100));
-      closeFeedComposer();
+      URL.revokeObjectURL(uploadPreviewUrl);
+      setFeedPosts((current) =>
+        current.map((item) => (item.post_id === temporaryPostId ? post : item))
+      );
     } catch (error) {
-      setFeedError(toErrorMessage(error, "Feed upload failed. Please try again."));
+      updateOptimisticFeedPost(temporaryPostId, {
+        uploadStatus: "failed",
+        uploadError: toErrorMessage(error, "Feed upload failed. Please try again."),
+      });
+    } finally {
+      setIsFeedUploading(false);
+    }
+  }
+
+  function updateOptimisticFeedPost(
+    postId: string,
+    patch: Partial<FeedPostItem>
+  ): void {
+    setFeedPosts((current) =>
+      current.map((item) => (item.post_id === postId ? { ...item, ...patch } : item))
+    );
+  }
+
+  async function retryFeedUpload(post: FeedPostItem): Promise<void> {
+    if (!post.uploadFile || isFeedUploading) return;
+
+    updateOptimisticFeedPost(post.post_id, {
+      uploadStatus: "uploading",
+      uploadProgress: 0,
+      uploadError: "",
+    });
+    setIsFeedUploading(true);
+
+    try {
+      const createdPost = await createFeedPost({
+        file: post.uploadFile,
+        visibility: post.uploadVisibility ?? "public",
+        caption: post.uploadCaption ?? "",
+        onUploadProgress: (progress) =>
+          updateOptimisticFeedPost(post.post_id, { uploadProgress: progress }),
+      });
+      if (post.uploadPreviewUrl) URL.revokeObjectURL(post.uploadPreviewUrl);
+      setFeedPosts((current) =>
+        current.map((item) => (item.post_id === post.post_id ? createdPost : item))
+      );
+    } catch (error) {
+      updateOptimisticFeedPost(post.post_id, {
+        uploadStatus: "failed",
+        uploadError: toErrorMessage(error, "Feed upload failed. Please try again."),
+      });
     } finally {
       setIsFeedUploading(false);
     }
@@ -241,10 +443,12 @@ export default function MyPage() {
     setFeedPreviewUrl("");
     setFeedCaption("");
     setFeedVisibility("public");
+    setFeedError("");
     if (feedImageInputRef.current) feedImageInputRef.current.value = "";
   }
 
-  async function openFeedPost(post: FeedPost): Promise<void> {
+  async function openFeedPost(post: FeedPostItem): Promise<void> {
+    if (post.uploadStatus) return;
     setSelectedFeedPost(post);
     setSelectedCaptionDraft(post.caption || "");
     setIsFeedPostEditing(false);
@@ -309,7 +513,11 @@ export default function MyPage() {
 
   async function handleSelectedDelete(): Promise<void> {
     if (!selectedFeedPost || isFeedActionRunning) return;
-    if (!window.confirm("Delete this post?")) return;
+    setFeedConfirm({ type: "delete-post" });
+  }
+
+  async function confirmSelectedDelete(): Promise<void> {
+    if (!selectedFeedPost || isFeedActionRunning) return;
 
     setIsFeedActionRunning(true);
     try {
@@ -318,6 +526,7 @@ export default function MyPage() {
         current.filter((item) => item.post_id !== selectedFeedPost.post_id)
       );
       setSelectedFeedPost(null);
+      setFeedConfirm(null);
     } catch (error) {
       window.alert(toErrorMessage(error, "Failed to delete feed photo."));
     } finally {
@@ -372,7 +581,11 @@ export default function MyPage() {
 
   async function handleCommentDelete(comment: FeedComment): Promise<void> {
     if (!selectedFeedPost || isFeedActionRunning) return;
-    if (!window.confirm("Delete this comment?")) return;
+    setFeedConfirm({ type: "delete-comment", comment });
+  }
+
+  async function confirmCommentDelete(comment: FeedComment): Promise<void> {
+    if (!selectedFeedPost || isFeedActionRunning) return;
 
     setIsFeedActionRunning(true);
     try {
@@ -384,6 +597,7 @@ export default function MyPage() {
         ...selectedFeedPost,
         comment_count: Math.max(0, selectedFeedPost.comment_count - 1),
       });
+      setFeedConfirm(null);
     } catch (error) {
       window.alert(toErrorMessage(error, "Failed to delete comment."));
     } finally {
@@ -391,28 +605,53 @@ export default function MyPage() {
     }
   }
 
-  async function handleLogout(): Promise<void> {
-    if (!window.confirm("Log out of your account?")) return;
+  function confirmFeedAction(): void {
+    if (!feedConfirm) return;
 
+    if (feedConfirm.type === "delete-post") {
+      void confirmSelectedDelete();
+      return;
+    }
+
+    void confirmCommentDelete(feedConfirm.comment);
+  }
+
+  async function handleLogout(): Promise<void> {
     try {
       await logoutUser();
+    } catch {
+      // The session may already be invalid locally; still leave the app shell.
     } finally {
+      showAppToast({ title: "Logged out", variant: "success" });
       navigate("/login");
     }
   }
 
   async function handleWithdraw(): Promise<void> {
-    if (!window.confirm("Delete your account permanently? All user data will be removed.")) {
-      return;
-    }
-
     setIsWithdrawing(true);
     try {
       await withdrawUser();
+      showAppToast({ title: "Account deleted", variant: "success" });
       navigate("/login", { replace: true });
     } catch (error) {
-      window.alert(toErrorMessage(error, "Account withdrawal failed. Please try again."));
+      showAppToast({
+        title: "Account withdrawal failed",
+        message: toErrorMessage(error, "Please try again."),
+        variant: "error",
+      });
       setIsWithdrawing(false);
+    }
+  }
+
+  function handleConfirmAccountAction(): void {
+    const action = pendingAccountAction;
+    setPendingAccountAction(null);
+
+    if (action === "logout") {
+      void handleLogout();
+    }
+    if (action === "withdraw") {
+      void handleWithdraw();
     }
   }
 
@@ -425,13 +664,23 @@ export default function MyPage() {
     setIsProfileImageMenuOpen(false);
 
     if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
-      window.alert("Please choose a JPG, PNG, WEBP, or GIF image.");
+      showAppToast({
+        title: "Unsupported file type.",
+        message: "Please upload a JPG, PNG, WEBP, or GIF image.",
+        variant: "error",
+        placement: "center",
+      });
       event.target.value = "";
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      window.alert("Please choose an image smaller than 5MB.");
+      showAppToast({
+        title: "File too large.",
+        message: "Please upload an image smaller than 5MB.",
+        variant: "error",
+        placement: "center",
+      });
       event.target.value = "";
       return;
     }
@@ -489,13 +738,77 @@ export default function MyPage() {
     }
   }
 
-  function handleStatusSave(): void {
-    const nextStatus = statusDraft.trim();
-    setStatusMessage(nextStatus);
-    setStatusDraft(nextStatus);
-    setIsStatusEditing(false);
-    if (profile?.user_id) {
-      window.localStorage.setItem(getStatusStorageKey(profile.user_id), nextStatus);
+  function togglePreferenceList(
+    key: "travel_styles" | "food_preferences" | "transport_preferences" | "time_preferences",
+    value: string
+  ): void {
+    setPreferenceDraft((current) => {
+      const selected = current[key] ?? [];
+      return {
+        ...current,
+        [key]: selected.includes(value)
+          ? selected.filter((item) => item !== value)
+          : [...selected, value],
+      };
+    });
+  }
+
+  function setPreferenceValue(
+    key:
+      | "density_preference"
+      | "budget_preference"
+      | "walking_preference"
+      | "companion_preference"
+      | "communication_preference"
+      | "planning_preference",
+    value: string
+  ): void {
+    setPreferenceDraft((current) => ({
+      ...current,
+      [key]: current[key] === value ? "" : value,
+    }));
+  }
+
+
+  async function handlePreferenceSave(): Promise<void> {
+    if (isSavingPreferences) return;
+    if (!profile) {
+      showAppToast({
+        title: "Profile is still loading",
+        message: "Please try again in a moment.",
+        variant: "info",
+      });
+      return;
+    }
+
+    setIsSavingPreferences(true);
+    try {
+      const normalizedPreferences = sanitizePreferencePayload(preferenceDraft);
+      const updatePayload = toTravelStylesOnlyPayload(normalizedPreferences);
+      const updatedProfile = await updateMyProfile(updatePayload);
+      const refreshedProfile = await getMyProfile();
+      const nextProfile = {
+        ...(profile ?? {}),
+        ...(updatedProfile ?? {}),
+        ...(refreshedProfile ?? {}),
+        ...updatePayload,
+      } as UserProfile;
+      const nextPreferences = toPreferencePayload(nextProfile);
+      setProfile((current) => ({
+        ...(current ?? {}),
+        ...nextProfile,
+      }) as UserProfile);
+      setPreferenceDraft(nextPreferences);
+      setIsPreferenceEditing(false);
+      showAppToast({ title: "Preferences saved", variant: "success" });
+    } catch (error) {
+      showAppToast({
+        title: "Failed to save preferences",
+        message: toErrorMessage(error, "Please try again."),
+        variant: "error",
+      });
+    } finally {
+      setIsSavingPreferences(false);
     }
   }
 
@@ -511,7 +824,6 @@ export default function MyPage() {
     { label: "Gender", value: formatGender(profile?.gender) },
     { label: "Nationality", value: profile?.nationality ?? "" },
   ].filter((item) => item.value);
-
   return (
     <div style={styles.page}>
       <section style={styles.socialProfile}>
@@ -573,7 +885,7 @@ export default function MyPage() {
               onClick={() => setIsSettingsOpen(true)}
               aria-label="Open settings"
             >
-              ⚙
+              <img src="/setting.png" alt="settings" style={{ width: 20, height: 20, objectFit: "contain", display: "block" }} />
             </button>
             <button
               type="button"
@@ -590,9 +902,6 @@ export default function MyPage() {
               +
             </button>
           </div>
-          <p style={styles.statusMessage}>
-            {statusMessage || "No status message yet."}
-          </p>
           <span style={styles.profileStat}>
             <strong>{feedPosts.length}</strong> posts
           </span>
@@ -615,11 +924,60 @@ export default function MyPage() {
               <button
                 key={post.post_id}
                 type="button"
-                style={styles.feedTile}
-                onClick={() => void openFeedPost(post)}
+                style={{
+                  ...styles.feedTile,
+                  ...(post.uploadStatus ? styles.feedTilePending : {}),
+                }}
+                onClick={() => {
+                  if (post.uploadStatus === "failed") return;
+                  void openFeedPost(post);
+                }}
+                disabled={post.uploadStatus === "uploading"}
               >
                 <img src={getFeedImageUrl(post)} alt="" style={styles.feedTileImage} />
-                <span style={styles.feedTileMeta}>
+                {post.uploadStatus ? (
+                  <span style={styles.feedUploadOverlay}>
+                    {post.uploadStatus === "uploading" ? (
+                      <>
+                        <span style={styles.feedUploadSpinner} />
+                        <span style={styles.feedUploadBadge}>Uploading...</span>
+                        <span style={styles.feedUploadPercent}>
+                          {post.uploadProgress ?? 0}%
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span style={styles.feedFailedBadge}>Failed</span>
+                        <span style={styles.feedUploadError}>
+                          {post.uploadError || "Upload failed."}
+                        </span>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          style={styles.feedRetryButton}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void retryFeedUpload(post);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void retryFeedUpload(post);
+                          }}
+                        >
+                          Retry
+                        </span>
+                      </>
+                    )}
+                  </span>
+                ) : null}
+                <span
+                  style={{
+                    ...styles.feedTileMeta,
+                    ...(post.uploadStatus ? styles.feedTileMetaHidden : {}),
+                  }}
+                >
                   {post.like_count} likes · {post.comment_count} comments
                 </span>
               </button>
@@ -643,97 +1001,6 @@ export default function MyPage() {
         ) : null}
       </section>
 
-      <section style={styles.section}>
-        <div style={styles.planPanel}>
-          <div style={styles.planHeader}>
-            <div>
-              <h2 style={styles.sectionTitle}>Saved Plans</h2>
-              <p style={styles.planCopy}>
-                AI and manual plans saved to the backend appear here.
-              </p>
-            </div>
-            <button
-              type="button"
-              style={styles.planRefreshButton}
-              onClick={refreshPlans}
-              disabled={isLoadingPlans}
-            >
-              {isLoadingPlans ? "Loading" : "Refresh"}
-            </button>
-          </div>
-
-          {planMessage ? <p style={styles.planMessage}>{planMessage}</p> : null}
-          {shareInfo ? (
-            <div style={styles.shareReadyRow}>
-              <span>
-                Public link expires {new Date(shareInfo.expires_at).toLocaleString()}.
-              </span>
-              <button
-                type="button"
-                style={styles.planPrimaryButton}
-                onClick={() => void handleCopyShareLink()}
-              >
-                Copy Link
-              </button>
-            </div>
-          ) : null}
-
-          {isLoadingPlans ? (
-            <div style={styles.emptyPanel}>Loading saved plans...</div>
-          ) : savedPlans.length === 0 ? (
-            <div style={styles.emptyPanel}>No saved plans yet.</div>
-          ) : (
-            <div style={styles.planList}>
-              {savedPlans.map((plan) => (
-                <article key={plan.plan_id} style={styles.planCard}>
-                  <div style={styles.planCardBody}>
-                    <strong style={styles.planTitle}>
-                      {plan.title || "Untitled plan"}
-                    </strong>
-                    <span style={styles.planMeta}>
-                      {plan.travel_days} day max - Updated{" "}
-                      {new Date(plan.updated_at).toLocaleString()}
-                    </span>
-                  </div>
-                  <div style={styles.planActions}>
-                    <button
-                      type="button"
-                      style={styles.planPrimaryButton}
-                      onClick={() =>
-                        navigate(`/plan/manual?planId=${encodeURIComponent(plan.plan_id)}`)
-                      }
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      style={styles.planGhostButton}
-                      onClick={() => void handleRenamePlan(plan)}
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      style={styles.planGhostButton}
-                      onClick={() => void handleSharePlan(plan)}
-                    >
-                      Share
-                    </button>
-                    <button
-                      type="button"
-                      style={styles.planDangerButton}
-                      onClick={() => void handleDeletePlan(plan)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
       {isSettingsOpen ? (
         <div style={styles.settingsBackdrop} onClick={() => setIsSettingsOpen(false)}>
           <div style={styles.settingsPanel} onClick={(event) => event.stopPropagation()}>
@@ -750,24 +1017,34 @@ export default function MyPage() {
             <button
               type="button"
               style={styles.settingsActionButton}
-              onClick={() => setIsStatusEditing((current) => !current)}
+              onClick={() => setIsPreferenceEditing((current) => !current)}
             >
-              Edit Status Message
+              Edit Travel Preferences
             </button>
-            {isStatusEditing ? (
-              <div style={styles.statusEditor}>
-                <textarea
-                  value={statusDraft}
-                  maxLength={80}
-                  style={styles.statusTextarea}
-                  placeholder="Write a short status message."
-                  onChange={(event) => setStatusDraft(event.target.value)}
-                />
-                <button type="button" style={styles.primaryButton} onClick={handleStatusSave}>
-                  Save Status
-                </button>
-              </div>
+            {isPreferenceEditing ? (
+              <PreferenceEditor
+                value={preferenceDraft}
+                isSaving={isSavingPreferences}
+                onToggleList={togglePreferenceList}
+                onSetValue={setPreferenceValue}
+                onReset={() => setPreferenceDraft(toPreferencePayload(profile))}
+                onSave={() => void handlePreferenceSave()}
+              />
             ) : null}
+            <SavedPlansPanel
+              plans={savedPlans}
+              isLoading={isLoadingPlans}
+              message={planMessage}
+              shareInfo={shareInfo}
+              onRefresh={refreshPlans}
+              onCopyShareLink={() => void handleCopyShareLink()}
+              onEdit={(plan) =>
+                navigate(`/plan/manual?planId=${encodeURIComponent(plan.plan_id)}`)
+              }
+              onRename={(plan) => void handleRenamePlan(plan)}
+              onShare={(plan) => void handleSharePlan(plan)}
+              onDelete={(plan) => void handleDeletePlan(plan)}
+            />
             <div style={styles.settingsInfoBlock}>
               <strong style={styles.settingsInfoTitle}>My Information</strong>
               <div style={styles.infoList}>
@@ -785,13 +1062,17 @@ export default function MyPage() {
                 ))}
               </div>
             </div>
-            <button type="button" style={styles.settingsActionButton} onClick={handleLogout}>
+            <button
+              type="button"
+              style={styles.settingsActionButton}
+              onClick={() => setPendingAccountAction("logout")}
+            >
               Log Out
             </button>
             <button
               type="button"
               style={{ ...styles.settingsActionButton, ...styles.settingsDangerButton }}
-              onClick={handleWithdraw}
+              onClick={() => setPendingAccountAction("withdraw")}
               disabled={isWithdrawing}
             >
               {isWithdrawing ? "Deleting Account..." : "Delete Account"}
@@ -807,7 +1088,8 @@ export default function MyPage() {
           caption={feedCaption}
           visibility={feedVisibility}
           isUploading={isFeedUploading}
-          disabled={!feedFile || feedPosts.length >= 100}
+          errorMessage={feedError}
+          disabled={!feedFile || feedPosts.length >= 100 || isFeedUploading}
           previewUrl={feedPreviewUrl}
           onBack={closeFeedComposer}
           onCaptionChange={setFeedCaption}
@@ -816,11 +1098,21 @@ export default function MyPage() {
         />
       ) : null}
 
+      {pendingAccountAction ? (
+        <AccountConfirmDialog
+          action={pendingAccountAction}
+          busy={isWithdrawing}
+          onCancel={() => setPendingAccountAction(null)}
+          onConfirm={handleConfirmAccountAction}
+        />
+      ) : null}
+
       {selectedFeedPost ? (
         <FeedPostModal
           post={selectedFeedPost}
           profileImageUrl={profileImageUrl}
           userName={nameText || "Unknown"}
+          currentUserId={profile?.user_id ?? ""}
           likes={selectedFeedLikes}
           comments={selectedFeedComments}
           captionDraft={selectedCaptionDraft}
@@ -847,6 +1139,379 @@ export default function MyPage() {
           onCommentDelete={(comment) => void handleCommentDelete(comment)}
         />
       ) : null}
+
+      {feedConfirm ? (
+        <FeedConfirmToast
+          title={
+            feedConfirm.type === "delete-post"
+              ? "Delete this feed?"
+              : "Delete this comment?"
+          }
+          message="This action cannot be undone."
+          confirmLabel="Delete"
+          busy={isFeedActionRunning}
+          onCancel={() => setFeedConfirm(null)}
+          onConfirm={confirmFeedAction}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+
+function PreferenceEditor({
+  value,
+  isSaving,
+  onToggleList,
+  onSetValue,
+  onReset,
+  onSave,
+}: {
+  value: ProfilePreferencesPayload;
+  isSaving: boolean;
+  onToggleList: (
+    key: "travel_styles" | "food_preferences" | "transport_preferences" | "time_preferences",
+    value: string
+  ) => void;
+  onSetValue: (
+    key:
+      | "density_preference"
+      | "budget_preference"
+      | "walking_preference"
+      | "companion_preference"
+      | "communication_preference"
+      | "planning_preference",
+    value: string
+  ) => void;
+  onReset: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div style={styles.preferenceEditor}>
+      <PreferenceGroup
+        title="Travel Styles"
+        options={TRAVEL_STYLE_OPTIONS}
+        selected={value.travel_styles}
+        onToggle={(key) => onToggleList("travel_styles", key)}
+      />
+      <PreferenceGroup
+        title="Food Preferences"
+        options={FOOD_OPTIONS}
+        selected={value.food_preferences ?? []}
+        onToggle={(key) => onToggleList("food_preferences", key)}
+      />
+      <PreferenceGroup
+        title="Schedule Density"
+        options={DENSITY_OPTIONS}
+        selected={[value.density_preference ?? ""]}
+        single
+        onToggle={(key) => onSetValue("density_preference", key)}
+      />
+      <PreferenceGroup
+        title="Budget"
+        options={BUDGET_OPTIONS}
+        selected={[value.budget_preference ?? ""]}
+        single
+        onToggle={(key) => onSetValue("budget_preference", key)}
+      />
+      <PreferenceGroup
+        title="Walking"
+        options={WALKING_OPTIONS}
+        selected={[value.walking_preference ?? ""]}
+        single
+        onToggle={(key) => onSetValue("walking_preference", key)}
+      />
+      <PreferenceGroup
+        title="Transportation"
+        options={TRANSPORT_OPTIONS}
+        selected={value.transport_preferences ?? []}
+        onToggle={(key) => onToggleList("transport_preferences", key)}
+      />
+      <PreferenceGroup
+        title="Companion"
+        options={COMPANION_OPTIONS}
+        selected={[value.companion_preference ?? ""]}
+        single
+        onToggle={(key) => onSetValue("companion_preference", key)}
+      />
+      <PreferenceGroup
+        title="Active Time"
+        options={TIME_OPTIONS}
+        selected={value.time_preferences ?? []}
+        onToggle={(key) => onToggleList("time_preferences", key)}
+      />
+      <PreferenceGroup
+        title="Communication"
+        options={COMMUNICATION_OPTIONS}
+        selected={[value.communication_preference ?? ""]}
+        single
+        onToggle={(key) => onSetValue("communication_preference", key)}
+      />
+      <PreferenceGroup
+        title="Planning"
+        options={PLANNING_OPTIONS}
+        selected={[value.planning_preference ?? ""]}
+        single
+        onToggle={(key) => onSetValue("planning_preference", key)}
+      />
+      <div style={styles.preferenceEditorActions}>
+        <button type="button" style={styles.secondaryButton} onClick={onReset} disabled={isSaving}>
+          Reset
+        </button>
+        <button
+          type="button"
+          style={{ ...styles.primaryButton, ...(isSaving ? styles.buttonDisabled : {}) }}
+          onClick={onSave}
+          disabled={isSaving}
+        >
+          {isSaving ? "Saving..." : "Save Preferences"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PreferenceGroup({
+  title,
+  options,
+  selected,
+  onToggle,
+}: {
+  title: string;
+  options: PreferenceOption[];
+  selected: string[];
+  single?: boolean;
+  onToggle: (key: string) => void;
+}) {
+  return (
+    <div style={styles.preferenceGroup}>
+      <strong style={styles.preferenceGroupTitle}>{title}</strong>
+      <div style={styles.preferenceChoiceList}>
+        {options.map((option) => {
+          const active = selected.includes(option.key);
+          return (
+            <button
+              key={option.key}
+              type="button"
+              style={{
+                ...styles.preferenceChoice,
+                ...(active ? styles.preferenceChoiceActive : {}),
+              }}
+              onClick={() => onToggle(option.key)}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SavedPlansPanel({
+  plans,
+  isLoading,
+  message,
+  shareInfo,
+  onRefresh,
+  onCopyShareLink,
+  onEdit,
+  onRename,
+  onShare,
+  onDelete,
+}: {
+  plans: PlanSummaryResponse[];
+  isLoading: boolean;
+  message: string;
+  shareInfo: SharePlanResponse | null;
+  onRefresh: () => void;
+  onCopyShareLink: () => void;
+  onEdit: (plan: PlanSummaryResponse) => void;
+  onRename: (plan: PlanSummaryResponse) => void;
+  onShare: (plan: PlanSummaryResponse) => void;
+  onDelete: (plan: PlanSummaryResponse) => void;
+}) {
+  return (
+    <div style={styles.planPanel}>
+      <div style={styles.planHeader}>
+        <div>
+          <h2 style={styles.sectionTitle}>Saved Plans</h2>
+          <p style={styles.planCopy}>AI and manual plans saved to the backend.</p>
+        </div>
+        <button
+          type="button"
+          style={styles.planRefreshButton}
+          onClick={onRefresh}
+          disabled={isLoading}
+        >
+          {isLoading ? "Loading" : "Refresh"}
+        </button>
+      </div>
+
+      {message ? <p style={styles.planMessage}>{message}</p> : null}
+      {shareInfo ? (
+        <div style={styles.shareReadyRow}>
+          <span>Public link expires {new Date(shareInfo.expires_at).toLocaleString()}.</span>
+          <button type="button" style={styles.planPrimaryButton} onClick={onCopyShareLink}>
+            Copy Link
+          </button>
+        </div>
+      ) : null}
+
+      {isLoading ? (
+        <div style={styles.emptyPanel}>Loading saved plans...</div>
+      ) : plans.length === 0 ? (
+        <div style={styles.emptyPanel}>No saved plans yet.</div>
+      ) : (
+        <div style={styles.planList}>
+          {plans.map((plan) => (
+            <article key={plan.plan_id} style={styles.planCard}>
+              <div style={styles.planCardBody}>
+                <strong style={styles.planTitle}>{plan.title || "Untitled plan"}</strong>
+                <span style={styles.planMeta}>
+                  {plan.travel_days} day max - Updated{" "}
+                  {new Date(plan.updated_at).toLocaleString()}
+                </span>
+              </div>
+              <div style={styles.planActions}>
+                <button
+                  type="button"
+                  style={styles.planPrimaryButton}
+                  onClick={() => onEdit(plan)}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  style={styles.planGhostButton}
+                  onClick={() => onRename(plan)}
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  style={styles.planGhostButton}
+                  onClick={() => onShare(plan)}
+                >
+                  Share
+                </button>
+                <button
+                  type="button"
+                  style={styles.planDangerButton}
+                  onClick={() => onDelete(plan)}
+                >
+                  Delete
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AccountConfirmDialog({
+  action,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  action: "logout" | "withdraw";
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const isWithdraw = action === "withdraw";
+
+  return (
+    <div style={styles.accountConfirmBackdrop} onClick={onCancel}>
+      <div style={styles.accountConfirmCard} onClick={(event) => event.stopPropagation()}>
+        <h2 style={styles.accountConfirmTitle}>
+          {isWithdraw ? "Delete account?" : "Log out?"}
+        </h2>
+        <p style={styles.accountConfirmCopy}>
+          {isWithdraw
+            ? "Your account deletion request will start immediately."
+            : "You will return to the login screen."}
+        </p>
+        <div style={styles.accountConfirmActions}>
+          <button
+            type="button"
+            style={styles.secondaryButton}
+            onClick={onCancel}
+            disabled={busy}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            style={{
+              ...styles.primaryButton,
+              ...(isWithdraw ? styles.accountConfirmDanger : {}),
+              ...(busy ? styles.buttonDisabled : {}),
+            }}
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {isWithdraw ? (busy ? "Deleting..." : "Delete") : "Log Out"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeedConfirmToast({
+  title,
+  message,
+  confirmLabel,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div style={styles.feedConfirmBackdrop} onClick={busy ? undefined : onCancel}>
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="feed-confirm-title"
+        style={styles.feedConfirmCard}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <strong id="feed-confirm-title" style={styles.feedConfirmTitle}>
+          {title}
+        </strong>
+        <p style={styles.feedConfirmMessage}>{message}</p>
+        <div style={styles.feedConfirmActions}>
+          <button
+            type="button"
+            style={styles.feedConfirmCancel}
+            disabled={busy}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            style={{
+              ...styles.feedConfirmDelete,
+              ...(busy ? styles.buttonDisabled : {}),
+            }}
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            {busy ? "Deleting..." : confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -857,6 +1522,7 @@ function CreatePostModal({
   caption,
   visibility,
   isUploading,
+  errorMessage,
   disabled,
   previewUrl,
   onBack,
@@ -869,6 +1535,7 @@ function CreatePostModal({
   caption: string;
   visibility: FeedVisibility;
   isUploading: boolean;
+  errorMessage: string;
   disabled: boolean;
   previewUrl: string;
   onBack: () => void;
@@ -893,6 +1560,9 @@ function CreatePostModal({
             {isUploading ? "Sharing..." : "Share"}
           </button>
         </div>
+        {!isUploading && errorMessage ? (
+          <p style={styles.createPostErrorText}>{errorMessage}</p>
+        ) : null}
         <div style={styles.createPostFrame}>
           <div style={styles.createPostImagePane}>
             <img src={previewUrl} alt="" style={styles.createPostImage} />
@@ -941,6 +1611,7 @@ function FeedPostModal({
   post,
   profileImageUrl,
   userName,
+  currentUserId,
   likes,
   comments,
   captionDraft,
@@ -963,6 +1634,7 @@ function FeedPostModal({
   post: FeedPost;
   profileImageUrl: string;
   userName: string;
+  currentUserId: string;
   likes: FeedLikeUser[];
   comments: FeedComment[];
   captionDraft: string;
@@ -982,9 +1654,12 @@ function FeedPostModal({
   onCommentSubmit: () => void;
   onCommentDelete: (comment: FeedComment) => void;
 }) {
+  const isLikedByMe = likes.some((likeUser) => likeUser.user_id === currentUserId);
+
   return (
     <div style={styles.modalBackdrop} onClick={onClose}>
       <div style={styles.feedModal} onClick={(event) => event.stopPropagation()}>
+        <div style={styles.sheetHandle} />
         <button type="button" style={styles.modalCloseButton} onClick={onClose}>
           x
         </button>
@@ -1075,14 +1750,16 @@ function FeedPostModal({
                   <strong style={styles.commentAuthor}>{comment.user_name || "Unknown"}</strong>
                   <p style={styles.commentText}>{comment.content}</p>
                 </div>
-                <button
-                  type="button"
-                  style={styles.commentDeleteButton}
-                  disabled={isBusy}
-                  onClick={() => onCommentDelete(comment)}
-                >
-                  Delete
-                </button>
+                {comment.user_id === currentUserId ? (
+                  <button
+                    type="button"
+                    style={styles.commentDeleteButton}
+                    disabled={isBusy}
+                    onClick={() => onCommentDelete(comment)}
+                  >
+                    Delete
+                  </button>
+                ) : null}
               </article>
             ))}
           </div>
@@ -1091,27 +1768,19 @@ function FeedPostModal({
             <div style={styles.feedPostActionButtons}>
               <button
                 type="button"
-                style={styles.feedIconAction}
+                style={styles.feedLikeIconButton}
                 disabled={isBusy}
                 onClick={onLike}
                 aria-label="Like"
               >
-                Like
+                <span style={styles.feedActionCount}>{post.like_count}</span>
+                <HeartIcon filled={isLikedByMe} />
               </button>
+              <span style={styles.feedCommentSummary}>
+                <span style={styles.feedActionCount}>{post.comment_count}</span>
+                <CommentIcon />
+              </span>
             </div>
-            <strong style={styles.feedLikeSummary}>{post.like_count} likes</strong>
-            {likes.length ? (
-              <div style={styles.likesList}>
-                {likes.slice(0, 4).map((user) => (
-                  <span key={user.user_id} style={styles.likeUser}>
-                    {user.profile_image_url ? (
-                      <img src={user.profile_image_url} alt="" style={styles.likeAvatar} />
-                    ) : null}
-                    {user.user_name || "Unknown"}
-                  </span>
-                ))}
-              </div>
-            ) : null}
             <form
               style={styles.commentForm}
               onSubmit={(event) => {
@@ -1142,10 +1811,39 @@ function FeedPostModal({
   );
 }
 
+function HeartIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 20.2s-7.4-4.6-9.2-9.4C1.6 7.5 3.6 4.5 6.8 4.5c1.8 0 3.2.9 4.1 2.2.9-1.3 2.3-2.2 4.1-2.2 3.2 0 5.2 3 4 6.3-1.7 4.8-9 9.4-9 9.4Z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CommentIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M5.2 18.4c-1.7-1.4-2.7-3.4-2.7-5.7 0-4.6 4.1-8.2 9.5-8.2s9.5 3.6 9.5 8.2-4.1 8.2-9.5 8.2c-1.2 0-2.3-.2-3.4-.5L4.5 21.5c-.7.2-1.2-.5-.9-1.1l1.6-2Z"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
-    padding: "28px 16px 110px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(28px + var(--app-safe-top)) 16px calc(110px + var(--app-safe-bottom))",
     background: "transparent",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
@@ -1153,8 +1851,8 @@ const styles: Record<string, CSSProperties> = {
     maxWidth: 880,
     margin: "0 auto",
     display: "grid",
-    gridTemplateColumns: "136px minmax(0, 1fr)",
-    gap: 28,
+    gridTemplateColumns: "104px minmax(0, 1fr)",
+    gap: 60,
     alignItems: "center",
     padding: "8px 0 24px",
     borderBottom: "1px solid var(--neutral-200)",
@@ -1175,9 +1873,9 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: "50%",
     padding: 0,
     background: "#ffffff",
-    color: "var(--text-secondary)",
-    fontSize: "1.08rem",
-    fontWeight: 900,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     cursor: "pointer",
   },
   newPostButton: {
@@ -1361,15 +2059,83 @@ const styles: Record<string, CSSProperties> = {
     border: "none",
     borderRadius: 4,
     overflow: "hidden",
-    background: "var(--neutral-100)",
+    background: "#050608",
     aspectRatio: "1 / 1",
     cursor: "pointer",
+  },
+  feedTilePending: {
+    cursor: "default",
   },
   feedTileImage: {
     width: "100%",
     height: "100%",
-    objectFit: "cover",
+    objectFit: "contain",
     display: "block",
+    background: "#050608",
+  },
+  feedUploadOverlay: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 2,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    padding: 12,
+    background: "rgba(5,6,8,0.42)",
+    color: "#ffffff",
+    textAlign: "center",
+    backdropFilter: "blur(1.5px)",
+  },
+  feedUploadSpinner: {
+    width: 24,
+    height: 24,
+    borderRadius: "50%",
+    border: "3px solid rgba(255,255,255,0.36)",
+    borderTopColor: "#ffffff",
+    animation: "spin 820ms linear infinite",
+  },
+  feedUploadBadge: {
+    borderRadius: 999,
+    padding: "5px 10px",
+    background: "rgba(5,181,187,0.92)",
+    color: "#ffffff",
+    fontSize: "0.72rem",
+    fontWeight: 900,
+  },
+  feedUploadPercent: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: "0.78rem",
+    fontWeight: 900,
+  },
+  feedFailedBadge: {
+    borderRadius: 999,
+    padding: "5px 10px",
+    background: "rgba(220,38,38,0.94)",
+    color: "#ffffff",
+    fontSize: "0.72rem",
+    fontWeight: 900,
+  },
+  feedUploadError: {
+    maxWidth: "100%",
+    color: "rgba(255,255,255,0.92)",
+    fontSize: "0.72rem",
+    fontWeight: 800,
+    lineHeight: 1.25,
+    overflow: "hidden",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+  },
+  feedRetryButton: {
+    borderRadius: 999,
+    padding: "6px 12px",
+    background: "#ffffff",
+    color: "#dc2626",
+    fontSize: "0.72rem",
+    fontWeight: 900,
+    cursor: "pointer",
   },
   feedTileMeta: {
     position: "absolute",
@@ -1382,6 +2148,9 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "0.72rem",
     fontWeight: 900,
     textAlign: "left",
+  },
+  feedTileMetaHidden: {
+    display: "none",
   },
   emptyPanel: {
     padding: 28,
@@ -1535,7 +2304,7 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 88,
     display: "grid",
     placeItems: "center",
-    padding: 18,
+    padding: "calc(18px + var(--app-safe-top)) 18px calc(18px + var(--app-safe-bottom))",
     background: "rgba(16,34,35,0.42)",
   },
   settingsPanel: {
@@ -1597,6 +2366,51 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--text-primary)",
     fontFamily: "inherit",
   },
+  preferenceEditor: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+    padding: 14,
+    borderRadius: 16,
+    background: "rgba(5,181,187,0.06)",
+    border: "1px solid rgba(5,181,187,0.14)",
+  },
+  preferenceGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  preferenceGroupTitle: {
+    color: "var(--text-primary)",
+    fontSize: "0.86rem",
+  },
+  preferenceChoiceList: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  preferenceChoice: {
+    minHeight: 34,
+    border: "1px solid rgba(5,181,187,0.16)",
+    borderRadius: 999,
+    padding: "0 12px",
+    background: "#ffffff",
+    color: "var(--text-secondary)",
+    fontSize: "0.78rem",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  preferenceChoiceActive: {
+    background: "var(--brand-primary-soft)",
+    border: "1px solid rgba(5,181,187,0.38)",
+    color: "var(--brand-primary-deep)",
+  },
+  preferenceEditorActions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+    paddingTop: 2,
+  },
   settingsInfoBlock: {
     display: "flex",
     flexDirection: "column",
@@ -1638,7 +2452,7 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 80,
     display: "grid",
     placeItems: "center",
-    padding: 20,
+    padding: "calc(20px + var(--app-safe-top)) 20px calc(20px + var(--app-safe-bottom))",
     background: "rgba(8,12,16,0.74)",
   },
   createPostModal: {
@@ -1655,7 +2469,7 @@ const styles: Record<string, CSSProperties> = {
   createPostTopBar: {
     height: 52,
     display: "grid",
-    gridTemplateColumns: "72px 1fr 100px",
+    gridTemplateColumns: "56px minmax(0, 1fr) 82px",
     alignItems: "center",
     borderBottom: "1px solid rgba(255,255,255,0.1)",
   },
@@ -1686,16 +2500,25 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
+  createPostErrorText: {
+    margin: 0,
+    padding: "10px 18px",
+    color: "#fecaca",
+    background: "rgba(220,38,38,0.14)",
+    borderBottom: "1px solid rgba(220,38,38,0.2)",
+    fontSize: "0.82rem",
+    fontWeight: 800,
+  },
   createPostFrame: {
     minHeight: 0,
     display: "grid",
-    gridTemplateColumns: "minmax(520px, 1fr) 390px",
+    gridTemplateColumns: "minmax(0, 1fr)",
   },
   createPostImagePane: {
-    minHeight: 680,
+    minHeight: "min(42dvh, 336px)",
     display: "grid",
     placeItems: "center",
-    background: "#ffffff",
+    background: "#050608",
     overflow: "hidden",
   },
   createPostImage: {
@@ -1704,6 +2527,7 @@ const styles: Record<string, CSSProperties> = {
     maxHeight: "calc(92dvh - 52px)",
     objectFit: "contain",
     display: "block",
+    background: "#050608",
   },
   createPostSidePane: {
     minHeight: 0,
@@ -1795,24 +2619,130 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 60,
     display: "grid",
     placeItems: "center",
+    padding: 10,
+    background: "rgba(16,34,35,0.42)",
+  },
+  accountConfirmBackdrop: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 120,
+    display: "grid",
+    placeItems: "center",
     padding: 18,
     background: "rgba(16,34,35,0.42)",
   },
+  accountConfirmCard: {
+    width: "min(360px, 100%)",
+    padding: 22,
+    borderRadius: 18,
+    background: "#ffffff",
+    border: "1px solid var(--border-soft)",
+    boxShadow: "0 24px 70px rgba(15,23,42,0.24)",
+  },
+  accountConfirmTitle: {
+    margin: 0,
+    color: "var(--text-primary)",
+    fontSize: "1.2rem",
+    lineHeight: 1.25,
+  },
+  accountConfirmCopy: {
+    margin: "10px 0 0",
+    color: "var(--neutral-700)",
+    lineHeight: 1.5,
+    fontSize: "0.92rem",
+  },
+  accountConfirmActions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 20,
+  },
+  accountConfirmDanger: {
+    background: "#dc2626",
+  },
+  feedConfirmBackdrop: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 140,
+    display: "grid",
+    placeItems: "center",
+    padding: 24,
+    background: "rgba(15,23,42,0.34)",
+    backdropFilter: "blur(2px)",
+  },
+  feedConfirmCard: {
+    width: "min(336px, 100%)",
+    borderRadius: 20,
+    padding: 20,
+    background: "rgba(255,255,255,0.98)",
+    border: "1px solid rgba(255,255,255,0.82)",
+    boxShadow:
+      "0 28px 80px rgba(15,23,42,0.34), 0 10px 28px rgba(15,23,42,0.18)",
+    color: "var(--text-primary)",
+    textAlign: "center",
+  },
+  feedConfirmTitle: {
+    display: "block",
+    fontSize: "1.08rem",
+    lineHeight: 1.25,
+  },
+  feedConfirmMessage: {
+    margin: "8px 0 0",
+    color: "var(--neutral-700)",
+    fontSize: "0.88rem",
+    lineHeight: 1.45,
+  },
+  feedConfirmActions: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+    marginTop: 18,
+  },
+  feedConfirmCancel: {
+    minHeight: 42,
+    border: "1px solid var(--border-soft)",
+    borderRadius: 14,
+    background: "#ffffff",
+    color: "var(--text-secondary)",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  feedConfirmDelete: {
+    minHeight: 42,
+    border: "none",
+    borderRadius: 14,
+    background: "#dc2626",
+    color: "#ffffff",
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 12px 24px rgba(220,38,38,0.24)",
+  },
   feedModal: {
     position: "relative",
-    width: "min(1160px, 100%)",
-    height: "min(88dvh, 760px)",
+    width: "min(430px, calc(100% - 8px))",
+    maxHeight: "94dvh",
     display: "grid",
-    gridTemplateColumns: "minmax(520px, 1fr) 430px",
-    overflow: "hidden",
-    borderRadius: 6,
+    gridTemplateColumns: "1fr",
+    overflowY: "auto",
+    borderRadius: 18,
     background: "#ffffff",
     boxShadow: "0 24px 70px rgba(15,23,42,0.28)",
   },
+  sheetHandle: {
+    position: "absolute",
+    top: 8,
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: 48,
+    height: 4,
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.64)",
+    zIndex: 3,
+  },
   modalCloseButton: {
     position: "absolute",
-    top: -46,
-    right: 0,
+    top: 12,
+    right: 12,
     zIndex: 2,
     width: 36,
     height: 36,
@@ -1825,7 +2755,7 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   feedModalImagePane: {
-    minHeight: 0,
+    minHeight: "min(58dvh, 520px)",
     display: "grid",
     placeItems: "center",
     background: "#050608",
@@ -1833,16 +2763,17 @@ const styles: Record<string, CSSProperties> = {
   feedModalImage: {
     width: "100%",
     height: "100%",
+    maxHeight: "58dvh",
     objectFit: "contain",
     background: "#050608",
   },
   feedModalSidePane: {
-    minHeight: 0,
+    minHeight: 260,
     display: "flex",
     flexDirection: "column",
     background: "#ffffff",
     color: "var(--text-primary)",
-    borderLeft: "1px solid var(--neutral-200)",
+    borderTop: "1px solid var(--neutral-200)",
   },
   feedPostHeader: {
     display: "flex",
@@ -1973,32 +2904,45 @@ const styles: Record<string, CSSProperties> = {
   feedDiscussion: {
     flex: 1,
     minHeight: 0,
+    maxHeight: "42dvh",
     overflowY: "auto",
     padding: "8px 16px",
   },
   feedPostFooter: {
     borderTop: "1px solid var(--neutral-200)",
-    padding: "12px 16px 14px",
+    padding: "10px 16px 12px",
     display: "flex",
     flexDirection: "column",
-    gap: 8,
+    gap: 6,
   },
   feedPostActionButtons: {
     display: "flex",
     alignItems: "center",
-    gap: 14,
+    gap: 18,
   },
-  feedIconAction: {
+  feedLikeIconButton: {
     border: "none",
-    background: "transparent",
-    color: "var(--text-primary)",
-    fontWeight: 900,
     padding: 0,
+    background: "transparent",
+    color: "#ef4444",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    fontWeight: 900,
     cursor: "pointer",
   },
-  feedLikeSummary: {
+  feedCommentSummary: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
     color: "var(--text-primary)",
-    fontSize: "0.9rem",
+    fontWeight: 900,
+  },
+  feedActionCount: {
+    minWidth: 10,
+    color: "var(--text-primary)",
+    fontSize: "0.94rem",
+    fontWeight: 900,
   },
   likesList: {
     display: "flex",
@@ -2099,29 +3043,223 @@ function getProfileImageUrl(profile: UserProfile | null): string {
   );
 }
 
-function getFeedImageUrl(post: FeedPost): string {
-  return post.thumbnail_medium_url || post.thumbnail_small_url || post.original_url;
+function createOptimisticFeedPost({
+  postId,
+  file,
+  previewUrl,
+  caption,
+  visibility,
+}: {
+  postId: string;
+  file: File;
+  previewUrl: string;
+  caption: string;
+  visibility: FeedVisibility;
+}): FeedPostItem {
+  const now = new Date().toISOString();
+
+  return {
+    post_id: postId,
+    user_id: "",
+    visibility,
+    caption: caption || null,
+    original_url: previewUrl,
+    thumbnail_small_url: previewUrl,
+    thumbnail_medium_url: previewUrl,
+    like_count: 0,
+    comment_count: 0,
+    created_at: now,
+    updated_at: now,
+    uploadStatus: "uploading",
+    uploadProgress: 0,
+    uploadFile: file,
+    uploadPreviewUrl: previewUrl,
+    uploadCaption: caption,
+    uploadVisibility: visibility,
+  };
 }
+
+function getFeedImageUrl(post: FeedPostItem): string {
+  return (
+    post.uploadPreviewUrl ||
+    post.thumbnail_medium_url ||
+    post.thumbnail_small_url ||
+    post.original_url
+  );
+}
+
+async function isAnimatedFeedImage(file: File): Promise<boolean> {
+  if (file.type === "image/png") {
+    return isAnimatedPng(new Uint8Array(await file.arrayBuffer()));
+  }
+
+  if (file.type === "image/webp") {
+    return isAnimatedWebp(new Uint8Array(await file.arrayBuffer()));
+  }
+
+  return false;
+}
+
+function isAnimatedPng(bytes: Uint8Array): boolean {
+  const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (!pngSignature.every((value, index) => bytes[index] === value)) return false;
+
+  let offset = 8;
+  while (offset + 12 <= bytes.length) {
+    const chunkLength =
+      (bytes[offset] << 24) |
+      (bytes[offset + 1] << 16) |
+      (bytes[offset + 2] << 8) |
+      bytes[offset + 3];
+    const chunkType = bytesToAscii(bytes, offset + 4, offset + 8);
+    if (chunkType === "acTL") return true;
+    if (chunkType === "IDAT" || chunkType === "IEND") return false;
+    offset += 12 + chunkLength;
+  }
+
+  return false;
+}
+
+function isAnimatedWebp(bytes: Uint8Array): boolean {
+  if (
+    bytesToAscii(bytes, 0, 4) !== "RIFF" ||
+    bytesToAscii(bytes, 8, 12) !== "WEBP"
+  ) {
+    return false;
+  }
+
+  const header = bytesToAscii(bytes, 12, 16);
+  if (header === "VP8X" && bytes.length > 20 && (bytes[20] & 0b00000010) !== 0) {
+    return true;
+  }
+
+  return bytesToAscii(bytes, 12, bytes.length).includes("ANIM");
+}
+
+function bytesToAscii(bytes: Uint8Array, start: number, end: number): string {
+  return Array.from(bytes.slice(start, end))
+    .map((byte) => String.fromCharCode(byte))
+    .join("");
+}
+
+function toPreferencePayload(profile: UserProfile | null): ProfilePreferencesPayload {
+  if (!profile) return EMPTY_PREFERENCES;
+
+  return splitTravelStylesIntoPreferenceGroups([
+    ...(profile.travel_styles ?? []),
+  ]);
+}
+
+const ALLOWED_TRAVEL_STYLE_KEYS = new Set(TRAVEL_STYLE_OPTIONS.map((item) => item.key));
+const ALLOWED_FOOD_KEYS = new Set(FOOD_OPTIONS.map((item) => item.key));
+const ALLOWED_DENSITY_KEYS = new Set(DENSITY_OPTIONS.map((item) => item.key));
+const ALLOWED_BUDGET_KEYS = new Set(BUDGET_OPTIONS.map((item) => item.key));
+const ALLOWED_WALKING_KEYS = new Set(WALKING_OPTIONS.map((item) => item.key));
+const ALLOWED_TRANSPORT_KEYS = new Set(TRANSPORT_OPTIONS.map((item) => item.key));
+const ALLOWED_COMPANION_KEYS = new Set(COMPANION_OPTIONS.map((item) => item.key));
+const ALLOWED_TIME_KEYS = new Set(TIME_OPTIONS.map((item) => item.key));
+const ALLOWED_COMMUNICATION_KEYS = new Set(COMMUNICATION_OPTIONS.map((item) => item.key));
+const ALLOWED_PLANNING_KEYS = new Set(PLANNING_OPTIONS.map((item) => item.key));
+
+function normalizePreferenceToken(value?: string | null): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizePreferenceList(
+  values: string[] | undefined,
+  allowed: Set<string>
+): string[] {
+  return Array.from(
+    new Set(
+      (values ?? [])
+        .map(normalizePreferenceToken)
+        .filter((item) => allowed.has(item))
+    )
+  );
+}
+
+function normalizePreferenceValue(
+  value: string | undefined,
+  allowed: Set<string>
+): string {
+  const normalized = normalizePreferenceToken(value);
+  return allowed.has(normalized) ? normalized : "";
+}
+
+function sanitizePreferencePayload(
+  value: ProfilePreferencesPayload
+): ProfilePreferencesPayload {
+  return {
+    travel_styles: normalizePreferenceList(value.travel_styles, ALLOWED_TRAVEL_STYLE_KEYS),
+    food_preferences: normalizePreferenceList(value.food_preferences, ALLOWED_FOOD_KEYS),
+    density_preference: normalizePreferenceValue(value.density_preference, ALLOWED_DENSITY_KEYS),
+    budget_preference: normalizePreferenceValue(value.budget_preference, ALLOWED_BUDGET_KEYS),
+    walking_preference: normalizePreferenceValue(value.walking_preference, ALLOWED_WALKING_KEYS),
+    transport_preferences: normalizePreferenceList(value.transport_preferences, ALLOWED_TRANSPORT_KEYS),
+    companion_preference: normalizePreferenceValue(value.companion_preference, ALLOWED_COMPANION_KEYS),
+    time_preferences: normalizePreferenceList(value.time_preferences, ALLOWED_TIME_KEYS),
+    communication_preference: normalizePreferenceValue(
+      value.communication_preference,
+      ALLOWED_COMMUNICATION_KEYS
+    ),
+    planning_preference: normalizePreferenceValue(value.planning_preference, ALLOWED_PLANNING_KEYS),
+  };
+}
+
+function splitTravelStylesIntoPreferenceGroups(values: string[]): ProfilePreferencesPayload {
+  const normalized = Array.from(
+    new Set(values.map(normalizePreferenceToken).filter(Boolean))
+  );
+
+  const findOne = (allowed: Set<string>) =>
+    normalized.find((item) => allowed.has(item)) ?? "";
+
+  return {
+    travel_styles: normalized.filter((item) => ALLOWED_TRAVEL_STYLE_KEYS.has(item)),
+    food_preferences: normalized.filter((item) => ALLOWED_FOOD_KEYS.has(item)),
+    density_preference: findOne(ALLOWED_DENSITY_KEYS),
+    budget_preference: findOne(ALLOWED_BUDGET_KEYS),
+    walking_preference: findOne(ALLOWED_WALKING_KEYS),
+    transport_preferences: normalized.filter((item) => ALLOWED_TRANSPORT_KEYS.has(item)),
+    companion_preference: findOne(ALLOWED_COMPANION_KEYS),
+    time_preferences: normalized.filter((item) => ALLOWED_TIME_KEYS.has(item)),
+    communication_preference: findOne(ALLOWED_COMMUNICATION_KEYS),
+    planning_preference: findOne(ALLOWED_PLANNING_KEYS),
+  };
+}
+
+function toTravelStylesOnlyPayload(
+  value: ProfilePreferencesPayload
+): Pick<ProfilePreferencesPayload, "travel_styles"> {
+  const normalized = sanitizePreferencePayload(value);
+
+  return {
+    travel_styles: Array.from(
+      new Set(
+        [
+          ...normalized.travel_styles,
+          ...(normalized.food_preferences ?? []),
+          normalized.density_preference,
+          normalized.budget_preference,
+          normalized.walking_preference,
+          ...(normalized.transport_preferences ?? []),
+          normalized.companion_preference,
+          ...(normalized.time_preferences ?? []),
+          normalized.communication_preference,
+          normalized.planning_preference,
+        ]
+          .map(normalizePreferenceToken)
+          .filter(Boolean)
+      )
+    ),
+  };
+}
+
 
 function getVisibilityLabel(visibility: FeedVisibility): string {
   if (visibility === "public") return "Public";
   if (visibility === "friends") return "Friends";
   return "Private";
-}
-
-function getInitialStatusMessage(profile: UserProfile): string {
-  const profileStatus =
-    profile.status ||
-    (profile as UserProfile & { status_message?: string | null }).status_message ||
-    "";
-  if (profile.user_id) {
-    return window.localStorage.getItem(getStatusStorageKey(profile.user_id)) || profileStatus;
-  }
-  return profileStatus;
-}
-
-function getStatusStorageKey(userId: string): string {
-  return `krip:my-page-status:${userId}`;
 }
 
 function formatGender(gender?: string): string {

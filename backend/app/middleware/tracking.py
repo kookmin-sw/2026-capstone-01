@@ -6,6 +6,8 @@ from starlette.types import ASGIApp
 from fastapi import Request, Response
 
 from app.core.logger import get_logger
+from app.core.instrumentation import db_route_for_path
+from app.core.context import db_route_var, request_id_var
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -29,64 +31,68 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         request_id = request.headers.get(self.header_name) or self.generator()
-        
+
         request.state.request_id = request_id
-        
+
+        # contextvar 에 set — FanoutService 등 깊은 호출 스택에서 envelope 에 박을 때 사용.
+        rid_token = request_id_var.set(request_id)
+        # DB query / transaction 메트릭의 route 라벨 — 도메인 단위 매핑.
+        route_token = db_route_var.set(db_route_for_path(request.url.path))
+
         self.logger.bind(
             request_id=request_id,
             method=request.method,
             path=request.url.path
         ).debug("요청 ID 할당됨")
-        
-        response = await call_next(request)
-        
+
+        try:
+            response = await call_next(request)
+        finally:
+            db_route_var.reset(route_token)
+            request_id_var.reset(rid_token)
+
         response.headers[self.header_name] = request_id
-        
+
         return response
 
 
 class ErrorTrackingMiddleware(BaseHTTPMiddleware):
-    """에러 추적 및 모니터링 미들웨어"""
-    
+    """에러 추적 및 모니터링 미들웨어."""
+
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
         self.logger = get_logger("middleware.error_tracking")
-    
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        start_time = time.time()
+        start_time = time.perf_counter()
         request_id = getattr(request.state, "request_id", "unknown")
-        
+
         req_logger = self.logger.bind(
             request_id=request_id,
             method=request.method,
             path=request.url.path,
-            client_host=request.client.host if request.client else None
+            client_host=request.client.host if request.client else None,
         )
-        
-        req_logger.bind(
-            query_params=dict(request.query_params),
-            user_agent=request.headers.get("user-agent")
-        ).info("요청 처리 시작")
-        
+
         try:
             response = await call_next(request)
-            
-            process_time = time.time() - start_time
+
+            process_time = time.perf_counter() - start_time
             response.headers["X-Process-Time"] = str(process_time)
-            
+
             req_logger.bind(
                 status_code=response.status_code,
-                process_time=process_time
-            ).info("요청 처리 완료")
-            
+                process_time=process_time,
+            ).debug("요청 처리 완료")
+
             return response
-            
+
         except Exception as e:
-            process_time = time.time() - start_time
+            process_time = time.perf_counter() - start_time
             req_logger.bind(
                 error=str(e),
                 error_type=type(e).__name__,
-                process_time=process_time
+                process_time=process_time,
             ).error("요청 처리 중 에러 발생")
             raise
 

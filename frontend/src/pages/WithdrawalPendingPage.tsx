@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cancelWithdrawUser, logoutUser } from "../api/auth/auth";
+import { showAppToast } from "../utils/appToast";
 
 export default function WithdrawalPendingPage() {
   const navigate = useNavigate();
@@ -35,6 +36,7 @@ export default function WithdrawalPendingPage() {
     } catch {
       // Even if logout fails, leave the protected session screen.
     } finally {
+      showAppToast({ title: "Logged out", variant: "success" });
       navigate("/login", { replace: true });
     }
   }
@@ -87,8 +89,8 @@ function toErrorMessage(error: unknown, fallback: string): string {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100dvh",
-    padding: "24px 16px",
+    minHeight: "var(--app-viewport-height)",
+    padding: "calc(24px + var(--app-safe-top)) 16px 24px",
     display: "grid",
     placeItems: "center",
     background:
