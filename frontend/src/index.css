@@ -31,7 +31,7 @@
   --border-soft: #e0e0e0;
   --shadow-soft: 0 14px 30px rgba(33, 33, 33, 0.08);
   --app-viewport-width: 100%;
-  --app-viewport-height: 100dvh;
+  --app-viewport-height: 100vh;
   --app-system-status-bar-height: 24px;
   --app-system-navigation-bar-height: 34px;
   --app-safe-top: env(safe-area-inset-top, 0px);
@@ -51,7 +51,19 @@ html,
 body,
 #root {
   width: 100%;
-  min-height: 100dvh;
+  min-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-viewport-height: 100dvh;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100dvh;
+  }
 }
 
 html {
