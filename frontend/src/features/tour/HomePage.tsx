@@ -18,7 +18,6 @@ import {
 import NotificationBell from "../../components/NotificationBell";
 import {
   PLACE_CATEGORY_IMAGE_LINKS,
-  PLACE_CATEGORY_IMAGE_PLACEHOLDER,
 } from "../../data/placeCategoryImages";
 import { showAppToast } from "../../utils/appToast";
 
@@ -352,12 +351,7 @@ function getPlacePhotos(item: TourPlaceApiItem): string[] {
 
 function getPlaceThumbnailUrl(place: Place): string {
   const categoryImageUrl = PLACE_CATEGORY_IMAGE_LINKS[place.category];
-  return (
-    place.photos[0] ||
-    (categoryImageUrl && categoryImageUrl !== PLACE_CATEGORY_IMAGE_PLACEHOLDER
-      ? categoryImageUrl
-      : "")
-  );
+  return place.photos[0] || categoryImageUrl || "";
 }
 
 function mapTourPlace(item: TourPlaceApiItem): Place {
