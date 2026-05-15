@@ -69,7 +69,7 @@ function getRequestAuthorization(config: AxiosRequestConfig): string {
   const userAuthorization = getUserAuthorizationBearer();
 
   if (config.useConfiguredBearer) return AUTHORIZATION_BEARER;
-  if (Capacitor.isNativePlatform()) return userAuthorization || AUTHORIZATION_BEARER;
+  if (Capacitor.isNativePlatform()) return AUTHORIZATION_BEARER;
   if (config.requireUserBearer) return userAuthorization;
 
   return userAuthorization || AUTHORIZATION_BEARER;
@@ -79,15 +79,18 @@ client.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-  console.warn("[auth] axios 401", {
-    url: error.config?.url,
-    authPrefix:
-      typeof error.config?.headers?.Authorization === "string"
-        ? error.config.headers.Authorization.slice(0, 40)
-        : null,
-    hasXAuthToken: Boolean(error.config?.headers?.["X-Auth-Token"]),
-    hasStoredToken: Boolean(readAccessToken()),
-  });
+  console.warn(
+    "[auth] axios 401",
+    JSON.stringify({
+      url: error.config?.url,
+      authPrefix:
+        typeof error.config?.headers?.Authorization === "string"
+          ? error.config.headers.Authorization.slice(0, 40)
+          : null,
+      hasXAuthToken: Boolean(error.config?.headers?.["X-Auth-Token"]),
+      hasStoredToken: Boolean(readAccessToken()),
+    })
+  );
 
   notifyUnauthorized();
 }

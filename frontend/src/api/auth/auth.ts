@@ -212,15 +212,9 @@ function toErrorMessage(value: unknown, fallback: string): string {
 function getAuthHeaders(headers: RequestHeaders = {}): RequestHeaders {
   const rawToken = readToken();
 
-  const userAuthorization = rawToken
-    ? rawToken.toLowerCase().startsWith("bearer ")
-      ? rawToken
-      : `Bearer ${rawToken}`
-    : "";
-
-  const authorization =
-    (Capacitor.isNativePlatform() ? userAuthorization : getUserAuthorizationBearer()) ||
-    AUTHORIZATION_BEARER;
+  const authorization = Capacitor.isNativePlatform()
+    ? AUTHORIZATION_BEARER
+    : getUserAuthorizationBearer() || AUTHORIZATION_BEARER;
 
   if (!authorization) return headers;
 
