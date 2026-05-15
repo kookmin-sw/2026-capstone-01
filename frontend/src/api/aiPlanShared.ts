@@ -129,6 +129,7 @@ export interface PlanItemResponse {
   address: string;
   visit_time: string | null;
   rating: number | null;
+  photos: string[];
 }
 
 export interface PlanDetailResponse extends PlanSummaryResponse {
@@ -182,6 +183,7 @@ export interface TourRecommendPlace {
   rating?: number | null;
   description?: string;
   tip?: string;
+  photos?: string[];
 }
 
 export interface TourRecommendDayPlan {
@@ -257,6 +259,7 @@ export interface PlaceDetailV2 {
   reason: string;
   estimated_cost_krw: number;
   stay_minutes: number;
+  photos: string[];
 }
 
 export interface MovementHopV2 {

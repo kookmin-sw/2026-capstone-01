@@ -72,6 +72,7 @@ interface Place {
   website?: string;
   googleMapsUrl?: string;
   googleMapReviewLink?: string;
+  photos: string[];
   openingHours: string[];
   services: string[];
   payment: string[];
@@ -337,6 +338,14 @@ function getPlaceCoordinates(item: TourPlaceApiItem): {
   };
 }
 
+function getPlacePhotos(item: TourPlaceApiItem): string[] {
+  return Array.isArray(item.photos)
+    ? item.photos
+        .map((photo) => String(photo).trim())
+        .filter(Boolean)
+    : [];
+}
+
 function mapTourPlace(item: TourPlaceApiItem): Place {
   const coordinates = getPlaceCoordinates(item);
   const description =
@@ -376,6 +385,7 @@ function mapTourPlace(item: TourPlaceApiItem): Place {
     googleMapReviewLink: item.google_map_review_link
       ? String(item.google_map_review_link)
       : undefined,
+    photos: getPlacePhotos(item),
     openingHours: Array.isArray(item.opening_hours)
       ? item.opening_hours.map((value) => String(value))
       : [],
@@ -1111,6 +1121,14 @@ export default function HomePage() {
                   onClick={() => openPlaceDetail(place)}
                 >
                   <div style={styles.thumbnail}>
+                    {place.photos[0] ? (
+                      <img
+                        src={place.photos[0]}
+                        alt={place.name}
+                        loading="lazy"
+                        style={styles.thumbnailImage}
+                      />
+                    ) : null}
                   </div>
 
                   <div style={styles.cardBody}>
@@ -1188,7 +1206,18 @@ export default function HomePage() {
       {selectedPlace ? (
         <div style={styles.modalOverlay} onClick={closePlaceDetail}>
           <div style={styles.modalCard} onClick={(event) => event.stopPropagation()}>
-            <div style={styles.modalHero}>
+            <div
+              style={{
+                ...styles.modalHero,
+                ...(selectedPlace.photos[0]
+                  ? {
+                      backgroundImage: `linear-gradient(180deg, rgba(24,26,32,0.16), rgba(24,26,32,0.56)), url(${selectedPlace.photos[0]})`,
+                      backgroundSize: "cover",
+                      backgroundPosition: "center",
+                    }
+                  : {}),
+              }}
+            >
               <div style={styles.modalHeroTop}>
                 <span style={styles.modalCategory}>{selectedPlace.category}</span>
                 <button
@@ -1201,8 +1230,20 @@ export default function HomePage() {
                 </button>
               </div>
               <div>
-                <h2 style={styles.modalTitle}>{selectedPlace.name}</h2>
-                <p style={styles.modalDistance}>
+                <h2
+                  style={{
+                    ...styles.modalTitle,
+                    ...(selectedPlace.photos[0] ? styles.modalTitleOnImage : {}),
+                  }}
+                >
+                  {selectedPlace.name}
+                </h2>
+                <p
+                  style={{
+                    ...styles.modalDistance,
+                    ...(selectedPlace.photos[0] ? styles.modalDistanceOnImage : {}),
+                  }}
+                >
                   {locationLabel} / {formatDistance(selectedPlace.distanceKm)}
                 </p>
               </div>
@@ -1871,12 +1912,20 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 108,
     maxHeight: 132,
     borderRadius: 22,
+    overflow: "hidden",
     display: "flex",
     alignItems: "flex-end",
     justifyContent: "flex-start",
     padding: 8,
     boxSizing: "border-box",
     background: "linear-gradient(160deg, rgba(5,181,187,0.18), rgba(248,180,0,0.14))",
+  },
+  thumbnailImage: {
+    width: "calc(100% + 16px)",
+    height: "calc(100% + 16px)",
+    margin: -8,
+    display: "block",
+    objectFit: "cover",
   },
   cardBody: {
     display: "flex",
@@ -2064,10 +2113,18 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.05,
     color: "var(--text-primary)",
   },
+  modalTitleOnImage: {
+    color: "#fff",
+    textShadow: "0 2px 14px rgba(0,0,0,0.32)",
+  },
   modalDistance: {
     marginTop: 10,
     fontSize: "0.92rem",
     color: "var(--text-secondary)",
+  },
+  modalDistanceOnImage: {
+    color: "rgba(255,255,255,0.9)",
+    textShadow: "0 1px 8px rgba(0,0,0,0.32)",
   },
   modalBody: {
     padding: 22,

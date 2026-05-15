@@ -6,7 +6,7 @@ import type { NavigateFunction } from "react-router-dom";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { Capacitor } from "@capacitor/core";
-import { removeToken, saveToken } from "./utils/tokens";
+import { confirmTokenSaved, removeToken, saveToken } from "./utils/tokens";
 import AppShell from "./components/AppShell";
 import LoginPage from "./pages/LoginPage";
 import OnboardingPage from "./pages/OnboardingPage";
@@ -543,34 +543,34 @@ function AppUrlOpenHandler() {
         })
       );
 
-      try {
-        await Browser.close();
-      } catch {
-        // The browser may already be closed by the OS deep link handoff.
-      }
-
       if (!utk) {
         removeToken();
         navigate("/login", { replace: true });
+        void closeAuthBrowser();
         return;
       }
 
       saveToken(utk);
-      console.info(
-        "[auth] token saved",
-        JSON.stringify({
-          hasSavedToken: true,
-          tokenPrefix: utk.slice(0, 10),
-        })
-      );
+      const hasSavedToken = await confirmTokenSaved(utk);
+
+      if (!hasSavedToken) {
+        console.error("[auth] token save failed");
+        void closeAuthBrowser();
+        return;
+      }
 
       if (status === "complete") {
+        console.info("[auth] navigate home");
         navigate("/home", { replace: true });
       } else if (status === "new" || status === "in_progress") {
+        console.info("[auth] navigate register");
         navigate("/register", { state: { email, name }, replace: true });
       } else if (status === "withdrawal_pending") {
+        console.info("[auth] navigate withdrawal pending");
         navigate("/withdrawal-pending", { replace: true });
       }
+
+      void closeAuthBrowser();
     }
 
     const listenerPromise = CapacitorApp.addListener("appUrlOpen", (data) => {
@@ -584,6 +584,14 @@ function AppUrlOpenHandler() {
   }, [navigate]);
 
   return null;
+}
+
+async function closeAuthBrowser(): Promise<void> {
+  try {
+    await Browser.close();
+  } catch {
+    // The browser may already be closed by the OS deep link handoff.
+  }
 }
 
 /**

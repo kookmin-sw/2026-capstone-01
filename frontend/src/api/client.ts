@@ -55,6 +55,7 @@ client.interceptors.request.use((config) => {
         url: config.url,
         hasAuthorization: Boolean(authorization),
         hasXAuthToken: Boolean(config.headers["X-Auth-Token"]),
+        hasStoredToken: Boolean(rawToken),
         authPrefix: typeof authorization === "string" ? authorization.slice(0, 40) : null,
         tokenPrefix: rawToken ? rawToken.slice(0, 10) : null,
       })
@@ -67,8 +68,8 @@ client.interceptors.request.use((config) => {
 function getRequestAuthorization(config: AxiosRequestConfig): string {
   const userAuthorization = getUserAuthorizationBearer();
 
-  if (Capacitor.isNativePlatform()) return AUTHORIZATION_BEARER;
   if (config.useConfiguredBearer) return AUTHORIZATION_BEARER;
+  if (Capacitor.isNativePlatform()) return userAuthorization || AUTHORIZATION_BEARER;
   if (config.requireUserBearer) return userAuthorization;
 
   return userAuthorization || AUTHORIZATION_BEARER;
@@ -85,6 +86,7 @@ client.interceptors.response.use(
         ? error.config.headers.Authorization.slice(0, 40)
         : null,
     hasXAuthToken: Boolean(error.config?.headers?.["X-Auth-Token"]),
+    hasStoredToken: Boolean(readAccessToken()),
   });
 
   notifyUnauthorized();
