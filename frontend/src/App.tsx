@@ -517,20 +517,13 @@ function AppUrlOpenHandler() {
       console.info("[auth] appUrlOpen received url", url);
       if (!url.startsWith("krip://")) return;
 
-      let parsed: URL;
-      try {
-        parsed = new URL(url);
-      } catch {
+      const callback = parseAuthCallbackUrl(url);
+      if (!callback) {
+        console.warn("[auth] appUrlOpen ignored non-auth callback");
         return;
       }
 
-      // Only handle krip://auth/callback
-      if (parsed.hostname !== "auth" || parsed.pathname !== "/callback") return;
-
-      const utk = parsed.searchParams.get("utk") ?? "";
-      const status = parsed.searchParams.get("status") ?? "";
-      const email = parsed.searchParams.get("email") ?? "";
-      const name = parsed.searchParams.get("name") ?? "";
+      const { utk, status, email, name } = callback;
 
       console.info(
         "[auth] appUrlOpen parsed",
@@ -592,6 +585,24 @@ async function closeAuthBrowser(): Promise<void> {
   } catch {
     // The browser may already be closed by the OS deep link handoff.
   }
+}
+
+function parseAuthCallbackUrl(
+  url: string
+): { utk: string; status: string; email: string; name: string } | null {
+  const callbackPrefix = "krip://auth/callback";
+  if (!url.startsWith(callbackPrefix)) return null;
+
+  const queryStart = url.indexOf("?");
+  const query = queryStart >= 0 ? url.slice(queryStart + 1) : "";
+  const params = new URLSearchParams(query);
+
+  return {
+    utk: params.get("utk") ?? "",
+    status: params.get("status") ?? "",
+    email: params.get("email") ?? "",
+    name: params.get("name") ?? "",
+  };
 }
 
 /**
