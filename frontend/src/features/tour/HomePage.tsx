@@ -27,12 +27,12 @@ const CURRENT_LOCATION_LABEL = "Using your current location";
 const GEOLOCATION_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
   maximumAge: 60000,
-  timeout: 30000,
+  timeout: 10000,
 };
 const GEOLOCATION_WATCH_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
   maximumAge: 60000,
-  timeout: 30000,
+  timeout: 10000,
 };
 const SEARCH_SUGGESTION_LIMIT = 8;
 const ALL_CATEGORY = "All";
@@ -496,6 +496,7 @@ export default function HomePage() {
   const categoryFilterRef = useRef<HTMLDivElement | null>(null);
   const bodyScrollerRef = useRef<HTMLDivElement | null>(null);
   const lastScrollTopRef = useRef(0);
+  const loadingCursorRef = useRef<string | null>(null);
 
   const [categoryFilterFade, setCategoryFilterFade] = useState({
     left: false,
@@ -692,6 +693,10 @@ export default function HomePage() {
       append?: boolean;
     } = {}
   ): Promise<void> {
+    const cursorKey = options.cursor || "__initial__";
+    if (loadingCursorRef.current === cursorKey) return;
+    loadingCursorRef.current = cursorKey;
+
     const params: TourPlacesParams = {
       lat: currentLocation.lat,
       lng: currentLocation.lng,
@@ -699,19 +704,23 @@ export default function HomePage() {
       cursor: options.cursor,
     };
 
-    const response = await getTourPlaces(params);
-    const mappedItems = response.items.map(mapTourPlace);
+    try {
+      const response = await getTourPlaces(params);
+      const mappedItems = response.items.map(mapTourPlace);
 
-    setPlacesSource((current) =>
-      options.append ? [...current, ...mappedItems] : mappedItems
-    );
-    setNextCursor(response.nextCursor || null);
-    setPlacesError("");
+      setPlacesSource((current) =>
+        options.append ? [...current, ...mappedItems] : mappedItems
+      );
+      setNextCursor(response.nextCursor || null);
+      setPlacesError("");
 
-    if (!options.cursor && searchInput.trim()) {
-      fetchSearchHistory().catch(() => {
-        // Keep the places UI usable even if history refresh fails.
-      });
+      if (!options.cursor && searchInput.trim()) {
+        fetchSearchHistory().catch(() => {
+          // Keep the places UI usable even if history refresh fails.
+        });
+      }
+    } finally {
+      loadingCursorRef.current = null;
     }
   }
 
@@ -740,7 +749,7 @@ export default function HomePage() {
         const message =
           error instanceof Error ? error.message : "Failed to load places.";
         setPlacesError(message);
-        setPlacesSource([]);
+        setPlacesSource((current) => current);
       });
   }, [currentLocation.lat, currentLocation.lng, locationStatus, searchInput]);
 
@@ -917,7 +926,12 @@ export default function HomePage() {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && nextCursor && !isFetchingMore) {
+        if (
+          entries[0]?.isIntersecting &&
+          nextCursor &&
+          !isFetchingMore &&
+          loadingCursorRef.current !== nextCursor
+        ) {
           setIsFetchingMore(true);
           fetchPlaces({ cursor: nextCursor, append: true })
             .catch((error) => {

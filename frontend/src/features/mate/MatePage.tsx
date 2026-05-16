@@ -90,7 +90,12 @@ type MateFriendState = {
 export default function MatePage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const locationState = location.state as { mainTab?: MainTab } | null;
+  const locationState = location.state as {
+    mainTab?: MainTab;
+    friendManagerTab?: "friend" | "request";
+  } | null;
+  const shouldOpenFriendRequests =
+    new URLSearchParams(location.search).get("friendRequests") === "1";
   const staticSearchRef = useRef<HTMLInputElement>(null);
   const headerStackRef = useRef<HTMLDivElement>(null);
   const lastScrollYRef = useRef(0);
@@ -102,7 +107,7 @@ export default function MatePage() {
 
   const [tab, setTab] = useState<Tab>("list");
   const [mainTab, setMainTab] = useState<MainTab>(
-    locationState?.mainTab === "chat" ? "chat" : "mate"
+    locationState?.mainTab === "chat" || shouldOpenFriendRequests ? "chat" : "mate"
   );
   const [posts, setPosts] = useState<TripMatePost[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -746,6 +751,9 @@ export default function MatePage() {
     setChatOpeningPostId(user.user_id);
     try {
       const room = await createDirectChatRoom(user.user_id);
+      if (!room?.chat_room_id) {
+        throw new Error("Failed to open chat room.");
+      }
       navigate(`/chat/${room.chat_room_id}`);
     } catch (chatError) {
       window.alert(toErrorMessage(chatError, "Failed to open chat. Please try again."));
@@ -858,6 +866,9 @@ export default function MatePage() {
     setChatOpeningPostId(post.post_id);
     try {
       const room = await createDirectChatRoom(post.user_id);
+      if (!room?.chat_room_id) {
+        throw new Error("Failed to open chat room.");
+      }
       navigate(`/chat/${room.chat_room_id}`);
     } catch (chatError) {
       window.alert(toErrorMessage(chatError, "Failed to open chat. Please try again."));
@@ -872,6 +883,9 @@ export default function MatePage() {
     setChatOpeningPostId(traveler.user_id);
     try {
       const room = await createDirectChatRoom(traveler.user_id);
+      if (!room?.chat_room_id) {
+        throw new Error("Failed to open chat room.");
+      }
       setSelectedRecommendedTraveler(null);
       navigate(`/chat/${room.chat_room_id}`);
     } catch (chatError) {
@@ -1094,6 +1108,9 @@ export default function MatePage() {
               hideSearch
               searchQuery={chatSearchInput}
               onSearchQueryChange={setChatSearchInput}
+              initialFriendManagerTab={
+                locationState?.friendManagerTab ?? (shouldOpenFriendRequests ? "request" : undefined)
+              }
             />
           </section>
         ) : tab === "list" ? (
@@ -1634,7 +1651,7 @@ export default function MatePage() {
                   disabled={submitting || imageUploading}
                 >
                   {imageUploading
-                    ? "Uploading..."
+                    ? "Uploading image..."
                     : submitting
                     ? editingPostId
                       ? "Updating..."

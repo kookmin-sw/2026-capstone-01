@@ -34,6 +34,7 @@ export default function NotificationBell({
   const [actionId, setActionId] = useState("");
 
   const previousUnreadCountRef = useRef<number | null>(null);
+  const knownFriendRequestIdsRef = useRef<Set<string> | null>(null);
 
   async function refreshUnreadAndFriends(): Promise<void> {
     const [count, friendRequests] = await Promise.all([
@@ -41,7 +42,21 @@ export default function NotificationBell({
       getReceivedFriendRequests().catch(() => ({ items: [] as Friendship[] })),
     ]);
 
+    const nextFriendRequestIds = new Set(
+      friendRequests.items.map((item) => item.friendship_id).filter(Boolean)
+    );
+    const knownFriendRequestIds = knownFriendRequestIdsRef.current;
+    if (knownFriendRequestIds) {
+      const newRequest = friendRequests.items.find(
+        (item) => item.friendship_id && !knownFriendRequestIds.has(item.friendship_id)
+      );
+      if (newRequest) {
+        showFriendRequestToast(newRequest);
+      }
+    }
+
     previousUnreadCountRef.current = count;
+    knownFriendRequestIdsRef.current = nextFriendRequestIds;
     setUnreadCount(count);
     setFriendNotifications(friendRequests.items);
   }
@@ -55,6 +70,20 @@ export default function NotificationBell({
           variant: "info",
           path: getNotificationPath(item),
           imageUrl: item.actor_profile_image_url || item.target_preview,
+        },
+      })
+    );
+  }
+
+  function showFriendRequestToast(item: Friendship): void {
+    window.dispatchEvent(
+      new CustomEvent("krip:app-toast", {
+        detail: {
+          title: "New friend request",
+          message: `${item.peer.user_name || "Someone"} sent you a friend request.`,
+          variant: "info",
+          path: "/mate?friendRequests=1",
+          imageUrl: item.peer.profile_image_url,
         },
       })
     );
@@ -269,7 +298,9 @@ export default function NotificationBell({
                 style={styles.notificationItem}
                 onClick={() => {
                   setIsOpen(false);
-                  navigate("/chat");
+                  navigate("/mate", {
+                    state: { mainTab: "chat", friendManagerTab: "request" },
+                  });
                 }}
               >
                 <img
@@ -430,6 +461,9 @@ function getNotificationSubtitle(item: InboxNotification): string {
 
 function getNotificationPath(item: InboxNotification): string {
   if (item.target_type === "tripmate_post") return "/mate";
+  if (item.target_type === "feed_post" && item.actor_id) {
+    return `/profile/${encodeURIComponent(item.actor_id)}`;
+  }
   if (item.target_type === "feed_post") return "/my";
 
   return "/home";

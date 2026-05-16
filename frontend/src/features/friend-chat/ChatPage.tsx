@@ -42,12 +42,14 @@ export default function ChatPage({
   hideSearch = false,
   searchQuery: controlledSearchQuery,
   onSearchQueryChange,
+  initialFriendManagerTab,
 }: {
   embedded?: boolean;
   hideHeader?: boolean;
   hideSearch?: boolean;
   searchQuery?: string;
   onSearchQueryChange?: (value: string) => void;
+  initialFriendManagerTab?: FriendManagerTab;
 }) {
   const navigate = useNavigate();
   const {
@@ -81,7 +83,9 @@ export default function ChatPage({
   const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
   const [internalSearchQuery, setInternalSearchQuery] = useState("");
   const [isFriendManagerOpen, setIsFriendManagerOpen] = useState(false);
-  const [friendManagerTab, setFriendManagerTab] = useState<FriendManagerTab>("friend");
+  const [friendManagerTab, setFriendManagerTab] = useState<FriendManagerTab>(
+    initialFriendManagerTab ?? "friend"
+  );
   const [friendSearchQuery, setFriendSearchQuery] = useState("");
   const [friendSearchResults, setFriendSearchResults] = useState<FriendSearchUser[]>([]);
   const [friendSearchLoading, setFriendSearchLoading] = useState(false);
@@ -136,6 +140,13 @@ export default function ChatPage({
         : chatRows,
     [chatRows, normalizedSearchQuery]
   );
+  useEffect(() => {
+    if (initialFriendManagerTab) {
+      setFriendManagerTab(initialFriendManagerTab);
+      setIsFriendManagerOpen(true);
+    }
+  }, [initialFriendManagerTab]);
+
   useEffect(() => {
     void refreshAll();
   }, []);
@@ -264,6 +275,9 @@ export default function ChatPage({
 
     try {
       const room = await openDirectChat(userId);
+      if (!room?.chat_room_id) {
+        throw new Error("Failed to open chat room.");
+      }
       navigate(`/chat/${room.chat_room_id}`);
     } catch (chatError) {
       reportChatNetworkError({
@@ -306,6 +320,9 @@ export default function ChatPage({
     setError("");
     try {
       const room = await createGroupChatRoom(title, selectedGroupMemberIds);
+      if (!room?.chat_room_id) {
+        throw new Error("Failed to create group chat.");
+      }
       setIsGroupCreateOpen(false);
       setGroupTitle("");
       setSelectedGroupMemberIds([]);

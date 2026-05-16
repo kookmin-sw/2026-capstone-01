@@ -44,6 +44,7 @@ export default function MenuPage() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [restaurantName, setRestaurantName] = useState("");
   const [errorDetail, setErrorDetail] = useState("");
+  const [ttsError, setTtsError] = useState("");
   const [orderNote, setOrderNote] = useState("");
   const [translatedNote, setTranslatedNote] = useState("");
   const [translatingNote, setTranslatingNote] = useState(false);
@@ -55,6 +56,7 @@ export default function MenuPage() {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const ocrRequestRef = useRef(false);
   const selectSectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -176,8 +178,9 @@ export default function MenuPage() {
   };
 
   const handleTranslate = async () => {
-    if (!selectedFiles.length) return;
+    if (!selectedFiles.length || ocrRequestRef.current) return;
 
+    ocrRequestRef.current = true;
     setStep("loading");
     setErrorDetail("");
 
@@ -213,6 +216,8 @@ export default function MenuPage() {
       }
 
       setStep("error");
+    } finally {
+      ocrRequestRef.current = false;
     }
   };
 
@@ -225,6 +230,7 @@ export default function MenuPage() {
     setMenuItems([]);
     setRestaurantName("");
     setErrorDetail("");
+    setTtsError("");
     setOrderNote("");
     setTranslatedNote("");
     setTranslatingNote(false);
@@ -285,7 +291,11 @@ export default function MenuPage() {
 
     const SpeechSynthesisUtteranceCtor = getSpeechSynthesisUtterance();
     const speechSynthesis = getSpeechSynthesis();
-    if (!SpeechSynthesisUtteranceCtor || !speechSynthesis) return;
+    if (!SpeechSynthesisUtteranceCtor || !speechSynthesis) {
+      setTtsError("Text-to-speech is not supported on this device.");
+      return;
+    }
+    setTtsError("");
 
     const utterance = new SpeechSynthesisUtteranceCtor(koreanOrderMessage);
     utterance.lang = "ko-KR";
@@ -293,8 +303,13 @@ export default function MenuPage() {
     utterance.pitch = 1.0;
     utterance.onstart = () => setSpeaking(true);
     utterance.onend = () => { setSpeaking(false); utteranceRef.current = null; };
-    utterance.onerror = () => { setSpeaking(false); utteranceRef.current = null; };
+    utterance.onerror = () => {
+      setSpeaking(false);
+      utteranceRef.current = null;
+      setTtsError("Could not play text-to-speech. Please show the Korean text instead.");
+    };
     utteranceRef.current = utterance;
+    speechSynthesis.cancel();
     speechSynthesis.speak(utterance);
   };
 
@@ -755,6 +770,7 @@ export default function MenuPage() {
                 </button>
               </div>
             </div>
+            {ttsError ? <p style={styles.errorBody}>{ttsError}</p> : null}
 
             {/* 4. USD conversion card */}
             {totalKRW > 0 ? (
@@ -834,7 +850,7 @@ function mapResultsToMenuItems(results: MenuOcrPageResult[]): MenuItem[] {
       translated: menu.english_name,
       description: menu.description,
       price: normalizePrice(menu.price),
-      visible: true,
+      visible: false,
       quantity: 1,
       category: menu.category ?? "기타",
     }))

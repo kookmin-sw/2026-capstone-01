@@ -17,6 +17,12 @@ import {
   type FeedPost,
   type FeedPopupResponse,
 } from "../api/feed";
+import { createDirectChatRoom } from "../api/chat";
+import {
+  getFriendDetail,
+  sendFriendRequest,
+  type FriendshipStatus,
+} from "../api/friend";
 
 const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
@@ -37,6 +43,10 @@ export default function UserFeedPage() {
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [viewerUserId, setViewerUserId] = useState("");
+  const [isMetaExpanded, setIsMetaExpanded] = useState(false);
+  const [friendshipStatus, setFriendshipStatus] = useState<FriendshipStatus | null>(null);
+  const [isRequester, setIsRequester] = useState<boolean | null>(null);
+  const [relationshipBusy, setRelationshipBusy] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -77,6 +87,63 @@ export default function UserFeedPage() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!id || !viewerUserId || id === viewerUserId) {
+      setFriendshipStatus(null);
+      setIsRequester(null);
+      return undefined;
+    }
+
+    getFriendDetail(id)
+      .then((detail) => {
+        if (!mounted) return;
+        setFriendshipStatus(detail.friendship_status);
+        setIsRequester(detail.is_requester);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setFriendshipStatus(null);
+        setIsRequester(null);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [id, viewerUserId]);
+
+  async function handleAddFriend(): Promise<void> {
+    if (!id || relationshipBusy || id === viewerUserId) return;
+
+    setRelationshipBusy(true);
+    try {
+      const friendship = await sendFriendRequest(id);
+      setFriendshipStatus(friendship.status);
+      setIsRequester(friendship.is_requester);
+    } catch (requestError) {
+      setError(toErrorMessage(requestError, "Failed to send friend request."));
+    } finally {
+      setRelationshipBusy(false);
+    }
+  }
+
+  async function handleOpenChat(): Promise<void> {
+    if (!id || relationshipBusy || id === viewerUserId) return;
+
+    setRelationshipBusy(true);
+    try {
+      const room = await createDirectChatRoom(id);
+      if (!room?.chat_room_id) {
+        throw new Error("Failed to open chat room.");
+      }
+      navigate(`/chat/${room.chat_room_id}`);
+    } catch (chatError) {
+      setError(toErrorMessage(chatError, "Failed to open chat."));
+    } finally {
+      setRelationshipBusy(false);
+    }
+  }
 
   async function loadMore(): Promise<void> {
     if (!id || !nextCursor || loadingMore) return;
@@ -193,10 +260,14 @@ export default function UserFeedPage() {
     }
   }
 
-  const profileMeta = [profile?.nationality, ...(profile?.travel_styles ?? [])]
+  const profileMetaItems = [profile?.nationality, ...(profile?.travel_styles ?? [])]
     .filter((value): value is string => Boolean(value))
-    .map(formatMeta)
-    .join(" · ");
+    .map(formatMeta);
+  const visibleProfileMetaItems = isMetaExpanded
+    ? profileMetaItems
+    : profileMetaItems.slice(0, 3);
+  const hiddenMetaCount = Math.max(0, profileMetaItems.length - visibleProfileMetaItems.length);
+  const canShowProfileActions = Boolean(id && viewerUserId && id !== viewerUserId);
 
   const isSelectedPostLikedByViewer = selectedLikes.some(
     (likeUser) => likeUser.user_id === viewerUserId
@@ -229,8 +300,59 @@ export default function UserFeedPage() {
               style={styles.avatar}
             />
             <div style={styles.profileText}>
-              <h1 style={styles.name}>{profile.user_name || "Unknown"}</h1>
-              {profileMeta ? <p style={styles.meta}>{profileMeta}</p> : null}
+              <div style={styles.nameRow}>
+                <h1 style={styles.name}>{profile.user_name || "Unknown"}</h1>
+                {canShowProfileActions ? (
+                  <div style={styles.profileActions}>
+                    {friendshipStatus !== "accepted" ? (
+                      <button
+                        type="button"
+                        style={styles.profileActionButton}
+                        onClick={() => void handleAddFriend()}
+                        disabled={relationshipBusy || friendshipStatus === "pending"}
+                      >
+                        {friendshipStatus === "pending"
+                          ? isRequester
+                            ? "Requested"
+                            : "Pending"
+                          : "Add Friend"}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      style={styles.profileActionButton}
+                      onClick={() => void handleOpenChat()}
+                      disabled={relationshipBusy}
+                    >
+                      Chat
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              {visibleProfileMetaItems.length > 0 ? (
+                <div style={styles.metaRow}>
+                  <p style={styles.meta}>{visibleProfileMetaItems.join(" · ")}</p>
+                  {profileMetaItems.length > 3 ? (
+                    <button
+                      type="button"
+                      style={styles.metaToggle}
+                      onClick={() => setIsMetaExpanded((current) => !current)}
+                      aria-label={
+                        isMetaExpanded
+                          ? "Show fewer travel styles"
+                          : `Show ${hiddenMetaCount} more travel styles`
+                      }
+                    >
+                      <span
+                        style={{
+                          ...styles.metaToggleTriangle,
+                          ...(isMetaExpanded ? styles.metaToggleTriangleOpen : {}),
+                        }}
+                      />
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               <p style={styles.count}>{posts.length} posts</p>
             </div>
           </section>
@@ -503,18 +625,67 @@ const styles: Record<string, CSSProperties> = {
   profileText: {
     minWidth: 0,
   },
+  nameRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
   name: {
     margin: 0,
     color: "#171717",
     fontSize: "1.3rem",
     lineHeight: 1.15,
   },
+  profileActions: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+  },
+  profileActionButton: {
+    minHeight: 26,
+    padding: "0 9px",
+    border: "1px solid rgba(0, 121, 128, 0.18)",
+    borderRadius: 999,
+    background: "#ffffff",
+    color: "var(--brand-primary-deep)",
+    fontSize: "0.72rem",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  metaRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 6,
+  },
   meta: {
-    margin: "6px 0 0",
+    margin: 0,
     color: "var(--brand-primary-deep)",
     fontSize: "0.84rem",
     fontWeight: 900,
     overflowWrap: "anywhere",
+  },
+  metaToggle: {
+    width: 22,
+    height: 22,
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    display: "inline-grid",
+    placeItems: "center",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  metaToggleTriangle: {
+    width: 0,
+    height: 0,
+    borderLeft: "5px solid transparent",
+    borderRight: "5px solid transparent",
+    borderTop: "6px solid var(--brand-primary-deep)",
+  },
+  metaToggleTriangleOpen: {
+    transform: "rotate(180deg)",
   },
   count: {
     margin: "6px 0 0",
