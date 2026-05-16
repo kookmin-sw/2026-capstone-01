@@ -514,6 +514,77 @@ type PageProps = {
   email?: string;
 };
 
+function PrivacyPolicyContent() {
+  return (
+    <iframe
+      src="/docs/privacy.pdf#zoom=44"
+      title="Privacy Policy"
+      style={{
+        width: "100%",
+        height: "100%",
+        border: "none",
+        display: "block",
+      }}
+    />
+  );
+}
+
+function PrivacyConsentPage({
+  agreed,
+  onAgreeChange,
+  onNext,
+  onBack,
+}: {
+  agreed: boolean;
+  onAgreeChange: (value: boolean) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <PageShell onBack={onBack} showBack={false}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingTop: 4 }}>
+        <QuestionTitle text={"Privacy Policy"} />
+        <div style={{ padding: "0 16px" }}>
+          <div
+            style={{
+              height: "min(58vh, 520px)",
+              overflowY: "auto",
+              border: `1px solid ${GRAY2}`,
+              borderRadius: 18,
+              background: GRAY1,
+              padding: 16,
+            }}
+          >
+            <PrivacyPolicyContent />
+          </div>
+        </div>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "0 18px",
+            fontFamily: "Pretendard Variable,sans-serif",
+            fontWeight: 700,
+            fontSize: 14,
+            color: GRAY6,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={agreed}
+            onChange={(event) => onAgreeChange(event.target.checked)}
+            style={{ width: 18, height: 18, accentColor: MINT }}
+          />
+          <span>I agree to the Privacy Policy.</span>
+        </label>
+      </div>
+      <NextButton onNext={onNext} canProceed={agreed} />
+    </PageShell>
+  );
+}
+
 function Page1({ data, setData, onNext, onBack, email }: PageProps) {
   const isAgeValid = Boolean(data.age);
   const ageError = "";
@@ -841,11 +912,12 @@ export default function OnboardingPage() {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [privacyAgreed, setPrivacyAgreed] = useState(false);
   const [data, setDataState] = useState<OnboardingData>({ ...EMPTY, nickname: initialNickname });
 
   const setData = (patch: Partial<OnboardingData>) =>
     setDataState((prev) => ({ ...prev, ...patch }));
-  const next = () => setStep((s) => Math.min(s + 1, 4));
+  const next = () => setStep((s) => Math.min(s + 1, 5));
   const back = () => setStep((s) => Math.max(s - 1, 0));
 
   async function handleComplete(): Promise<void> {
@@ -887,7 +959,14 @@ export default function OnboardingPage() {
   }
 
   const pages = [
-    <Page1 key={0} data={data} setData={setData} onNext={next} onBack={() => navigate("/login")} email={email} />,
+    <PrivacyConsentPage
+      key="privacy"
+      agreed={privacyAgreed}
+      onAgreeChange={setPrivacyAgreed}
+      onNext={next}
+      onBack={() => navigate("/login")}
+    />,
+    <Page1 key={0} data={data} setData={setData} onNext={next} onBack={back} email={email} />,
     <Page2 key={1} data={data} setData={setData} onNext={next} onBack={back} />,
     <Page3 key={2} data={data} setData={setData} onNext={next} onBack={back} />,
     <Page4 key={3} data={data} setData={setData} onNext={next} onBack={back} />,
