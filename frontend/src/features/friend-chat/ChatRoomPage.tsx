@@ -29,6 +29,7 @@ export default function ChatRoomPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollModeRef = useRef<"bottom" | "preserve">("bottom");
   const pendingNewRoomSendRef = useRef<string | null>(null);
+  const recentComposerSendRef = useRef<{ key: string; expiresAt: number } | null>(null);
   const shouldForceScrollToBottomRef = useRef(true);
   const scrollSnapshotRef = useRef<{ height: number; top: number } | null>(null);
   const latestMessageKeyRef = useRef("");
@@ -416,16 +417,27 @@ export default function ChatRoomPage() {
 
     // Draft mode: create the room on the backend first, then send
     if (draftDirectUserId) {
+      if (isDuplicateComposerSend(`draft:${draftDirectUserId}:${content}`)) return;
       void handleSendToNewRoom(draftDirectUserId, content);
       return;
     }
 
     if (!roomId) return;
+    if (isDuplicateComposerSend(`room:${roomId}:${content}`)) return;
 
     shouldForceScrollToBottomRef.current = true;
     setIncomingMessageNotice(null);
     sendMessage(roomId, content);
     setInput("");
+  }
+
+  function isDuplicateComposerSend(key: string): boolean {
+    const now = Date.now();
+    const recent = recentComposerSendRef.current;
+    if (recent?.key === key && recent.expiresAt > now) return true;
+
+    recentComposerSendRef.current = { key, expiresAt: now + 800 };
+    return false;
   }
 
   async function handleSendToNewRoom(userId: string, content: string): Promise<void> {

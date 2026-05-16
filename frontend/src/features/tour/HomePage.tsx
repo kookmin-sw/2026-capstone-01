@@ -16,10 +16,7 @@ import {
   type UserProfile,
 } from "../../api/auth/auth";
 import NotificationBell from "../../components/NotificationBell";
-
-import {
-  PLACE_CATEGORY_IMAGE_LINKS,
-} from "../../data/placeCategoryImages";
+import { getPlaceCategoryImageUrl } from "../../data/placeCategoryImages";
 
 import { showAppToast } from "../../utils/appToast";
 
@@ -353,8 +350,24 @@ function getPlacePhotos(item: TourPlaceApiItem): string[] {
 
 
 function getPlaceThumbnailUrl(place: Place): string {
-  const categoryImageUrl = PLACE_CATEGORY_IMAGE_LINKS[place.category];
+  const categoryImageUrl = getPlaceCategoryImageUrl(place.category);
   return place.photos[0] || categoryImageUrl || "";
+}
+
+function handlePlaceThumbnailError(
+  event: SyntheticEvent<HTMLImageElement>,
+  place: Place
+): void {
+  const image = event.currentTarget;
+  const fallbackImageUrl = getPlaceCategoryImageUrl(place.category);
+
+  if (!fallbackImageUrl || image.dataset.fallbackApplied === "true") {
+    image.style.display = "none";
+    return;
+  }
+
+  image.dataset.fallbackApplied = "true";
+  image.src = fallbackImageUrl;
 }
   
 function mapTourPlace(item: TourPlaceApiItem): Place {

@@ -1054,6 +1054,19 @@ function getErrorStatus(error: unknown): number | undefined {
   return apiError.response?.status;
 }
 
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error) return error;
+
+  const apiError = error as {
+    response?: { data?: { detail?: unknown; message?: unknown } };
+  };
+  const detail = apiError.response?.data?.detail || apiError.response?.data?.message;
+  if (typeof detail === "string" && detail) return detail;
+
+  return fallback;
+}
+
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
