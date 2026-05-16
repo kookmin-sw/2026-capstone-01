@@ -112,10 +112,6 @@ export default function ChatRoomPage() {
       renderMessageContent(message).toLowerCase().includes(query)
     ).length;
   }, [messageSearchQuery, messages]);
-  const latestMessageDateLabel = useMemo(() => {
-    const latestMessage = messages[messages.length - 1];
-    return formatChatDate(latestMessage?.created_at);
-  }, [messages]);
 
   useEffect(() => {
     function handleAndroidBack(event: Event): void {
@@ -671,12 +667,6 @@ export default function ChatRoomPage() {
         </label>
       ) : null}
 
-      <div style={styles.dateDivider}>
-        <span style={styles.dateLine} />
-        <span style={styles.dateText}>{latestMessageDateLabel}</span>
-        <span style={styles.dateLine} />
-      </div>
-
       <main ref={messageListRef} style={styles.messageList}>
         {errorMessage ? <div style={styles.error}>{errorMessage}</div> : null}
         {actionMessage ? <div style={styles.notice}>{actionMessage}</div> : null}
@@ -694,21 +684,25 @@ export default function ChatRoomPage() {
           </button>
         ) : null}
         {messages.map((message, messageIndex) => {
+          const previousMessage = messages[messageIndex - 1];
+          const showDateDivider =
+            messageIndex === 0 ||
+            !isSameChatDate(previousMessage?.created_at, message.created_at);
+
           if (isRoomNoticeMessage(message)) {
             return (
-              <div
-                key={message.client_msg_id || message.message_id}
-                style={styles.roomNoticeRow}
-              >
-                <span style={styles.roomNoticeText}>
-                  {renderMessageContent(message)}
-                </span>
+              <div key={message.client_msg_id || message.message_id}>
+                {showDateDivider ? <DateDivider value={message.created_at} /> : null}
+                <div style={styles.roomNoticeRow}>
+                  <span style={styles.roomNoticeText}>
+                    {renderMessageContent(message)}
+                  </span>
+                </div>
               </div>
             );
           }
 
           const mine = Boolean(currentUserId && message.sender_id === currentUserId);
-          const previousMessage = messages[messageIndex - 1];
           const showAvatar =
             !mine &&
             (!previousMessage ||
@@ -720,75 +714,77 @@ export default function ChatRoomPage() {
               .toLowerCase()
               .includes(messageSearchQuery.trim().toLowerCase());
           return (
-            <div
-              key={message.client_msg_id || message.message_id}
-              style={{
-                ...styles.messageRow,
-                ...(mine ? styles.messageRowMine : {}),
-              }}
-            >
-              {!mine ? (
-                <button
-                  type="button"
-                  style={styles.messageAvatarButton}
-                  onClick={() => openFeedPopup(message.sender_id)}
-                  disabled={!message.sender_id}
-                  aria-label={`${getMessageSenderName(message)} feed`}
-                >
-                  <img
-                    src={getMessageAvatarUrl(message)}
-                    alt={getMessageSenderName(message)}
-                    style={{
-                      ...styles.messageAvatar,
-                      ...(showAvatar ? {} : styles.hiddenMessageAvatar),
-                    }}
-                  />
-                </button>
-              ) : null}
-              <span style={styles.messageContentGroup}>
-                {!mine && showAvatar ? (
-                  <span style={styles.senderName}>{getMessageSenderName(message)}</span>
-                ) : null}
-                <span style={styles.bubbleLine}>
-                  {!mine ? (
-                    <div
+            <div key={message.client_msg_id || message.message_id}>
+              {showDateDivider ? <DateDivider value={message.created_at} /> : null}
+              <div
+                style={{
+                  ...styles.messageRow,
+                  ...(mine ? styles.messageRowMine : {}),
+                }}
+              >
+                {!mine ? (
+                  <button
+                    type="button"
+                    style={styles.messageAvatarButton}
+                    onClick={() => openFeedPopup(message.sender_id)}
+                    disabled={!message.sender_id}
+                    aria-label={`${getMessageSenderName(message)} feed`}
+                  >
+                    <img
+                      src={getMessageAvatarUrl(message)}
+                      alt={getMessageSenderName(message)}
                       style={{
-                        ...styles.bubble,
-                        ...(room?.type === "group" ? styles.groupReceivedBubble : {}),
-                        ...(isSearchMatch ? styles.searchMatchedBubble : {}),
+                        ...styles.messageAvatar,
+                        ...(showAvatar ? {} : styles.hiddenMessageAvatar),
                       }}
-                    >
-                      {renderMessageContent(message)}
-                    </div>
-                  ) : (
-                    <>
+                    />
+                  </button>
+                ) : null}
+                <span style={styles.messageContentGroup}>
+                  {!mine && showAvatar ? (
+                    <span style={styles.senderName}>{getMessageSenderName(message)}</span>
+                  ) : null}
+                  <span style={styles.bubbleLine}>
+                    {!mine ? (
+                      <div
+                        style={{
+                          ...styles.bubble,
+                          ...(room?.type === "group" ? styles.groupReceivedBubble : {}),
+                          ...(isSearchMatch ? styles.searchMatchedBubble : {}),
+                        }}
+                      >
+                        {renderMessageContent(message)}
+                      </div>
+                    ) : (
+                      <>
+                        <span style={styles.time}>
+                          {formatTime(message.created_at)}
+                          {message.status === "sending" ? " - sending" : ""}
+                          {message.status === "failed" ? " - failed" : ""}
+                          {message.edited_at && !message.deleted_at ? " - edited" : ""}
+                        </span>
+                        <div
+                          style={{
+                            ...styles.bubble,
+                            ...styles.bubbleMine,
+                            ...(isSearchMatch ? styles.searchMatchedBubbleMine : {}),
+                          }}
+                        >
+                          {renderMessageContent(message)}
+                        </div>
+                      </>
+                    )}
+                    {!mine ? (
                       <span style={styles.time}>
                         {formatTime(message.created_at)}
                         {message.status === "sending" ? " - sending" : ""}
                         {message.status === "failed" ? " - failed" : ""}
                         {message.edited_at && !message.deleted_at ? " - edited" : ""}
                       </span>
-                      <div
-                        style={{
-                          ...styles.bubble,
-                          ...styles.bubbleMine,
-                          ...(isSearchMatch ? styles.searchMatchedBubbleMine : {}),
-                        }}
-                      >
-                        {renderMessageContent(message)}
-                      </div>
-                    </>
-                  )}
-                  {!mine ? (
-                    <span style={styles.time}>
-                      {formatTime(message.created_at)}
-                      {message.status === "sending" ? " - sending" : ""}
-                      {message.status === "failed" ? " - failed" : ""}
-                      {message.edited_at && !message.deleted_at ? " - edited" : ""}
-                    </span>
-                  ) : null}
+                    ) : null}
+                  </span>
                 </span>
-              </span>
+              </div>
             </div>
           );
         })}
@@ -1122,6 +1118,32 @@ function formatChatDate(value?: string): string {
     day: "2-digit",
     weekday: "short",
   });
+}
+
+function isSameChatDate(left?: string, right?: string): boolean {
+  if (!left || !right) return false;
+
+  const leftDate = new Date(left);
+  const rightDate = new Date(right);
+  if (Number.isNaN(leftDate.getTime()) || Number.isNaN(rightDate.getTime())) {
+    return false;
+  }
+
+  return (
+    leftDate.getFullYear() === rightDate.getFullYear() &&
+    leftDate.getMonth() === rightDate.getMonth() &&
+    leftDate.getDate() === rightDate.getDate()
+  );
+}
+
+function DateDivider({ value }: { value?: string }) {
+  return (
+    <div style={styles.dateDivider}>
+      <span style={styles.dateLine} />
+      <span style={styles.dateText}>{formatChatDate(value)}</span>
+      <span style={styles.dateLine} />
+    </div>
+  );
 }
 
 function BackIcon() {
