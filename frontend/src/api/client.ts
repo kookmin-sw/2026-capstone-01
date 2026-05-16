@@ -2,13 +2,20 @@ import axios from "axios";
 import type { AxiosRequestConfig } from "axios";
 import { Capacitor } from "@capacitor/core";
 
-import { API_BASE_URL, AUTHORIZATION_BEARER } from "./auth/config";
+import {
+  API_BASE_URL,
+  AUTHORIZATION_BEARER,
+  getRequiredAuthorizationBearer,
+} from "./auth/config";
 import { notifyForbidden, notifyUnauthorized, readToken, removeToken } from "../utils/tokens";
+
+const DEBUG_AUTH_LOG = import.meta.env.DEV && import.meta.env.VITE_DEBUG_AUTH_LOG === "true";
 
 declare module "axios" {
   export interface AxiosRequestConfig {
     requireUserBearer?: boolean;
     useConfiguredBearer?: boolean;
+    __isAuthHandled?: boolean;
   }
 }
 
@@ -48,18 +55,17 @@ client.interceptors.request.use((config) => {
       config.headers["X-Auth-Token"] = rawToken;
     }
 
-    const authorization = config.headers.Authorization;
-    console.info(
-      "[auth] request headers",
-      JSON.stringify({
-        url: config.url,
-        hasAuthorization: Boolean(authorization),
-        hasXAuthToken: Boolean(config.headers["X-Auth-Token"]),
-        hasStoredToken: Boolean(rawToken),
-        authPrefix: typeof authorization === "string" ? authorization.slice(0, 40) : null,
-        tokenPrefix: rawToken ? rawToken.slice(0, 10) : null,
-      })
-    );
+    if (DEBUG_AUTH_LOG) {
+      console.info(
+        "[auth] request headers",
+        JSON.stringify({
+          pathname: config.url ? new URL(config.url, API_BASE_URL).pathname : "",
+          hasAuthorization: Boolean(config.headers.Authorization),
+          hasXAuthToken: Boolean(config.headers["X-Auth-Token"]),
+          hasStoredToken: Boolean(rawToken),
+        })
+      );
+    }
   }
 
   return config;
@@ -68,8 +74,8 @@ client.interceptors.request.use((config) => {
 function getRequestAuthorization(config: AxiosRequestConfig): string {
   const userAuthorization = getUserAuthorizationBearer();
 
-  if (config.useConfiguredBearer) return AUTHORIZATION_BEARER;
-  if (Capacitor.isNativePlatform()) return AUTHORIZATION_BEARER;
+  if (config.useConfiguredBearer) return getRequiredAuthorizationBearer();
+  if (Capacitor.isNativePlatform()) return getRequiredAuthorizationBearer();
   if (config.requireUserBearer) return userAuthorization;
 
   return userAuthorization || AUTHORIZATION_BEARER;
@@ -78,29 +84,29 @@ function getRequestAuthorization(config: AxiosRequestConfig): string {
 client.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-  console.warn(
-    "[auth] axios 401",
-    JSON.stringify({
-      url: error.config?.url,
-      authPrefix:
-        typeof error.config?.headers?.Authorization === "string"
-          ? error.config.headers.Authorization.slice(0, 40)
-          : null,
-      hasXAuthToken: Boolean(error.config?.headers?.["X-Auth-Token"]),
-      hasStoredToken: Boolean(readAccessToken()),
-    })
-  );
+    const status = error.response?.status;
 
-  notifyUnauthorized();
-}
+    if (status === 401 && !error.config?.__isAuthHandled) {
+      if (error.config) {
+        error.config.__isAuthHandled = true;
+      }
+      console.warn(
+        "[auth] axios 401",
+        JSON.stringify({
+          pathname: error.config?.url ? new URL(error.config.url, API_BASE_URL).pathname : "",
+          hasXAuthToken: Boolean(error.config?.headers?.["X-Auth-Token"]),
+          hasStoredToken: Boolean(readAccessToken()),
+        })
+      );
+      notifyUnauthorized();
+    }
 
-    if (error.response?.status === 403) {
+    if (status === 403) {
       notifyForbidden();
     }
 
     if (
-      error.response?.status === 419 &&
+      status === 419 &&
       (!error.response.data?.status ||
         error.response.data.status === "withdrawal_pending")
     ) {

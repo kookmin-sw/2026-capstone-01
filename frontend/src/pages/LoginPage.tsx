@@ -4,6 +4,7 @@ import { Browser } from "@capacitor/browser";
 import { Capacitor } from "@capacitor/core";
 import { useNavigate } from "react-router-dom";
 import { createLoginUrl, getMyProfile } from "../api/auth/auth";
+import { confirmTokenSaved, readToken, saveToken } from "../utils/tokens";
 
 type LoginStatus = "complete" | "new" | "in_progress" | "withdrawal_pending";
 
@@ -11,26 +12,44 @@ export default function LoginPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const status = params.get("status") as LoginStatus | null;
+    let cancelled = false;
 
-    if (!status) return;
+    async function handleLoginCallback(): Promise<void> {
+      const params = new URLSearchParams(window.location.search);
+      const status = params.get("status") as LoginStatus | null;
 
-    const email = decodeURIComponent(params.get("email") || "");
-    const name = decodeURIComponent(params.get("name") || "");
+      if (!status) return;
 
-    if (status === "complete") {
-      navigate("/home");
-    } else if (status === "new" || status === "in_progress") {
-      navigate("/register", { state: { email, name } });
-    } else if (status === "withdrawal_pending") {
-      navigate("/withdrawal-pending", { replace: true });
+      const email = decodeURIComponent(params.get("email") || "");
+      const name = decodeURIComponent(params.get("name") || "");
+      const utk = params.get("utk") || "";
+
+      if (utk) {
+        saveToken(utk);
+        const hasSavedToken = await confirmTokenSaved(utk);
+        if (!hasSavedToken || cancelled) return;
+      }
+
+      if (status === "complete") {
+        navigate("/home", { replace: true });
+      } else if (status === "new" || status === "in_progress") {
+        navigate("/register", { state: { email, name }, replace: true });
+      } else if (status === "withdrawal_pending") {
+        navigate("/withdrawal-pending", { replace: true });
+      }
     }
+
+    void handleLoginCallback();
+
+    return () => {
+      cancelled = true;
+    };
   }, [navigate]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.has("status")) return;
+    if (!readToken()) return;
 
     getMyProfile()
       .then((profile) => {

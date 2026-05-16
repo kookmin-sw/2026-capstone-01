@@ -1,11 +1,11 @@
-import { Capacitor } from "@capacitor/core";
-
 const LEGACY_TOKEN_KEY = import.meta.env.VITE_LEGACY_TOKEN_STORAGE_KEY || "";
 const TOKEN_KEYS = ["utk", "accessToken", "token", LEGACY_TOKEN_KEY].filter(Boolean);
 const PRIMARY_TOKEN_KEYS = ["utk", "accessToken"] as const;
 const TOKEN_SAVE_SETTLE_MS = 100;
+const DEBUG_AUTH_LOG = import.meta.env.DEV && import.meta.env.VITE_DEBUG_AUTH_LOG === "true";
 
 let tokenCache = "";
+let unauthorizedNotified = false;
 
 /** Persists a JWT token for use by the native app. */
 export function saveToken(token: string): void {
@@ -40,29 +40,24 @@ export async function confirmTokenSaved(token: string): Promise<boolean> {
     tokenCache = savedToken;
   }
 
-  console.info(
-    "[auth] token saved check",
-    JSON.stringify({
-      hasSavedToken,
-      hasUtk: Boolean(localStorage.getItem("utk")),
-      hasAccessToken: Boolean(localStorage.getItem("accessToken")),
-    })
-  );
+  if (DEBUG_AUTH_LOG) {
+    console.info("[auth] token saved check", JSON.stringify({ hasSavedToken }));
+  }
 
   return hasSavedToken;
 }
 
 export function removeToken(): void {
   tokenCache = "";
+  unauthorizedNotified = false;
   TOKEN_KEYS.forEach((key) => localStorage.removeItem(key));
 }
 
 export function notifyUnauthorized(): void {
-  if (Capacitor.isNativePlatform() && readToken()) {
-    console.warn("[auth] 401 received but stored token exists; suppressing login redirect.");
-    return;
-  }
+  if (unauthorizedNotified) return;
 
+  removeToken();
+  unauthorizedNotified = true;
   window.dispatchEvent(new CustomEvent("krip:unauthorized"));
 }
 

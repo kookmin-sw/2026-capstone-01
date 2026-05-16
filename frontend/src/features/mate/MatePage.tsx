@@ -949,7 +949,6 @@ export default function MatePage() {
                   />
                   <span style={styles.suggestionUserText}>
                     <strong style={styles.suggestionName}>{user.user_name}</strong>
-                    <span style={styles.suggestionMeta}>{user.user_id}</span>
                   </span>
                 </button>
               ))}
@@ -2754,13 +2753,6 @@ const styles: Record<string, CSSProperties> = {
   suggestionName: {
     color: "var(--text-primary)",
     fontSize: "0.9rem",
-  },
-  suggestionMeta: {
-    color: "var(--neutral-700)",
-    fontSize: "0.72rem",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
   },
   historyItem: {
     display: "flex",

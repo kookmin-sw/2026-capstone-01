@@ -1,10 +1,12 @@
 import { Capacitor } from "@capacitor/core";
 import { notifyForbidden, notifyUnauthorized, readToken, removeToken } from "../../utils/tokens";
+import { unregisterFcmToken } from "../../lib/fcm";
 import { getUserAuthorizationBearer } from "../client";
 import {
   API_BASE_URL,
   AUTHORIZATION_BEARER,
-  TOUR_PLACES_AUTHORIZATION_BEARER,
+  getRequiredAuthorizationBearer,
+  getTourPlacesAuthorizationBearer,
 } from "./config";
 
 export interface UserProfile {
@@ -180,6 +182,8 @@ interface ApiError extends Error {
   status?: number;
 }
 
+let myProfileRequest: Promise<UserProfile | null> | null = null;
+
 function toErrorMessage(value: unknown, fallback: string): string {
   if (!value) return fallback;
 
@@ -213,7 +217,7 @@ function getAuthHeaders(headers: RequestHeaders = {}): RequestHeaders {
   const rawToken = readToken();
 
   const authorization = Capacitor.isNativePlatform()
-    ? AUTHORIZATION_BEARER
+    ? getRequiredAuthorizationBearer()
     : getUserAuthorizationBearer() || AUTHORIZATION_BEARER;
 
   if (!authorization) return headers;
@@ -231,11 +235,11 @@ function getAuthHeaders(headers: RequestHeaders = {}): RequestHeaders {
 }
 
 function getTourPlacesHeaders(headers: RequestHeaders = {}): RequestHeaders {
-  if (!TOUR_PLACES_AUTHORIZATION_BEARER) return headers;
+  const authorization = getTourPlacesAuthorizationBearer();
 
   const result: RequestHeaders = {
     ...headers,
-    Authorization: TOUR_PLACES_AUTHORIZATION_BEARER,
+    Authorization: authorization,
   };
 
   const rawToken = readToken();
@@ -297,20 +301,12 @@ async function authRequest<T>(
   }
 
   if (response.status === 401) {
-  const rawToken = readToken();
-  const authorization = rawToken
-    ? `Bearer ${rawToken}`
-    : getUserAuthorizationBearer() || AUTHORIZATION_BEARER;
-
-  console.warn("Unauthorized request", {
-    path,
-    hasAuthorization: Boolean(authorization),
-    hasStoredToken: Boolean(rawToken),
-    tokenPreview: authorization ? `${authorization.slice(0, 40)}...` : "",
-  });
-
-  notifyUnauthorized();
-}
+    console.warn("Unauthorized request", {
+      path,
+      hasStoredToken: Boolean(readToken()),
+    });
+    notifyUnauthorized();
+  }
 
   if (response.status === 403) {
     notifyForbidden();
@@ -337,11 +333,21 @@ export function createLoginUrl(platform?: "android"): string {
   const url = new URL("/api/auth/login", API_BASE_URL);
   url.searchParams.set("type", "google");
 
-  if (import.meta.env.VITE_AUTH_IS_LOCAL === "true") {
+  if (isLocalAuthRedirectEnabled()) {
     url.searchParams.set("is_local", "true");
   }
 
   return url.toString();
+}
+
+function isLocalAuthRedirectEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+
+  const isLocalHost = ["localhost", "127.0.0.1", "::1"].includes(
+    window.location.hostname
+  );
+
+  return isLocalHost && import.meta.env.VITE_AUTH_IS_LOCAL !== "false";
 }
 
 export function registerUser(
@@ -362,6 +368,7 @@ export async function logoutUser(): Promise<Record<string, unknown> | null> {
       method: "POST",
     });
   } finally {
+    await unregisterFcmToken();
     removeToken();
   }
 }
@@ -372,6 +379,7 @@ export async function withdrawUser(): Promise<Record<string, unknown> | string |
       method: "DELETE",
     });
   } finally {
+    await unregisterFcmToken();
     removeToken();
   }
 }
@@ -383,8 +391,15 @@ export function cancelWithdrawUser(): Promise<Record<string, unknown> | null> {
 }
 
 export async function getMyProfile(): Promise<UserProfile | null> {
-  const data = await authRequest<unknown>("/api/auth/profile/me");
-  return normalizeUserProfile(data);
+  if (!myProfileRequest) {
+    myProfileRequest = authRequest<unknown>("/api/auth/profile/me")
+      .then((data) => normalizeUserProfile(data))
+      .finally(() => {
+        myProfileRequest = null;
+      });
+  }
+
+  return myProfileRequest;
 }
 
 export async function updateMyProfile(

@@ -243,8 +243,8 @@ export const PLACE_CATEGORY_IMAGE_LINKS: Record<string, string> = {
   "Jewelry Stores": "https://images.unsplash.com/photo-1650389236412-e7413cbcf2fe?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8amV3ZWxyeSUyMHN0b3Jlc3xlbnwwfDF8MHx8fDA%3D",
   "juice shop": "https://plus.unsplash.com/premium_photo-1663126827264-409d695e0be7?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MXx8anVpY2UlMjBzaG9wfGVufDB8MXwwfHx8MA%3D%3D",
   "Juice Shop": "https://plus.unsplash.com/premium_photo-1663126827264-409d695e0be7?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MXx8anVpY2UlMjBzaG9wfGVufDB8MXwwfHx8MA%3D%3D",
-  "karaoke": "https://pixabay.com/ko/images/download/x-5936457_1920.jpg",
-  "Karaoke": "https://pixabay.com/ko/images/download/x-5936457_1920.jpg",
+  "karaoke": "https://images.unsplash.com/photo-1630395822970-acd6a691d97e?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8bmlnaHQlMjBjbHVifGVufDB8MXwwfHx8MA%3D%3D",
+  "Karaoke": "https://images.unsplash.com/photo-1630395822970-acd6a691d97e?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8bmlnaHQlMjBjbHVifGVufDB8MXwwfHx8MA%3D%3D",
   "Kebab restaurant": "https://images.unsplash.com/photo-1684864115205-242c064363e6?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8S2ViYWIlMjByZXN0YXVyYW50fGVufDB8MXwwfHx8MA%3D%3D",
   "Kebab Restaurant": "https://images.unsplash.com/photo-1684864115205-242c064363e6?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8S2ViYWIlMjByZXN0YXVyYW50fGVufDB8MXwwfHx8MA%3D%3D",
   "Korean grilled meat restaurant": "https://images.unsplash.com/photo-1708388064959-7f29be02a819?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8N3x8S29yZWFuJTIwZ3JpbGxlZCUyMG1lYXQlMjByZXN0YXVyYW50fGVufDB8MXwwfHx8MA%3D%3D",
@@ -5130,6 +5130,51 @@ export const PLACE_CATEGORY_IMAGE_LINKS_BY_FILE: Record<string, string[]> = {
     "electronics store",
   ],
 };
+
+const CATEGORY_IMAGE_ALIASES: Record<string, string> = {
+  "karaoke": "karaoke",
+  "karaoke bar": "karaoke",
+  "karaoke room": "karaoke",
+  "karaoke rooms": "karaoke",
+  "noraebang": "karaoke",
+  "singing room": "karaoke",
+  "singing rooms": "karaoke",
+};
+
+const NORMALIZED_PLACE_CATEGORY_IMAGE_LINKS: Record<string, string> = Object.fromEntries(
+  Object.entries(PLACE_CATEGORY_IMAGE_LINKS).map(([category, imageUrl]) => [
+    normalizePlaceCategoryImageKey(category),
+    imageUrl,
+  ])
+);
+
+export function normalizePlaceCategoryImageKey(category: string): string {
+  return category
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/\s+/g, " ");
+}
+
+export function getPlaceCategoryImageUrl(category: string): string {
+  const normalized = normalizePlaceCategoryImageKey(category);
+  const alias = CATEGORY_IMAGE_ALIASES[normalized];
+
+  if (alias) {
+    return NORMALIZED_PLACE_CATEGORY_IMAGE_LINKS[alias] || "";
+  }
+
+  const exactMatch = NORMALIZED_PLACE_CATEGORY_IMAGE_LINKS[normalized];
+  if (exactMatch) return exactMatch;
+
+  if (normalized.includes("karaoke")) {
+    return NORMALIZED_PLACE_CATEGORY_IMAGE_LINKS.karaoke || "";
+  }
+
+  return "";
+}
 
 export const PLACE_CATEGORY_IMAGE_SOURCE_FILE_COUNT = 284;
 export const PLACE_CATEGORY_IMAGE_CATEGORY_COUNT = 218;
