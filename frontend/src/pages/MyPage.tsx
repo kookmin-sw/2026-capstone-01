@@ -8,7 +8,6 @@ import {
   replaceMyProfileImage,
   updateMyProfile,
   uploadMyProfileImage,
-  withdrawUser,
   type ProfilePreferencesPayload,
   type UserProfile,
 } from "../api/auth/auth";
@@ -157,7 +156,6 @@ export default function MyPage() {
   const [isDeletingProfileImage, setIsDeletingProfileImage] = useState(false);
   const [isProfileImageMenuOpen, setIsProfileImageMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [preferenceDraft, setPreferenceDraft] =
     useState<ProfilePreferencesPayload>(EMPTY_PREFERENCES);
@@ -183,9 +181,9 @@ export default function MyPage() {
   const [commentInput, setCommentInput] = useState("");
   const [isFeedActionRunning, setIsFeedActionRunning] = useState(false);
   const [feedConfirm, setFeedConfirm] = useState<FeedConfirmState | null>(null);
-  const [pendingAccountAction, setPendingAccountAction] = useState<
-    "logout" | "withdraw" | null
-  >(null);
+  const [pendingAccountAction, setPendingAccountAction] = useState<"logout" | null>(
+    null
+  );
   const [savedPlans, setSavedPlans] = useState<PlanSummaryResponse[]>([]);
   const [isLoadingPlans, setIsLoadingPlans] = useState(false);
   const [planMessage, setPlanMessage] = useState("");
@@ -631,32 +629,13 @@ export default function MyPage() {
     }
   }
 
-  async function handleWithdraw(): Promise<void> {
-    setIsWithdrawing(true);
-    try {
-      await withdrawUser();
-      showAppToast({ title: "Account deleted", variant: "success" });
-      navigate("/login", { replace: true });
-    } catch (error) {
-      showAppToast({
-        title: "Account withdrawal failed",
-        message: toErrorMessage(error, "Please try again."),
-        variant: "error",
-      });
-      setIsWithdrawing(false);
-    }
-  }
-
   function handleConfirmAccountAction(): void {
     const action = pendingAccountAction;
-    if ((action === "logout" && isLoggingOut) || (action === "withdraw" && isWithdrawing)) return;
+    if (action === "logout" && isLoggingOut) return;
     setPendingAccountAction(null);
 
     if (action === "logout") {
       void handleLogout();
-    }
-    if (action === "withdraw") {
-      void handleWithdraw();
     }
   }
 
@@ -1080,10 +1059,9 @@ export default function MyPage() {
             <button
               type="button"
               style={{ ...styles.settingsActionButton, ...styles.settingsDangerButton }}
-              onClick={() => setPendingAccountAction("withdraw")}
-              disabled={isWithdrawing}
+              onClick={() => navigate("/account/delete")}
             >
-              {isWithdrawing ? "Deleting Account..." : "Delete Account"}
+              Delete Account
             </button>
           </div>
         </div>
@@ -1109,7 +1087,7 @@ export default function MyPage() {
       {pendingAccountAction ? (
         <AccountConfirmDialog
           action={pendingAccountAction}
-          busy={isWithdrawing || isLoggingOut}
+          busy={isLoggingOut}
           onCancel={() => setPendingAccountAction(null)}
           onConfirm={handleConfirmAccountAction}
         />

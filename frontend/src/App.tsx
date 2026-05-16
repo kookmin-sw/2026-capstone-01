@@ -10,6 +10,7 @@ import { confirmTokenSaved, removeToken, saveToken } from "./utils/tokens";
 import AppShell from "./components/AppShell";
 import LoginPage from "./pages/LoginPage";
 import OnboardingPage from "./pages/OnboardingPage";
+import DeleteAccountTermsPage from "./pages/DeleteAccountTermsPage";
 import WithdrawalPendingPage from "./pages/WithdrawalPendingPage";
 import HomePage from "./features/tour/HomePage";
 import MenuPage from "./pages/MenuPage";
@@ -810,6 +811,7 @@ export default function App() {
             <Route path="/mate" element={<MatePage />} />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/my" element={<MyPage />} />
+            <Route path="/account/delete" element={<DeleteAccountTermsPage />} />
             <Route path="/profile/:id" element={<UserFeedPage />} />
             <Route path="/spots/:id" element={<PlaceholderPage />} />
           </Route>
