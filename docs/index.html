@@ -285,6 +285,15 @@
       width: 100%;
     }
 
+    .hero-capstone {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      color: rgba(255,255,255,0.38);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
     .hero-badge {
       display: inline-flex;
       align-items: center;
@@ -443,11 +452,11 @@
 
     /* Active phone gets teal glow ring */
     .phone-slot.active .phone-frame {
-      border-color: #1e4a5e;
+      border-color: rgba(5,181,187,0.75);
       box-shadow:
-        0 0 0 1.5px rgba(5,181,187,0.55),
+        0 0 0 2px rgba(5,181,187,0.6),
+        0 0 40px rgba(5,181,187,0.35),
         0 40px 100px rgba(0,0,0,0.8),
-        0 0 80px rgba(5,181,187,0.2),
         inset 0 0 0 1px rgba(255,255,255,0.08);
     }
 
@@ -592,21 +601,62 @@
     }
     .dice-close-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
 
-    /* 주사위 굴리는 중 */
-    .dice-rolling-emoji {
-      font-size: 80px; display: block; margin: 0 auto 20px;
-      animation: dice-spin 0.12s ease-in-out infinite;
+    /* ── 슬롯머신 ── */
+    .slot-machine {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 18px;
+      padding: 0 0 12px;
     }
-    .dice-rolling-emoji.done { animation: none; }
-    @keyframes dice-spin {
-      0%   { transform: rotate(-14deg) translateY(0); }
-      50%  { transform: rotate(14deg)  translateY(-8px); }
-      100% { transform: rotate(-14deg) translateY(0); }
+
+    .slot-window {
+      width: 100%; height: 140px;
+      overflow: hidden;
+      border-radius: 20px;
+      border: 1.5px solid rgba(5,181,187,0.5);
+      box-shadow: 0 0 32px rgba(5,181,187,0.2), inset 0 0 20px rgba(0,0,0,0.45);
+      background: rgba(5,181,187,0.04);
+      position: relative;
+      display: flex; align-items: center;
     }
-    .rolling-text {
-      font-size: 16px; font-weight: 600;
-      color: rgba(255,255,255,0.45); letter-spacing: 0.5px;
+    /* Edge gradient masks */
+    .slot-window::before, .slot-window::after {
+      content: ''; position: absolute;
+      top: 0; bottom: 0; width: 55px; z-index: 2; pointer-events: none;
     }
+    .slot-window::before { left: 0;  background: linear-gradient(to right, #0c1b2c 0%, transparent 100%); }
+    .slot-window::after  { right: 0; background: linear-gradient(to left,  #0c1b2c 0%, transparent 100%); }
+
+    /* Center selection bracket — hidden while spinning, shown on land */
+    .slot-bracket {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 108px; height: 108px;
+      border: 2px solid rgba(5,181,187,0.65);
+      border-radius: 18px;
+      box-shadow: 0 0 18px rgba(5,181,187,0.3), inset 0 0 10px rgba(5,181,187,0.06);
+      z-index: 3; pointer-events: none;
+      opacity: 0; transition: opacity 0.45s ease;
+    }
+    .slot-bracket.visible { opacity: 1; }
+
+    .slot-reel {
+      display: flex; align-items: center;
+      will-change: transform; position: relative; z-index: 1;
+    }
+
+    .slot-icon-item {
+      flex-shrink: 0; display: flex;
+      align-items: center; justify-content: center;
+      font-size: 66px; user-select: none; line-height: 1;
+    }
+
+    .slot-status {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 2.5px; text-transform: uppercase;
+      color: rgba(255,255,255,0.35); height: 16px;
+      transition: color 0.4s;
+    }
+    .slot-status.done { color: var(--teal-light); }
 
     /* 결과 */
     #destPhase { display: none; flex-direction: column; align-items: center; gap: 10px; }
@@ -622,7 +672,22 @@
     }
     .dest-big-icon {
       font-size: 66px; margin: 6px 0;
+      display: flex; align-items: center; justify-content: center;
       animation: icon-pop 0.55s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .dest-big-icon svg { display: block; }
+    .slot-icon-item svg { display: block; pointer-events: none; }
+    /* Photo-based icons */
+    .slot-icon-item .dest-img {
+      width: 100%; height: 100%;
+      object-fit: cover; border-radius: 16px; display: block;
+      filter: brightness(0.88) saturate(1.1);
+      pointer-events: none;
+    }
+    .dest-big-icon .dest-img {
+      width: 92px; height: 92px;
+      object-fit: cover; border-radius: 18px; display: block;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.55), 0 0 0 2.5px rgba(5,181,187,0.55);
     }
     @keyframes icon-pop { from { transform: scale(0); } to { transform: scale(1); } }
     .dest-name-txt {
@@ -814,14 +879,14 @@
     .pain-num {
       font-size: 42px;
       font-weight: 900;
-      color: rgba(5,181,187,0.18);
+      color: rgba(5,181,187,0.5);
       line-height: 1;
       flex-shrink: 0;
       width: 52px;
       letter-spacing: -2px;
       transition: color 0.3s;
     }
-    .pain-card:hover .pain-num { color: rgba(5,181,187,0.4); }
+    .pain-card:hover .pain-num { color: rgba(5,181,187,0.75); }
 
     .pain-body { flex: 1; padding-top: 6px; }
 
@@ -1199,9 +1264,23 @@
     /* Responsive */
     @media (max-width: 960px) {
       #features { height: 600vh; }
-      .feat-sticky { flex-direction: column; }
-      .feat-left { flex: none; height: 55vh; }
-      .feat-right { flex: none; height: 45vh; }
+      .feat-sticky {
+        flex-direction: column;
+        min-height: 640px;
+      }
+      .feat-left {
+        flex: 0 0 42vh;
+        height: auto;
+        min-height: 300px;
+        padding: 0;
+      }
+      .feat-right {
+        flex: 1 1 auto;
+        height: auto;
+        min-height: 0;
+        align-items: flex-start;
+        padding-top: 8px;
+      }
       .feat-slot { padding: 20px 24px; justify-content: flex-end; }
       .feat-title { font-size: 36px; letter-spacing: -1px; }
       .feat-desc { font-size: 14px; }
@@ -1584,6 +1663,14 @@
       .gallery-wrap { gap: 20px; margin-top: 36px; }
       .gallery-caption { text-align: center; padding: 0 16px; }
       .scroll-indicator { margin-top: 0; }
+      /* active 하이라이트 강화 (태블릿/소형모바일 공통) */
+      .phone-slot.active .phone-frame {
+        border-color: rgba(5,181,187,0.65);
+        box-shadow:
+          0 0 0 2px rgba(5,181,187,0.7),
+          0 0 28px rgba(5,181,187,0.4),
+          0 24px 70px rgba(0,0,0,0.75);
+      }
 
       .keyword-grid  { grid-template-columns: repeat(2, 1fr); }
       .pain-grid     { grid-template-columns: 1fr; }
@@ -1600,6 +1687,155 @@
       .features-grid { grid-template-columns: 1fr; }
       .team-grid     { grid-template-columns: 1fr; }
       .hero-stats    { flex-wrap: wrap; gap: 20px; }
+
+      .gallery-viewport {
+        width: calc(100vw - 40px);
+        max-width: 100%;
+        margin-inline: auto;
+        mask-image: linear-gradient(90deg, transparent 0%, #000 8%, #000 92%, transparent 100%);
+        -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 8%, #000 92%, transparent 100%);
+      }
+
+      .gallery-track {
+        gap: 18px;
+      }
+
+      .phone-frame {
+        width: 170px;
+        height: 354px;
+        border-radius: 30px;
+        border-width: 5px;
+      }
+
+      /* ── Fix 1: SVG intro 텍스트 모바일 overflow ── */
+      #kripBrand {
+        transform-box: fill-box;
+        transform-origin: center;
+        transform: scale(0.55);
+      }
+
+      /* ── Fix 3: keyword-card 모바일 레이아웃 ── */
+      .keyword-desc {
+        word-break: keep-all;
+        overflow-wrap: break-word;
+        font-size: 13px;
+      }
+      /* specificity 높여서 강제 override */
+      .keyword-grid .keyword-card,
+      .keyword-grid .keyword-card:first-child,
+      .keyword-grid .keyword-card:last-child,
+      .keyword-grid .keyword-card + .keyword-card {
+        padding: 20px 0;
+        border-right: none;
+        border-bottom: 1px solid rgba(255,255,255,0.07);
+      }
+      .keyword-grid .keyword-card:last-child {
+        border-bottom: none;
+      }
+      .keyword-icon {
+        font-size: 24px;
+        margin-bottom: 10px;
+      }
+      .keyword-title {
+        font-size: 10px;
+        margin-bottom: 8px;
+      }
+      .keyword-grid {
+        margin-top: 32px;
+      }
+
+      /* ── Fix 2: 갤러리 active 하이라이트 강화 ── */
+      .phone-slot.active .phone-frame {
+        border-color: rgba(5,181,187,0.7);
+        box-shadow:
+          0 0 0 2.5px rgba(5,181,187,0.75),
+          0 0 30px rgba(5,181,187,0.45),
+          0 20px 60px rgba(0,0,0,0.7);
+      }
+
+      /* ── Fix 4: Features 섹션 모바일 레이아웃 ── */
+      #features {
+        height: 520vh;
+      }
+
+      .feat-sticky {
+        height: 100svh;
+        min-height: 760px;
+        padding-top: var(--nav-h);
+      }
+
+      .feat-left {
+        flex-basis: 285px;
+        min-height: 0;
+      }
+
+      .feat-slot {
+        justify-content: flex-start;
+        padding: 28px 32px 0 32px;
+      }
+
+      .feat-title {
+        font-size: 30px;
+        line-height: 1.14;
+        letter-spacing: -0.5px;
+        margin-bottom: 14px;
+      }
+
+      .feat-desc  {
+        font-size: 13px;
+        line-height: 1.65;
+        margin-bottom: 18px;
+        word-break: keep-all;
+      }
+
+      .feat-eyebrow { margin-bottom: 10px; }
+
+      .feat-tags {
+        gap: 8px;
+      }
+
+      .feat-tag {
+        padding: 6px 12px;
+        font-size: 12px;
+      }
+
+      .feat-right {
+        justify-content: center;
+        padding-top: 0;
+        padding-bottom: 68px;
+      }
+
+      .feat-phone-frame {
+        width: min(210px, 58vw);
+        height: min(438px, 53vh);
+        border-radius: 34px;
+      }
+
+      .feat-phone-glow {
+        width: 260px;
+        height: 260px;
+      }
+
+      .feat-sidenav {
+        right: 24px;
+        top: 52%;
+        gap: 18px;
+      }
+
+      .feat-footer {
+        padding: 16px 32px;
+        gap: 14px;
+      }
+
+      .feat-footer-track {
+        flex: 0 1 150px;
+      }
+
+      .feat-footer-name {
+        max-width: 118px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
     }
   </style>
 </head>
@@ -2011,15 +2247,19 @@
       <button class="dice-close-btn" id="diceClose">✕</button>
       <div class="dice-modal-heading">KRIP과 함께<br>여행을 시작해봐요!</div>
 
-      <!-- Phase 1: 굴리는 중 -->
+      <!-- Phase 1: 슬롯머신 -->
       <div id="dicePhase">
-        <span class="dice-rolling-emoji" id="diceEmoji">🎲</span>
-        <div class="rolling-text">주사위를 굴리는 중...</div>
+        <div class="slot-machine">
+          <div class="slot-window" id="slotWindow">
+            <div class="slot-reel" id="slotReel"></div>
+            <div class="slot-bracket"></div>
+          </div>
+          <div class="slot-status" id="slotStatus">목적지를 선택하는 중…</div>
+        </div>
       </div>
 
       <!-- Phase 2: 결과 -->
       <div id="destPhase">
-        <div class="result-dice" id="resultDiceFace">⚅</div>
         <div class="dest-badge">🗺️ 오늘의 목적지</div>
         <div class="dest-big-icon" id="destIcon">🏯</div>
         <div class="dest-name-txt" id="destName">경복궁</div>
@@ -2043,7 +2283,11 @@
 
       <!-- Text block — centered -->
       <div class="hero-text-block">
-        <div class="hero-badge">🌏 AI 기반 외국인 여행 비서 서비스</div>
+        <div class="hero-capstone">국민대학교 2026 캡스톤디자인 · 1조</div>
+        <div class="hero-badge">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0;opacity:0.9"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+          AI 기반 외국인 여행 비서 서비스
+        </div>
 
         <h1 class="hero-title">
           여행의 모든 순간,<br/>
@@ -2281,7 +2525,7 @@
             <span class="feat-cat">AI 메뉴 번역</span>
           </div>
           <div class="feat-title">메뉴판을 찍으면<br><em>바로 번역</em></div>
-          <div class="feat-desc">카메라로 메뉴판을 촬영하는 순간, Gemini Vision이 메뉴명·설명·가격을 자동 인식하고 영어로 번역합니다. 낯선 음식도 두렵지 않아요.</div>
+          <div class="feat-desc">카메라로 메뉴판을 촬영하는 순간, Gemini 2.5 Flash가 메뉴명·설명·가격을 자동 인식하고 영어로 번역합니다. 낯선 음식도 두렵지 않아요.</div>
           <div class="feat-tags">
             <span class="feat-tag">📷 OCR 인식</span>
             <span class="feat-tag">🤖 Gemini AI</span>
@@ -2395,7 +2639,7 @@
           <div class="ai-dot"></div>
           <div>
             <div class="ai-title">Google Places API</div>
-            <div class="ai-desc">한국 로컬 관광지·맛집 데이터를 실시간 수집해 정확한 위치 기반 추천을 제공합니다.</div>
+            <div class="ai-desc">한국 로컬 관광지·맛집 데이터를 활용하여 정확한 위치 기반으로 추천하여 제공합니다.</div>
           </div>
         </div>
         <div class="ai-card fade-up">
@@ -2535,6 +2779,7 @@
         <button class="stack-tab" onclick="switchTab(this, 'be')">Backend</button>
         <button class="stack-tab" onclick="switchTab(this, 'ai')">AI / LLM</button>
         <button class="stack-tab" onclick="switchTab(this, 'mon')">Monitoring</button>
+        <button class="stack-tab" onclick="switchTab(this, 'tools')">Tools</button>
       </div>
 
       <div class="stack-panel active" id="panel-fe">
@@ -2542,24 +2787,43 @@
         <img src="https://img.shields.io/badge/Vite_8-646CFF?style=for-the-badge&logo=vite&logoColor=white" />
         <img src="https://img.shields.io/badge/TypeScript_6-3178C6?style=for-the-badge&logo=typescript&logoColor=white" />
         <img src="https://img.shields.io/badge/React_Router-CA4245?style=for-the-badge&logo=reactrouter&logoColor=white" />
-        <img src="https://img.shields.io/badge/TanStack_Query-FF4154?style=for-the-badge&logo=reactquery&logoColor=white" />
-        <img src="https://img.shields.io/badge/Zustand-443E38?style=for-the-badge&logo=react&logoColor=white" />
-        <img src="https://img.shields.io/badge/Socket.IO-010101?style=for-the-badge&logo=socketdotio&logoColor=white" />
-        <img src="https://img.shields.io/badge/Firebase_FCM-FFCA28?style=for-the-badge&logo=firebase&logoColor=000" />
-        <img src="https://img.shields.io/badge/Google_Maps_API-4285F4?style=for-the-badge&logo=googlemaps&logoColor=white" />
+        <img src="https://img.shields.io/badge/Fetch_API-333333?style=for-the-badge&logo=javascript&logoColor=white" />
+        <img src="https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=000" />
+        <img src="https://img.shields.io/badge/Firebase_Hosting-FFCA28?style=for-the-badge&logo=firebase&logoColor=000" />
+        <img src="https://img.shields.io/badge/ESLint-4B32C3?style=for-the-badge&logo=eslint&logoColor=white" />
+        <img src="https://img.shields.io/badge/npm-CB3837?style=for-the-badge&logo=npm&logoColor=white" />
         <img src="https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white" />
       </div>
 
       <div class="stack-panel" id="panel-be">
-        <img src="https://img.shields.io/badge/Python_3.10-3776AB?style=for-the-badge&logo=python&logoColor=white" />
+        <img src="https://img.shields.io/badge/Python_3.11-3776AB?style=for-the-badge&logo=python&logoColor=white" />
         <img src="https://img.shields.io/badge/FastAPI_0.118-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
+        <img src="https://img.shields.io/badge/Uvicorn-499848?style=for-the-badge&logo=gunicorn&logoColor=white" />
+        <img src="https://img.shields.io/badge/uv-DE5FE9?style=for-the-badge&logo=python&logoColor=white" />
+        <img src="https://img.shields.io/badge/dependency--injector-3776AB?style=for-the-badge&logo=python&logoColor=white" />
+        <img src="https://img.shields.io/badge/Pydantic_v2-E92063?style=for-the-badge&logo=pydantic&logoColor=white" />
         <img src="https://img.shields.io/badge/PostgreSQL_16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" />
+        <img src="https://img.shields.io/badge/asyncpg-336791?style=for-the-badge&logo=postgresql&logoColor=white" />
+        <img src="https://img.shields.io/badge/psycopg2-336791?style=for-the-badge&logo=postgresql&logoColor=white" />
+        <img src="https://img.shields.io/badge/Alembic-2C5282?style=for-the-badge&logo=sqlalchemy&logoColor=white" />
         <img src="https://img.shields.io/badge/MongoDB_7-47A248?style=for-the-badge&logo=mongodb&logoColor=white" />
-        <img src="https://img.shields.io/badge/Redis_7-DC382D?style=for-the-badge&logo=redis&logoColor=white" />
         <img src="https://img.shields.io/badge/Beanie-00B89E?style=for-the-badge&logo=mongodb&logoColor=white" />
+        <img src="https://img.shields.io/badge/Motor-13AA52?style=for-the-badge&logo=mongodb&logoColor=white" />
+        <img src="https://img.shields.io/badge/Redis_7-DC382D?style=for-the-badge&logo=redis&logoColor=white" />
+        <img src="https://img.shields.io/badge/APScheduler-3776AB?style=for-the-badge&logo=python&logoColor=white" />
+        <img src="https://img.shields.io/badge/python--socketio-010101?style=for-the-badge&logo=socketdotio&logoColor=white" />
         <img src="https://img.shields.io/badge/PyJWT-000000?style=for-the-badge&logo=jsonwebtokens&logoColor=white" />
-        <img src="https://img.shields.io/badge/NCloud_Storage-03C75A?style=for-the-badge&logo=naver&logoColor=white" />
+        <img src="https://img.shields.io/badge/Google_OAuth-4285F4?style=for-the-badge&logo=google&logoColor=white" />
+        <img src="https://img.shields.io/badge/httpx-1F4E79?style=for-the-badge&logo=python&logoColor=white" />
+        <img src="https://img.shields.io/badge/aiofiles-3776AB?style=for-the-badge&logo=python&logoColor=white" />
+        <img src="https://img.shields.io/badge/Loguru-323330?style=for-the-badge&logo=python&logoColor=white" />
+        <img src="https://img.shields.io/badge/NCloud_Object_Storage-03C75A?style=for-the-badge&logo=naver&logoColor=white" />
+        <img src="https://img.shields.io/badge/boto3-FF9900?style=for-the-badge&logo=amazonaws&logoColor=white" />
+        <img src="https://img.shields.io/badge/Firebase_Admin_(FCM)-FFCA28?style=for-the-badge&logo=firebase&logoColor=000" />
+        <img src="https://img.shields.io/badge/Pillow-3776AB?style=for-the-badge&logo=python&logoColor=white" />
+        <img src="https://img.shields.io/badge/pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white" />
         <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
+        <img src="https://img.shields.io/badge/Docker_Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
         <img src="https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white" />
       </div>
 
@@ -2568,14 +2832,30 @@
         <img src="https://img.shields.io/badge/LangChain_1.0-1C3C3C?style=for-the-badge&logo=langchain&logoColor=white" />
         <img src="https://img.shields.io/badge/LangGraph_1.0-1C3C3C?style=for-the-badge&logo=langchain&logoColor=white" />
         <img src="https://img.shields.io/badge/Papago-03C75A?style=for-the-badge&logo=naver&logoColor=white" />
-        <img src="https://img.shields.io/badge/RAG-20232A?style=for-the-badge&logo=openai&logoColor=white" />
       </div>
 
       <div class="stack-panel" id="panel-mon">
-        <img src="https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white" />
-        <img src="https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white" />
-        <img src="https://img.shields.io/badge/Loki-F5A800?style=for-the-badge&logo=grafana&logoColor=white" />
-        <img src="https://img.shields.io/badge/Promtail-F46800?style=for-the-badge&logo=grafana&logoColor=white" />
+        <img src="https://img.shields.io/badge/Prometheus_2.55-E6522C?style=for-the-badge&logo=prometheus&logoColor=white" />
+        <img src="https://img.shields.io/badge/Grafana_11.3-F46800?style=for-the-badge&logo=grafana&logoColor=white" />
+        <img src="https://img.shields.io/badge/Loki_3.3-F5A800?style=for-the-badge&logo=grafana&logoColor=white" />
+        <img src="https://img.shields.io/badge/Promtail_3.3-F5A800?style=for-the-badge&logo=grafana&logoColor=white" />
+        <img src="https://img.shields.io/badge/Blackbox_Exporter-E6522C?style=for-the-badge&logo=prometheus&logoColor=white" />
+        <img src="https://img.shields.io/badge/node--exporter-E6522C?style=for-the-badge&logo=prometheus&logoColor=white" />
+        <img src="https://img.shields.io/badge/postgres--exporter-336791?style=for-the-badge&logo=postgresql&logoColor=white" />
+        <img src="https://img.shields.io/badge/mongodb--exporter-47A248?style=for-the-badge&logo=mongodb&logoColor=white" />
+        <img src="https://img.shields.io/badge/redis--exporter-DC382D?style=for-the-badge&logo=redis&logoColor=white" />
+        <img src="https://img.shields.io/badge/prometheus--client-E6522C?style=for-the-badge&logo=prometheus&logoColor=white" />
+        <img src="https://img.shields.io/badge/prometheus--fastapi--instrumentator-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
+        <img src="https://img.shields.io/badge/Docker_Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
+      </div>
+
+      <div class="stack-panel" id="panel-tools">
+        <img src="https://img.shields.io/badge/Git-F05032?style=for-the-badge&logo=git&logoColor=white" />
+        <img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" />
+        <img src="https://img.shields.io/badge/Notion-000000?style=for-the-badge&logo=notion&logoColor=white" />
+        <img src="https://img.shields.io/badge/Jira-0052CC?style=for-the-badge&logo=jira&logoColor=white" />
+        <img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" />
+        <img src="https://img.shields.io/badge/Postman-FF6C37?style=for-the-badge&logo=postman&logoColor=white" />
       </div>
     </div>
   </section>
@@ -2610,7 +2890,10 @@
     <div class="footer-inner">
       <div class="footer-logo">KRIP</div>
       <div class="footer-text">© 2026 KRIP Team · 국민대학교 캡스톤디자인</div>
-      <a class="btn-ghost" href="https://github.com/kookmin-sw/2026-capstone-01" target="_blank">GitHub ↗</a>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center;">
+        <a class="btn-ghost" href="https://github.com/kookmin-sw/2026-capstone-01" target="_blank">GitHub ↗</a>
+        <a class="btn-ghost" href="./privacy.pdf" target="_blank">개인정보처리방침</a>
+      </div>
     </div>
   </footer>
 
@@ -2695,59 +2978,122 @@
     // ── 주사위 모달 ──
     (function(){
       const DESTS = [
-        {name:'경복궁',      icon:'🏯', msg:'오늘은 경복궁 여행 어때요?'},
-        {name:'N서울타워',   icon:'🗼', msg:'N서울타워 전망대, 어떠세요?'},
-        {name:'한강',        icon:'🌊', msg:'한강 피크닉 어때요?'},
-        {name:'인사동',      icon:'🎨', msg:'인사동 전통문화 체험 어때요?'},
-        {name:'홍대',        icon:'🎵', msg:'홍대 거리 구경 어때요?'},
-        {name:'명동',        icon:'🛍️', msg:'명동 쇼핑 어때요?'},
-        {name:'광화문',      icon:'🏛️', msg:'광화문 광장 산책 어때요?'},
-        {name:'강남',        icon:'💎', msg:'강남 스타일 탐방 어때요?'},
-        {name:'이태원',      icon:'🌍', msg:'이태원 세계음식 탐방 어때요?'},
-        {name:'창덕궁',      icon:'🌸', msg:'창덕궁 후원 투어 어때요?'},
-        {name:'동대문 DDP',  icon:'🏟️', msg:'동대문 DDP 야경 어때요?'},
-        {name:'신촌',        icon:'🎓', msg:'신촌에서 맛집 탐방 어때요?'},
-        {name:'북촌한옥마을',icon:'🏘️', msg:'북촌에서 한옥 체험 어때요?'},
-        {name:'잠실',        icon:'🏅', msg:'잠실 롯데월드 어때요?'},
-        {name:'국회의사당',  icon:'🏛️', msg:'여의도 국회의사당 산책 어때요?'},
+        {name:'경복궁',      msg:'오늘은 경복궁 여행 어때요?',     icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/%EA%B4%91%ED%99%94%EB%AC%B8_%EC%9B%94%EB%8C%80.jpg/330px-%EA%B4%91%ED%99%94%EB%AC%B8_%EC%9B%94%EB%8C%80.jpg" alt="경복궁" loading="lazy">`},
+        {name:'N서울타워',   msg:'N서울타워 전망대, 어떠세요?',     icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/en/thumb/a/a6/NamsanTower_%28Cropped%29.jpeg/330px-NamsanTower_%28Cropped%29.jpeg" alt="N서울타워" loading="lazy">`},
+        {name:'한강',        msg:'한강 피크닉 어때요?',              icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/76/2011%EB%85%84_11%EC%9B%94_%EB%8C%80%ED%95%9C%EB%AF%BC%EA%B5%AD_%EC%84%9C%EC%9A%B8%ED%8A%B9%EB%B3%84%EC%8B%9C_%EB%AA%85%EC%86%8C_%28Seoul_best_attractions%29_%EB%8B%AC%EB%B9%9B%EB%AC%B4%EC%A7%80%EA%B0%9C%EB%B6%84%EC%88%981.jpg/330px-2011%EB%85%84_11%EC%9B%94_%EB%8C%80%ED%95%9C%EB%AF%BC%EA%B5%AD_%EC%84%9C%EC%9A%B8%ED%8A%B9%EB%B3%84%EC%8B%9C_%EB%AA%85%EC%86%8C_%28Seoul_best_attractions%29_%EB%8B%AC%EB%B9%9B%EB%AC%B4%EC%A7%80%EA%B0%9C%EB%B6%84%EC%88%981.jpg" alt="한강" loading="lazy">`},
+        {name:'인사동',      msg:'인사동 전통문화 체험 어때요?',     icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Insa-dong_%EC%9D%B8%EC%82%AC%EB%8F%99_October_1_2020_20.jpg/330px-Insa-dong_%EC%9D%B8%EC%82%AC%EB%8F%99_October_1_2020_20.jpg" alt="인사동" loading="lazy">`},
+        {name:'홍대',        msg:'홍대 거리 구경 어때요?',           icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/db/Street_hongdae_Seoul.jpg/330px-Street_hongdae_Seoul.jpg" alt="홍대" loading="lazy">`},
+        {name:'명동',        msg:'명동 쇼핑 어때요?',                icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/%EB%AA%85%EB%8F%998%EA%B8%B8_%EA%B1%B0%EB%A6%AC_%282020.03%29.jpg/330px-%EB%AA%85%EB%8F%998%EA%B8%B8_%EA%B1%B0%EB%A6%AC_%282020.03%29.jpg" alt="명동" loading="lazy">`},
+        {name:'광화문',      msg:'광화문 광장 산책 어때요?',         icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Gwanghwamun_20240413.jpg/330px-Gwanghwamun_20240413.jpg" alt="광화문" loading="lazy">`},
+        {name:'강남',        msg:'강남 스타일 탐방 어때요?',         icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Teheran-ro_Yeongdong-daero_crossing_7.jpg/330px-Teheran-ro_Yeongdong-daero_crossing_7.jpg" alt="강남" loading="lazy">`},
+        {name:'이태원',      msg:'이태원 세계음식 탐방 어때요?',     icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/35/Itaewon_2.jpg/330px-Itaewon_2.jpg" alt="이태원" loading="lazy">`},
+        {name:'창덕궁',      msg:'창덕궁 후원 투어 어때요?',         icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/%EC%B0%BD%EB%8D%95%EA%B6%81_%EC%A0%84%EA%B2%BD_%282012%29.jpg/330px-%EC%B0%BD%EB%8D%95%EA%B6%81_%EC%A0%84%EA%B2%BD_%282012%29.jpg" alt="창덕궁" loading="lazy">`},
+        {name:'동대문 DDP',  msg:'동대문 DDP 야경 어때요?',          icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/en/thumb/8/8f/Dongdaemun_Design_Plaza_at_night%2C_Seoul%2C_Korea.jpg/330px-Dongdaemun_Design_Plaza_at_night%2C_Seoul%2C_Korea.jpg" alt="동대문 DDP" loading="lazy">`},
+        {name:'신촌',        msg:'신촌에서 맛집 탐방 어때요?',       icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Seoul-Sinchon-01.jpg/330px-Seoul-Sinchon-01.jpg" alt="신촌" loading="lazy">`},
+        {name:'북촌한옥마을',msg:'북촌에서 한옥 체험 어때요?',       icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Bukchon_Hanok_Village_01.jpg/330px-Bukchon_Hanok_Village_01.jpg" alt="북촌한옥마을" loading="lazy">`},
+        {name:'잠실',        msg:'잠실 롯데월드 어때요?',            icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/en/thumb/2/28/Lotte_World_Tower_day_view_10.jpg/330px-Lotte_World_Tower_day_view_10.jpg" alt="잠실" loading="lazy">`},
+        {name:'국회의사당',  msg:'여의도 국회의사당 산책 어때요?',   icon:`<img class="dest-img" src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Seoul-National.Assembly-02.jpg/330px-Seoul-National.Assembly-02.jpg" alt="국회의사당" loading="lazy">`},
       ];
-      const FACES = ['⚀','⚁','⚂','⚃','⚄','⚅'];
-
       const modal     = document.getElementById('diceModal');
-      const diceEl    = document.getElementById('diceEmoji');
       const dicePhase = document.getElementById('dicePhase');
       const destPhase = document.getElementById('destPhase');
-      const resultFace = document.getElementById('resultDiceFace');
+
+      const ICON_W    = 130; // px — width of each icon cell in the reel
+      const ICON_GAP  = 24; // px — gap between icons
+      let   animId    = null;
 
       function roll() {
-        // reset
+        // Cancel any running animation
+        if (animId) { cancelAnimationFrame(animId); animId = null; }
+
+        // Pick destination
+        const dest = DESTS[Math.floor(Math.random() * DESTS.length)];
+
+        // Reset to phase 1
         destPhase.classList.remove('show');
         destPhase.style.display = 'none';
         dicePhase.style.display = 'block';
-        diceEl.classList.remove('done');
         modal.classList.add('show');
 
-        let count = 0, maxRolls = 20;
-        const iv = setInterval(() => {
-          diceEl.textContent = FACES[Math.floor(Math.random()*6)];
-          count++;
-          if (count >= maxRolls) {
-            clearInterval(iv);
-            const finalIdx = Math.floor(Math.random()*6);
-            diceEl.textContent = FACES[finalIdx];
-            diceEl.classList.add('done');
-            setTimeout(() => {
-              const dest = DESTS[Math.floor(Math.random()*DESTS.length)];
-              resultFace.textContent = FACES[finalIdx];
-              document.getElementById('destIcon').textContent = dest.icon;
-              document.getElementById('destName').textContent = dest.name;
-              document.getElementById('destMsg').textContent  = dest.msg;
-              dicePhase.style.display = 'none';
-              destPhase.style.display = 'flex';
-              destPhase.classList.add('show');
-            }, 550);
+        const statusEl  = document.getElementById('slotStatus');
+        const slotBrkt  = document.querySelector('.slot-bracket');
+        statusEl.classList.remove('done');
+        statusEl.textContent = '목적지를 선택하는 중…';
+        slotBrkt.classList.remove('visible'); // 스핀 중엔 숨김
+
+        // ── Build reel ──
+        // Layout: [LANDING_ICON] [tail icons × tailCount]
+        // Strip moves RIGHT (translateX increases) → items appear to fly rightward
+        // Start: showing last tail icon in window center
+        // End:   showing landing icon (index 0) in window center
+        const allIcons  = DESTS.map(d => d.icon);
+        const tailCount = 24; // icons that scroll past before landing
+        const tail      = Array.from({length: tailCount}, (_, i) => allIcons[i % allIcons.length]);
+        const reelItems = [dest.icon, ...tail]; // landing at index 0
+
+        const slotReel   = document.getElementById('slotReel');
+        const slotWindow = document.getElementById('slotWindow');
+        slotReel.innerHTML = '';
+        reelItems.forEach(icon => {
+          const el = document.createElement('div');
+          el.className = 'slot-icon-item';
+          el.style.cssText = `width:${ICON_W}px;height:${ICON_W}px;margin-right:${ICON_GAP}px`;
+          el.innerHTML = icon;
+          slotReel.appendChild(el);
+        });
+
+        // Wait one frame so offsetWidth is ready
+        requestAnimationFrame(() => {
+          const winW   = slotWindow.offsetWidth || 312;
+          // translateX to centre icon at given index (each slot = ICON_W + ICON_GAP)
+          const STEP   = ICON_W + ICON_GAP;
+          const cx     = i => (winW - ICON_W) / 2 - i * STEP;
+          const startX = cx(tailCount); // last tail icon centred
+          const endX   = cx(0);        // landing icon centred
+
+          slotReel.style.transition = 'none';
+          slotReel.style.transform  = `translateX(${startX}px)`;
+          slotReel.style.filter     = '';
+
+          const DURATION = 2700;
+          let t0 = null;
+
+          // Ease-out cubic: fast start → gentle stop (classic slot machine feel)
+          function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+
+          function tick(ts) {
+            if (!t0) t0 = ts;
+            const progress = Math.min((ts - t0) / DURATION, 1);
+            const eased    = easeOut(progress);
+            const x        = startX + eased * (endX - startX);
+            slotReel.style.transform = `translateX(${x}px)`;
+
+            // Motion blur proportional to remaining speed
+            const speed = 1 - eased;
+            slotReel.style.filter = speed > 0.06 ? `blur(${(speed * 5).toFixed(1)}px)` : '';
+
+            if (progress < 1) {
+              animId = requestAnimationFrame(tick);
+            } else {
+              slotReel.style.filter = '';
+              animId = null;
+              slotBrkt.classList.add('visible'); // 멈췄을 때 브래킷 표시
+              statusEl.textContent = '✓ 목적지 확정!';
+              statusEl.classList.add('done');
+              setTimeout(() => {
+                slotBrkt.classList.remove('visible');
+                document.getElementById('destIcon').innerHTML = dest.icon;
+                document.getElementById('destName').textContent = dest.name;
+                document.getElementById('destMsg').textContent  = dest.msg;
+                dicePhase.style.display = 'none';
+                destPhase.style.display = 'flex';
+                destPhase.classList.add('show');
+              }, 650);
+            }
           }
-        }, 75);
+
+          requestAnimationFrame(tick);
+        });
       }
 
       const startBtn = document.getElementById('startBtn');
@@ -2894,8 +3240,28 @@
       dotsWrap.appendChild(dot);
     });
 
+    function getVpW() {
+      return viewport.getBoundingClientRect().width || viewport.offsetWidth || window.innerWidth;
+    }
+    // PHONE_W 상수 대신 실제 레이아웃 너비를 읽음.
+    // getBoundingClientRect()는 transform: scale()까지 반영하므로 carousel 정렬에는 쓰지 않는다.
+    function getSlotW() {
+      const firstFrame = track.querySelector('.phone-frame');
+      if (firstFrame) {
+        const w = firstFrame.offsetWidth || parseFloat(getComputedStyle(firstFrame).width);
+        if (w > 0) return w;
+      }
+      return PHONE_W; // fallback
+    }
+    function getTrackGap() {
+      const gap = parseFloat(getComputedStyle(track).columnGap || getComputedStyle(track).gap);
+      return Number.isFinite(gap) ? gap : GAP;
+    }
     function getOffset(slot) {
-      return (viewport.offsetWidth / 2) - (PHONE_W / 2) - slot * (PHONE_W + GAP);
+      const vpW   = getVpW();
+      const slotW = getSlotW();
+      const gap   = getTrackGap();
+      return (vpW / 2) - (slotW / 2) - slot * (slotW + gap);
     }
 
     function render(animate = true) {
@@ -2938,6 +3304,15 @@
 
     render(false);
     resetTimer();
+    // Re-centre after fonts/images settle (fixes mobile misalignment on first paint)
+    window.addEventListener('load', () => {
+      render(false);
+      // 모바일 Safari는 load 직후에도 레이아웃이 덜 확정됨 → 100ms 후 재보정
+      setTimeout(() => render(false), 100);
+    });
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(() => render(false)).observe(viewport);
+    }
   </script>
 
 </body>
