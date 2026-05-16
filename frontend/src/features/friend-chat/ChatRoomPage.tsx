@@ -26,6 +26,7 @@ export default function ChatRoomPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const messageListRef = useRef<HTMLElement>(null);
+  const composerInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollModeRef = useRef<"bottom" | "preserve">("bottom");
   const pendingNewRoomSendRef = useRef<string | null>(null);
@@ -111,6 +112,58 @@ export default function ChatRoomPage() {
       renderMessageContent(message).toLowerCase().includes(query)
     ).length;
   }, [messageSearchQuery, messages]);
+  const latestMessageDateLabel = useMemo(() => {
+    const latestMessage = messages[messages.length - 1];
+    return formatChatDate(latestMessage?.created_at);
+  }, [messages]);
+
+  useEffect(() => {
+    function handleAndroidBack(event: Event): void {
+      if (feedPopupUserId) {
+        event.preventDefault();
+        setFeedPopupUserId(null);
+        return;
+      }
+      if (isLeaveConfirmOpen) {
+        event.preventDefault();
+        setIsLeaveConfirmOpen(false);
+        return;
+      }
+      if (isInviteConfirmOpen) {
+        event.preventDefault();
+        setIsInviteConfirmOpen(false);
+        return;
+      }
+      if (inviteOpen) {
+        event.preventDefault();
+        setInviteOpen(false);
+        return;
+      }
+      if (infoOpen) {
+        event.preventDefault();
+        setInfoOpen(false);
+        return;
+      }
+      if (isSearchOpen) {
+        event.preventDefault();
+        setIsSearchOpen(false);
+      }
+    }
+
+    window.addEventListener("krip:android-back", handleAndroidBack);
+
+    return () => {
+      window.removeEventListener("krip:android-back", handleAndroidBack);
+    };
+  }, [
+    feedPopupUserId,
+    infoOpen,
+    inviteOpen,
+    isInviteConfirmOpen,
+    isLeaveConfirmOpen,
+    isSearchOpen,
+  ]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -429,6 +482,7 @@ export default function ChatRoomPage() {
     setIncomingMessageNotice(null);
     sendMessage(roomId, content);
     setInput("");
+    window.requestAnimationFrame(() => composerInputRef.current?.focus());
   }
 
   function isDuplicateComposerSend(key: string): boolean {
@@ -436,7 +490,7 @@ export default function ChatRoomPage() {
     const recent = recentComposerSendRef.current;
     if (recent?.key === key && recent.expiresAt > now) return true;
 
-    recentComposerSendRef.current = { key, expiresAt: now + 800 };
+    recentComposerSendRef.current = { key, expiresAt: now + 300 };
     return false;
   }
 
@@ -448,6 +502,9 @@ export default function ChatRoomPage() {
     try {
       // TODO: backend must enforce direct-room uniqueness and reuse existing rooms.
       const newRoom = await createDirectChatRoom(userId);
+      if (!newRoom?.chat_room_id) {
+        throw new Error("Failed to open chat room.");
+      }
       setDraftDirectUserId(null);
       setDraftPeer(null);
       setInput("");
@@ -616,7 +673,7 @@ export default function ChatRoomPage() {
 
       <div style={styles.dateDivider}>
         <span style={styles.dateLine} />
-        <span style={styles.dateText}>{formatChatDate(messages[0]?.created_at)}</span>
+        <span style={styles.dateText}>{latestMessageDateLabel}</span>
         <span style={styles.dateLine} />
       </div>
 
@@ -758,6 +815,7 @@ export default function ChatRoomPage() {
 
       <footer style={styles.composer}>
         <input
+          ref={composerInputRef}
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
@@ -775,6 +833,11 @@ export default function ChatRoomPage() {
             ...(!input.trim() || connectionState === "closed" || isCreatingDirectRoom
               ? styles.sendButtonDisabled
               : {}),
+          }}
+          onMouseDown={(event) => event.preventDefault()}
+          onTouchEnd={(event) => {
+            event.preventDefault();
+            handleSend();
           }}
           onClick={handleSend}
           disabled={!input.trim() || connectionState === "closed" || isCreatingDirectRoom}

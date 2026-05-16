@@ -152,9 +152,9 @@ type ChatToastState = {
 };
 
 const GESTURE_TAB_PATHS = ["/home", "/plan", "/menu", "/mate", "/my"] as const;
-const MIN_HORIZONTAL_SWIPE_PX: number = 76;
-const MAX_VERTICAL_SWIPE_PX: number = 42;
-const HORIZONTAL_SWIPE_DOMINANCE: number = 1.7;
+const MIN_HORIZONTAL_SWIPE_PX: number = 96;
+const MAX_VERTICAL_SWIPE_PX: number = 32;
+const HORIZONTAL_SWIPE_DOMINANCE: number = 2;
 const ACTIVITY_TOAST_POLL_INTERVAL_MS: number = 5000;
 
 type TouchPoint = {
@@ -295,6 +295,71 @@ function PageGestureController() {
       window.removeEventListener("touchend", handleTouchEnd);
     };
   }, [location.pathname, navigate]);
+
+  return null;
+}
+
+function AndroidBackButtonHandler() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const locationRef = useRef(location);
+
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const listenerPromise = CapacitorApp.addListener("backButton", (event) => {
+      const backEvent = new CustomEvent("krip:android-back", { cancelable: true });
+      window.dispatchEvent(backEvent);
+      if (backEvent.defaultPrevented) return;
+
+      const pathname = locationRef.current.pathname;
+      if (pathname.startsWith("/chat/")) {
+        navigate("/mate", { replace: true, state: { mainTab: "chat" } });
+        return;
+      }
+
+      if (event.canGoBack) {
+        navigate(-1);
+        return;
+      }
+
+      if (pathname !== "/home") {
+        navigate("/home", { replace: true });
+      }
+    });
+
+    return () => {
+      void listenerPromise.then((handle) => handle.remove());
+    };
+  }, [navigate]);
+
+  return null;
+}
+
+function ViewportHeightController() {
+  useEffect(() => {
+    const viewport = window.visualViewport;
+
+    function syncViewportHeight(): void {
+      const height = viewport?.height ?? window.innerHeight;
+      document.documentElement.style.setProperty("--app-viewport-height", `${height}px`);
+    }
+
+    syncViewportHeight();
+    window.addEventListener("resize", syncViewportHeight);
+    viewport?.addEventListener("resize", syncViewportHeight);
+    viewport?.addEventListener("scroll", syncViewportHeight);
+
+    return () => {
+      window.removeEventListener("resize", syncViewportHeight);
+      viewport?.removeEventListener("resize", syncViewportHeight);
+      viewport?.removeEventListener("scroll", syncViewportHeight);
+    };
+  }, []);
 
   return null;
 }
@@ -756,6 +821,8 @@ export default function App() {
         <ForbiddenRedirect />
         <WithdrawalPendingRedirect />
         <UnauthorizedRedirect />
+        <AndroidBackButtonHandler />
+        <ViewportHeightController />
         <RouteScrollReset />
         <PageGestureController />
         <ActivityNotificationToastWatcher />

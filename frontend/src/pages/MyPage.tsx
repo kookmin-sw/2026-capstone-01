@@ -158,6 +158,7 @@ export default function MyPage() {
   const [isProfileImageMenuOpen, setIsProfileImageMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [preferenceDraft, setPreferenceDraft] =
     useState<ProfilePreferencesPayload>(EMPTY_PREFERENCES);
   const [isPreferenceEditing, setIsPreferenceEditing] = useState(false);
@@ -617,6 +618,8 @@ export default function MyPage() {
   }
 
   async function handleLogout(): Promise<void> {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
     try {
       await logoutUser();
     } catch {
@@ -624,6 +627,7 @@ export default function MyPage() {
     } finally {
       showAppToast({ title: "Logged out", variant: "success" });
       navigate("/login");
+      setIsLoggingOut(false);
     }
   }
 
@@ -645,6 +649,7 @@ export default function MyPage() {
 
   function handleConfirmAccountAction(): void {
     const action = pendingAccountAction;
+    if ((action === "logout" && isLoggingOut) || (action === "withdraw" && isWithdrawing)) return;
     setPendingAccountAction(null);
 
     if (action === "logout") {
@@ -1065,9 +1070,12 @@ export default function MyPage() {
             <button
               type="button"
               style={styles.settingsActionButton}
-              onClick={() => setPendingAccountAction("logout")}
+              onClick={() => {
+                if (!isLoggingOut) setPendingAccountAction("logout");
+              }}
+              disabled={isLoggingOut}
             >
-              Log Out
+              {isLoggingOut ? "Logging out..." : "Log Out"}
             </button>
             <button
               type="button"
@@ -1101,7 +1109,7 @@ export default function MyPage() {
       {pendingAccountAction ? (
         <AccountConfirmDialog
           action={pendingAccountAction}
-          busy={isWithdrawing}
+          busy={isWithdrawing || isLoggingOut}
           onCancel={() => setPendingAccountAction(null)}
           onConfirm={handleConfirmAccountAction}
         />
@@ -1454,7 +1462,7 @@ function AccountConfirmDialog({
             onClick={onConfirm}
             disabled={busy}
           >
-            {isWithdraw ? (busy ? "Deleting..." : "Delete") : "Log Out"}
+            {isWithdraw ? (busy ? "Deleting..." : "Delete") : busy ? "Logging out..." : "Log Out"}
           </button>
         </div>
       </div>

@@ -88,7 +88,6 @@ interface GoogleLatLngBounds {
   extend: (position: { lat: number; lng: number }) => void;
 }
 
-const DEFAULT_START_DATE = formatDateOnly(new Date());
 const MANUAL_PLAN_DATE_METADATA_KEY = "krip-manual-plan-date-metadata";
 
 function formatDateOnly(date: Date): string {
@@ -96,6 +95,10 @@ function formatDateOnly(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getDefaultStartDate(): string {
+  return formatDateOnly(new Date());
 }
 
 function parseDateOnly(value: string): Date | null {
@@ -184,13 +187,13 @@ function saveManualPlanDateMetadata(
 function getStableFallbackDate(plan: PlanDetailResponse): string {
   const parsed = new Date(plan.created_at);
   return Number.isNaN(parsed.getTime())
-    ? DEFAULT_START_DATE
+    ? getDefaultStartDate()
     : formatDateOnly(parsed);
 }
 
 function addDays(date: string, days: number): string {
   const parsed = parseDateOnly(date);
-  if (!parsed) return DEFAULT_START_DATE;
+  if (!parsed) return getDefaultStartDate();
   parsed.setDate(parsed.getDate() + days);
   return formatDateOnly(parsed);
 }
@@ -204,7 +207,7 @@ function stopsToSlotsByDate(
   stops: PlannedStop[],
   dates: string[]
 ): Record<string, Array<PlannedStop | null>> {
-  const fallbackDates = dates.length > 0 ? dates : [DEFAULT_START_DATE];
+  const fallbackDates = dates.length > 0 ? dates : [getDefaultStartDate()];
   return Object.fromEntries(
     fallbackDates.map((date) => [
       date,
@@ -290,7 +293,7 @@ function savedPlanToStops(
     summary: "",
     address: item.address,
     rating: typeof item.rating === "number" ? item.rating : undefined,
-    visitDate: dateByDay.get(item.day_number) || DEFAULT_START_DATE,
+    visitDate: dateByDay.get(item.day_number) || getDefaultStartDate(),
     visitTime: item.visit_time || "10:00",
   }));
 }
@@ -904,7 +907,7 @@ export default function ManualPlanPage({
         const dateMetadata = readManualPlanDateMetadata()[savedPlan.plan_id] || {};
         const stops = savedPlanToStops(savedPlan, dateMetadata);
         const dates = Array.from(new Set(stops.map((stop) => stop.visitDate))).sort();
-        const firstDate = dates[0] || DEFAULT_START_DATE;
+        const firstDate = dates[0] || getDefaultStartDate();
         const lastDate = dates[dates.length - 1] || firstDate;
 
         setLoadedPlan(savedPlan);
