@@ -917,7 +917,7 @@ export default function OnboardingPage() {
 
   const setData = (patch: Partial<OnboardingData>) =>
     setDataState((prev) => ({ ...prev, ...patch }));
-  const next = () => setStep((s) => Math.min(s + 1, 5));
+  const next = () => setStep((s) => Math.min(s + 1, 4));
   const back = () => setStep((s) => Math.max(s - 1, 0));
 
   async function handleComplete(): Promise<void> {
@@ -958,14 +958,18 @@ export default function OnboardingPage() {
     return <CompletePage onStart={() => void handleComplete()} loading={loading} error={error} />;
   }
 
+  if (!privacyAgreed) {
+    return (
+      <PrivacyConsentPage
+        agreed={privacyAgreed}
+        onAgreeChange={setPrivacyAgreed}
+        onNext={() => setPrivacyAgreed(true)}
+        onBack={() => navigate("/login")}
+      />
+    );
+  }
+
   const pages = [
-    <PrivacyConsentPage
-      key="privacy"
-      agreed={privacyAgreed}
-      onAgreeChange={setPrivacyAgreed}
-      onNext={next}
-      onBack={() => navigate("/login")}
-    />,
     <Page1 key={0} data={data} setData={setData} onNext={next} onBack={back} email={email} />,
     <Page2 key={1} data={data} setData={setData} onNext={next} onBack={back} />,
     <Page3 key={2} data={data} setData={setData} onNext={next} onBack={back} />,
