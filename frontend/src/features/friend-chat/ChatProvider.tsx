@@ -9,11 +9,12 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { getMyProfile } from "../../api/auth";
 import { getFriendDetail } from "../../api/friend";
 import { readAccessToken } from "../../api/client";
-import { removeToken } from "../../utils/tokens";
+import { notifyUnauthorized } from "../../utils/tokens";
 import {
   createDirectChatRoom,
   getChatMessages,
@@ -108,6 +109,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
+  const socketLifecycleRef = useRef(0);
   const sessionIdRef = useRef("");
   const shouldReconnectRef = useRef(false);
   const currentUserIdRef = useRef<string | null>(null);
@@ -134,6 +136,42 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [roomPageStateByRoom, setRoomPageStateByRoom] = useState<
     Record<string, RoomPageState>
   >({});
+
+  const clearReconnectTimer = useCallback((): void => {
+    if (reconnectTimerRef.current) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
+
+  const closeCurrentSocket = useCallback((code = 1000): void => {
+    const socket = socketRef.current;
+    socketRef.current = null;
+    socketLifecycleRef.current += 1;
+
+    if (!socket) return;
+
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+
+    if (socket.readyState === WebSocket.CONNECTING) {
+      socket.onopen = () => socket.close(code);
+      return;
+    }
+
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.close(code);
+    }
+  }, []);
+
+  const cleanupChatConnection = useCallback((): void => {
+    shouldReconnectRef.current = false;
+    clearReconnectTimer();
+    closeCurrentSocket();
+    clearAllPendingSends();
+    setConnectionState("closed");
+  }, [clearReconnectTimer, closeCurrentSocket]);
 
   useEffect(() => {
     messagesByRoomRef.current = messagesByRoom;
@@ -806,16 +844,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         case "session_revoked":
           if (event.session_id === sessionIdRef.current) {
             shouldReconnectRef.current = false;
-            removeToken();
             setConnectionState("closed");
-            navigate("/login", { replace: true });
+            notifyUnauthorized();
           }
           return;
         case "auth_expired":
           shouldReconnectRef.current = false;
-          removeToken();
           setConnectionState("closed");
-          navigate("/login", { replace: true });
+          notifyUnauthorized();
           return;
         case "server_error":
           markSendingMessagesFailed(event.reason || "", event.client_msg_id || undefined);
@@ -852,19 +888,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!shouldConnectChatSocket) {
-      shouldReconnectRef.current = false;
-      if (reconnectTimerRef.current) {
-        window.clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-      socketRef.current?.close(1000);
-      socketRef.current = null;
-      clearAllPendingSends();
-      setConnectionState("closed");
+      cleanupChatConnection();
       return;
     }
 
     let cancelled = false;
+    const lifecycleId = socketLifecycleRef.current + 1;
+    socketLifecycleRef.current = lifecycleId;
     shouldReconnectRef.current = true;
 
     void getMyProfile()
@@ -877,17 +907,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     void refreshRooms();
 
     function scheduleReconnect(): void {
+      if (!shouldReconnectRef.current || reconnectTimerRef.current) return;
+
       const base = Math.min(60000, 1000 * 2 ** reconnectAttemptRef.current);
       const jitter = Math.random() * 500;
 
-      if (reconnectTimerRef.current) {
-        window.clearTimeout(reconnectTimerRef.current);
-      }
-      reconnectTimerRef.current = window.setTimeout(connect, base + jitter);
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connect();
+      }, base + jitter);
       reconnectAttemptRef.current += 1;
     }
 
     function connect(): void {
+      if (cancelled || !shouldReconnectRef.current) return;
+
+      const currentSocket = socketRef.current;
+      if (
+        currentSocket &&
+        (currentSocket.readyState === WebSocket.OPEN ||
+          currentSocket.readyState === WebSocket.CONNECTING)
+      ) {
+        return;
+      }
+
       setConnectionState(reconnectAttemptRef.current > 0 ? "reconnecting" : "connecting");
       const token = readAccessToken();
       const ws =
@@ -897,10 +940,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       socketRef.current = ws;
 
       ws.onopen = () => {
+        if (cancelled || socketLifecycleRef.current !== lifecycleId || socketRef.current !== ws) {
+          ws.close(1000);
+          return;
+        }
         reconnectAttemptRef.current = 0;
       };
 
       ws.onmessage = (socketEvent) => {
+        if (socketLifecycleRef.current !== lifecycleId || socketRef.current !== ws) return;
         handleSocketEventRef.current(parseSocketEvent(socketEvent.data));
       };
 
@@ -913,6 +961,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       };
 
       ws.onclose = (socketEvent) => {
+        if (socketLifecycleRef.current !== lifecycleId || socketRef.current !== ws) return;
         if (socketRef.current === ws) socketRef.current = null;
 
         if (!shouldReconnectRef.current || socketEvent.code === 1000) {
@@ -922,9 +971,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         if (socketEvent.code === 4001) {
           shouldReconnectRef.current = false;
-          removeToken();
           setConnectionState("closed");
-          navigate("/login", { replace: true });
+          notifyUnauthorized();
           return;
         }
 
@@ -957,27 +1005,38 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
 
     connect();
+    let removeAppStateListener = (): void => {};
+    void CapacitorApp.addListener("appStateChange", ({ isActive }) => {
+      if (!isActive || cancelled || !shouldReconnectRef.current) return;
+
+      if (!socketRef.current && !reconnectTimerRef.current && readAccessToken()) {
+        connect();
+      }
+    }).then((listener) => {
+      if (cancelled) {
+        void listener.remove();
+        return;
+      }
+
+      removeAppStateListener = () => {
+        void listener.remove();
+      };
+    });
 
     return () => {
       cancelled = true;
-      shouldReconnectRef.current = false;
-      if (reconnectTimerRef.current) {
-        window.clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-      const socket = socketRef.current;
-      if (socket) {
-        if (socket.readyState === WebSocket.CONNECTING) {
-          socket.onopen = () => socket.close(1000);
-          socket.onmessage = null;
-          socket.onclose = null;
-        } else {
-          socket.close(1000);
-        }
-      }
-      socketRef.current = null;
+      removeAppStateListener();
+      cleanupChatConnection();
     };
-  }, [navigate, refreshRooms, shouldConnectChatSocket]);
+  }, [cleanupChatConnection, navigate, refreshRooms, shouldConnectChatSocket]);
+
+  useEffect(() => {
+    window.addEventListener("krip:unauthorized", cleanupChatConnection);
+
+    return () => {
+      window.removeEventListener("krip:unauthorized", cleanupChatConnection);
+    };
+  }, [cleanupChatConnection]);
 
   useEffect(() => {
     return () => {

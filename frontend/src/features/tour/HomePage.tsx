@@ -1,5 +1,5 @@
 ﻿import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent, UIEvent } from "react";
+import type { CSSProperties, MouseEvent, SyntheticEvent, UIEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   addTourPlaceFavorite,
@@ -16,6 +16,10 @@ import {
   type UserProfile,
 } from "../../api/auth/auth";
 import NotificationBell from "../../components/NotificationBell";
+<<<<<<< Updated upstream
+=======
+import { getPlaceCategoryImageUrl } from "../../data/placeCategoryImages";
+>>>>>>> Stashed changes
 import { showAppToast } from "../../utils/appToast";
 
 const DEFAULT_LOCATION = { lat: 37.5665, lng: 126.978 };
@@ -346,6 +350,34 @@ function getPlacePhotos(item: TourPlaceApiItem): string[] {
     : [];
 }
 
+<<<<<<< Updated upstream
+=======
+function getPlaceThumbnailUrl(place: Place): string {
+  const categoryImageUrl = getPlaceCategoryImageUrl(place.category);
+  return place.photos[0] || categoryImageUrl || "";
+}
+
+function getPlaceFallbackThumbnailUrl(place: Place): string {
+  return getPlaceCategoryImageUrl(place.category);
+}
+
+function handlePlaceThumbnailError(
+  event: SyntheticEvent<HTMLImageElement>,
+  place: Place
+): void {
+  const image = event.currentTarget;
+  const fallbackImageUrl = getPlaceFallbackThumbnailUrl(place);
+
+  if (!fallbackImageUrl || image.dataset.fallbackApplied === "true") {
+    image.style.display = "none";
+    return;
+  }
+
+  image.dataset.fallbackApplied = "true";
+  image.src = fallbackImageUrl;
+}
+
+>>>>>>> Stashed changes
 function mapTourPlace(item: TourPlaceApiItem): Place {
   const coordinates = getPlaceCoordinates(item);
   const description =
@@ -1126,6 +1158,7 @@ export default function HomePage() {
                         src={place.photos[0]}
                         alt={place.name}
                         loading="lazy"
+                        onError={(event) => handlePlaceThumbnailError(event, place)}
                         style={styles.thumbnailImage}
                       />
                     ) : null}

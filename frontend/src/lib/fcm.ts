@@ -1,4 +1,4 @@
-import { getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
+import { deleteToken, getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
 import type { MessagePayload } from "firebase/messaging";
 
 import client from "../api/client";
@@ -6,6 +6,8 @@ import { firebaseApp } from "./firebase";
 import { rememberLikeNotification } from "./notifications";
 
 const FCM_TOKEN_STORAGE_KEY = "FCMtoken";
+const DEBUG_FCM_LOG = import.meta.env.DEV && import.meta.env.VITE_DEBUG_FCM_LOG === "true";
+const FCM_REGISTER_PATH = import.meta.env.VITE_FCM_REGISTER_PATH?.trim() || "";
 let fcmTokenRegistrationPromise: Promise<string | null> | null = null;
 let foregroundMessageListenerStarted = false;
 
@@ -40,12 +42,18 @@ async function issueAndRegisterFcmToken(): Promise<string | null> {
     return currentToken;
   }
 
+  if (!FCM_REGISTER_PATH) {
+    return currentToken;
+  }
+
   try {
-    await client.post("/notification/new", {
+    await client.post(FCM_REGISTER_PATH, {
       token: currentToken,
     });
   } catch (error) {
-    console.warn("Failed to save FCM token to backend", error);
+    if (DEBUG_FCM_LOG) {
+      console.warn("Failed to save FCM token to backend", error);
+    }
   }
 
   return currentToken;
@@ -61,6 +69,23 @@ export function registerFcmToken(): Promise<string | null> {
   return fcmTokenRegistrationPromise;
 }
 
+export async function unregisterFcmToken(): Promise<void> {
+  const storedToken = localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
+  localStorage.removeItem(FCM_TOKEN_STORAGE_KEY);
+
+  if (!storedToken) return;
+
+  try {
+    if (!(await isSupported())) return;
+    await deleteToken(getMessaging(firebaseApp));
+    // TODO: call backend FCM unregister endpoint when available.
+  } catch (error) {
+    if (DEBUG_FCM_LOG) {
+      console.warn("Failed to delete FCM token", error);
+    }
+  }
+}
+
 export async function requestPermission(): Promise<void> {
   if (!("Notification" in window) || Notification.permission !== "default") {
     return;
@@ -70,16 +95,16 @@ export async function requestPermission(): Promise<void> {
     const permission = await Notification.requestPermission();
 
     if (permission === "granted") {
-      console.log("Push permission granted");
+      if (DEBUG_FCM_LOG) console.info("Push permission granted");
       await registerFcmToken();
       return;
     }
 
     if (permission === "denied") {
-      console.log("Push permission denied");
+      if (DEBUG_FCM_LOG) console.info("Push permission denied");
     }
   } catch (error) {
-    console.log("Error while requesting push permission", error);
+    if (DEBUG_FCM_LOG) console.warn("Error while requesting push permission", error);
   }
 }
 
@@ -97,7 +122,7 @@ export async function listenForegroundMessages(): Promise<void> {
   foregroundMessageListenerStarted = true;
 
   onMessage(messaging, (payload) => {
-    console.log("Received foreground notification:", payload);
+    if (DEBUG_FCM_LOG) console.info("Received foreground notification");
     handleNotificationPayload(payload);
   });
 
@@ -108,7 +133,7 @@ export async function listenForegroundMessages(): Promise<void> {
         : null;
     if (!payload) return;
 
-    console.log("Received background notification message:", payload);
+    if (DEBUG_FCM_LOG) console.info("Received background notification message");
     handleNotificationPayload(payload as MessagePayload);
   });
 }

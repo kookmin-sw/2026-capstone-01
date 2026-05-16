@@ -26,7 +26,7 @@ import AiPlanDesignPage from "./features/plan/AiPlanDesignPage";
 import AiPlanResultPage from "./features/plan/AiPlanResultPage";
 import ManualPlanPage from "./features/plan/Manualplanpage";
 import "./lib/firebase";
-import { listenForegroundMessages, requestPermission } from "./lib/fcm";
+import { listenForegroundMessages, requestPermission, unregisterFcmToken } from "./lib/fcm";
 import type { AppToastDetail } from "./utils/appToast";
 import {
   clearPreferences,
@@ -38,6 +38,8 @@ import {
   type AiPreferenceState,
 } from "./api/aiPlanShared";
 import { getNotificationUnreadCount } from "./api/notification";
+
+const DEBUG_AUTH_LOG = import.meta.env.DEV && import.meta.env.VITE_DEBUG_AUTH_LOG === "true";
 
 function AiPlanDesignRoute() {
   const navigate = useNavigate();
@@ -514,7 +516,12 @@ function AppUrlOpenHandler() {
       if (!url || handledUrlRef.current === url) return;
       handledUrlRef.current = url;
 
-      console.info("[auth] appUrlOpen received url", url);
+      if (DEBUG_AUTH_LOG) {
+        console.info(
+          "[auth] appUrlOpen received",
+          JSON.stringify({ pathname: getSafeUrlPathname(url) })
+        );
+      }
       if (!url.startsWith("krip://")) return;
 
       const callback = parseAuthCallbackUrl(url);
@@ -525,16 +532,17 @@ function AppUrlOpenHandler() {
 
       const { utk, status, email, name } = callback;
 
-      console.info(
-        "[auth] appUrlOpen parsed",
-        JSON.stringify({
-          status,
-          hasUtk: Boolean(utk),
-          hasEmail: Boolean(email),
-          hasName: Boolean(name),
-          tokenPrefix: utk ? utk.slice(0, 10) : null,
-        })
-      );
+      if (DEBUG_AUTH_LOG) {
+        console.info(
+          "[auth] appUrlOpen parsed",
+          JSON.stringify({
+            status,
+            hasToken: Boolean(utk),
+            hasEmail: Boolean(email),
+            hasName: Boolean(name),
+          })
+        );
+      }
 
       if (!utk) {
         removeToken();
@@ -553,13 +561,10 @@ function AppUrlOpenHandler() {
       }
 
       if (status === "complete") {
-        console.info("[auth] navigate home");
         navigate("/home", { replace: true });
       } else if (status === "new" || status === "in_progress") {
-        console.info("[auth] navigate register");
         navigate("/register", { state: { email, name }, replace: true });
       } else if (status === "withdrawal_pending") {
-        console.info("[auth] navigate withdrawal pending");
         navigate("/withdrawal-pending", { replace: true });
       }
 
@@ -577,6 +582,14 @@ function AppUrlOpenHandler() {
   }, [navigate]);
 
   return null;
+}
+
+function getSafeUrlPathname(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return "";
+  }
 }
 
 async function closeAuthBrowser(): Promise<void> {
@@ -673,6 +686,13 @@ function UnauthorizedRedirect() {
     function handleUnauthorized(): void {
       const currentLocation = locationRef.current;
       if (isAuthFreePath(currentLocation.pathname)) return;
+
+      void unregisterFcmToken();
+
+      if (Capacitor.isNativePlatform()) {
+        window.location.replace("/login");
+        return;
+      }
 
       navigate("/login", {
         replace: true,

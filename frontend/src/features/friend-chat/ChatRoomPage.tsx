@@ -28,6 +28,7 @@ export default function ChatRoomPage() {
   const messageListRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollModeRef = useRef<"bottom" | "preserve">("bottom");
+  const pendingNewRoomSendRef = useRef<string | null>(null);
   const shouldForceScrollToBottomRef = useRef(true);
   const scrollSnapshotRef = useRef<{ height: number; top: number } | null>(null);
   const latestMessageKeyRef = useRef("");
@@ -51,6 +52,7 @@ export default function ChatRoomPage() {
   const [draftDirectUserId, setDraftDirectUserId] = useState<string | null>(null);
   const [draftPeer, setDraftPeer] = useState<ChatPeer | null>(null);
   const [input, setInput] = useState("");
+  const [isCreatingDirectRoom, setIsCreatingDirectRoom] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [members, setMembers] = useState<ChatUserProfile[]>([]);
   const [invitableFriends, setInvitableFriends] = useState<ChatUserProfile[]>([]);
@@ -427,7 +429,12 @@ export default function ChatRoomPage() {
   }
 
   async function handleSendToNewRoom(userId: string, content: string): Promise<void> {
+    if (pendingNewRoomSendRef.current === userId) return;
+
+    pendingNewRoomSendRef.current = userId;
+    setIsCreatingDirectRoom(true);
     try {
+      // TODO: backend must enforce direct-room uniqueness and reuse existing rooms.
       const newRoom = await createDirectChatRoom(userId);
       setDraftDirectUserId(null);
       setDraftPeer(null);
@@ -439,6 +446,9 @@ export default function ChatRoomPage() {
       navigate(`/chat/${newRoom.chat_room_id}`, { replace: true });
     } catch (error) {
       setErrorMessage(toErrorMessage(error, "Failed to create chat room."));
+    } finally {
+      pendingNewRoomSendRef.current = null;
+      setIsCreatingDirectRoom(false);
     }
   }
 
@@ -750,10 +760,12 @@ export default function ChatRoomPage() {
           type="button"
           style={{
             ...styles.sendButton,
-            ...(!input.trim() || connectionState === "closed" ? styles.sendButtonDisabled : {}),
+            ...(!input.trim() || connectionState === "closed" || isCreatingDirectRoom
+              ? styles.sendButtonDisabled
+              : {}),
           }}
           onClick={handleSend}
-          disabled={!input.trim() || connectionState === "closed"}
+          disabled={!input.trim() || connectionState === "closed" || isCreatingDirectRoom}
           aria-label={connectionState === "closed" ? "Offline" : "Send"}
           title={connectionState === "ready" ? "Send" : connectionState === "closed" ? "Offline" : "Queued"}
         >
