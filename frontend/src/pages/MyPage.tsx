@@ -9,6 +9,7 @@ import {
   updateMyProfile,
   uploadMyProfileImage,
   type ProfilePreferencesPayload,
+  type ProfileUpdatePayload,
   type UserProfile,
 } from "../api/auth/auth";
 import {
@@ -115,6 +116,31 @@ const PLANNING_OPTIONS: PreferenceOption[] = [
   { key: "follower", label: "Follower" },
 ];
 
+const MIN_AGE = 20;
+const MAX_AGE = 100;
+
+type ProfileInfoDraft = {
+  user_name: string;
+  email: string;
+  phone_number: string;
+  age: string;
+  gender: string;
+  nationality: string;
+  travel_styles: string[];
+};
+
+function toInfoDraft(profile: UserProfile | null): ProfileInfoDraft {
+  return {
+    user_name: profile?.user_name ?? "",
+    email: profile?.email ?? "",
+    phone_number: profile?.phone_number ?? "",
+    age: profile?.age != null ? String(profile.age) : "",
+    gender: profile?.gender ?? "",
+    nationality: profile?.nationality ?? "",
+    travel_styles: profile?.travel_styles ?? [],
+  };
+}
+
 type FeedUploadStatus = "uploading" | "failed";
 
 type FeedPostItem = FeedPost & {
@@ -161,6 +187,11 @@ export default function MyPage() {
     useState<ProfilePreferencesPayload>(EMPTY_PREFERENCES);
   const [isPreferenceEditing, setIsPreferenceEditing] = useState(false);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
+
+  const [isInfoEditing, setIsInfoEditing] = useState(false);
+  const [infoDraft, setInfoDraft] = useState<ProfileInfoDraft>(toInfoDraft(null));
+  const [isSavingInfo, setIsSavingInfo] = useState(false);
+  const [infoError, setInfoError] = useState("");
 
   const [feedPosts, setFeedPosts] = useState<FeedPostItem[]>([]);
   const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
@@ -796,15 +827,79 @@ export default function MyPage() {
     }
   }
 
+  async function handleProfileInfoSave(): Promise<void> {
+    if (!profile || isSavingInfo) return;
+
+    const ageStr = infoDraft.age.trim();
+    let ageNum: number | undefined;
+    if (ageStr !== "") {
+      const parsed = parseInt(ageStr, 10);
+      if (isNaN(parsed) || String(parsed) !== ageStr) {
+        setInfoError("Age must be a valid whole number.");
+        return;
+      }
+      if (parsed < MIN_AGE || parsed > MAX_AGE) {
+        setInfoError(`Age must be between ${MIN_AGE} and ${MAX_AGE}.`);
+        return;
+      }
+      ageNum = parsed;
+    }
+
+    const payload: ProfileUpdatePayload = {};
+    const trimName = infoDraft.user_name.trim();
+    if (trimName !== (profile.user_name ?? "")) payload.user_name = trimName;
+    // email은 수정 불가 — payload에서 제외
+    const trimPhone = infoDraft.phone_number.trim();
+    if (trimPhone !== (profile.phone_number ?? "")) payload.phone_number = trimPhone;
+    if (ageStr === "" && profile.age != null) {
+      // cleared — not sent (age cannot be null in PATCH)
+    } else if (ageNum !== undefined && ageNum !== profile.age) {
+      payload.age = ageNum;
+    }
+    if (infoDraft.gender !== (profile.gender ?? "")) payload.gender = infoDraft.gender;
+    const trimNationality = infoDraft.nationality.trim();
+    if (trimNationality !== (profile.nationality ?? "")) payload.nationality = trimNationality;
+    const sortedDraft = [...infoDraft.travel_styles].sort().join(",");
+    const sortedOrig = [...(profile.travel_styles ?? [])].sort().join(",");
+    if (sortedDraft !== sortedOrig) payload.travel_styles = infoDraft.travel_styles;
+
+    if (Object.keys(payload).length === 0) {
+      setIsInfoEditing(false);
+      return;
+    }
+
+    setIsSavingInfo(true);
+    setInfoError("");
+    try {
+      const updated = await updateMyProfile(payload);
+      const refreshed = await getMyProfile();
+      setProfile(
+        (current) =>
+          ({
+            ...(current ?? {}),
+            ...(updated ?? {}),
+            ...(refreshed ?? {}),
+          }) as UserProfile
+      );
+      setIsInfoEditing(false);
+      showAppToast({ title: "Profile updated successfully.", variant: "success" });
+    } catch (error) {
+      setInfoError(toErrorMessage(error, "Failed to save profile."));
+    } finally {
+      setIsSavingInfo(false);
+    }
+  }
+
   const profileImageUrl =
     profileImagePreview || getProfileImageUrl(profile) || DEFAULT_PROFILE_IMAGE_URL;
   const canDeleteProfileImage =
     Boolean(getProfileImageUrl(profile)) && !profileImagePreview;
   const nameText = profile?.user_name ?? "";
   const infoItems = [
-    { label: "User ID", value: profile?.user_id ?? "" },
+    { label: "Name", value: profile?.user_name ?? "" },
     { label: "Email", value: profile?.email ?? "" },
     { label: "Phone", value: profile?.phone_number ?? "" },
+    { label: "Age", value: profile?.age != null ? String(profile.age) : "" },
     { label: "Gender", value: formatGender(profile?.gender) },
     { label: "Nationality", value: profile?.nationality ?? "" },
   ].filter((item) => item.value);
@@ -1030,21 +1125,52 @@ export default function MyPage() {
               onDelete={(plan) => void handleDeletePlan(plan)}
             />
             <div style={styles.settingsInfoBlock}>
-              <strong style={styles.settingsInfoTitle}>My Information</strong>
-              <div style={styles.infoList}>
-                {infoItems.map((item, index) => (
-                  <div
-                    key={item.label}
-                    style={{
-                      ...styles.infoRow,
-                      ...(index === infoItems.length - 1 ? styles.infoRowLast : {}),
+              <div style={styles.infoTitleRow}>
+                <strong style={styles.settingsInfoTitle}>My Information</strong>
+                {!isInfoEditing ? (
+                  <button
+                    type="button"
+                    style={styles.infoEditButton}
+                    onClick={() => {
+                      setInfoDraft(toInfoDraft(profile));
+                      setInfoError("");
+                      setIsInfoEditing(true);
                     }}
                   >
-                    <span style={styles.infoLabel}>{item.label}</span>
-                    <span style={styles.infoValue}>{item.value}</span>
-                  </div>
-                ))}
+                    Edit Profile
+                  </button>
+                ) : null}
               </div>
+              {isInfoEditing ? (
+                <InfoEditor
+                  draft={infoDraft}
+                  isSaving={isSavingInfo}
+                  error={infoError}
+                  onChangeField={(key, value) =>
+                    setInfoDraft((d) => ({ ...d, [key]: value }))
+                  }
+                  onSave={() => void handleProfileInfoSave()}
+                  onCancel={() => {
+                    setIsInfoEditing(false);
+                    setInfoError("");
+                  }}
+                />
+              ) : (
+                <div style={styles.infoList}>
+                  {infoItems.map((item, index) => (
+                    <div
+                      key={item.label}
+                      style={{
+                        ...styles.infoRow,
+                        ...(index === infoItems.length - 1 ? styles.infoRowLast : {}),
+                      }}
+                    >
+                      <span style={styles.infoLabel}>{item.label}</span>
+                      <span style={styles.infoValue}>{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <button
               type="button"
@@ -1251,6 +1377,139 @@ function PreferenceEditor({
           disabled={isSaving}
         >
           {isSaving ? "Saving..." : "Save Preferences"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function InfoEditor({
+  draft,
+  isSaving,
+  error,
+  onChangeField,
+  onSave,
+  onCancel,
+}: {
+  draft: ProfileInfoDraft;
+  isSaving: boolean;
+  error: string;
+  onChangeField: (
+    key: keyof Omit<ProfileInfoDraft, "travel_styles">,
+    value: string
+  ) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div style={styles.infoEditor}>
+      {error ? <p style={styles.infoEditorError}>{error}</p> : null}
+
+      <div style={styles.infoEditField}>
+        <label style={styles.infoEditLabel}>Name</label>
+        <input
+          type="text"
+          value={draft.user_name}
+          placeholder="Your name"
+          style={styles.infoEditInput}
+          disabled={isSaving}
+          onChange={(e) => onChangeField("user_name", e.target.value)}
+        />
+      </div>
+
+      <div style={styles.infoEditField}>
+        <label style={styles.infoEditLabel}>Email (cannot be changed)</label>
+        <input
+          type="email"
+          value={draft.email}
+          style={{ ...styles.infoEditInput, ...styles.infoEditInputReadonly }}
+          readOnly
+          disabled
+          tabIndex={-1}
+        />
+      </div>
+
+      <div style={styles.infoEditField}>
+        <label style={styles.infoEditLabel}>Phone</label>
+        <input
+          type="tel"
+          value={draft.phone_number}
+          placeholder="Phone number"
+          style={styles.infoEditInput}
+          disabled={isSaving}
+          onChange={(e) => onChangeField("phone_number", e.target.value)}
+        />
+      </div>
+
+      <div style={styles.infoEditField}>
+        <label style={styles.infoEditLabel}>
+          Age ({MIN_AGE}–{MAX_AGE})
+        </label>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={draft.age}
+          placeholder={`${MIN_AGE}–${MAX_AGE}`}
+          style={styles.infoEditInput}
+          disabled={isSaving}
+          onChange={(e) => {
+            const val = e.target.value.replace(/[^0-9]/g, "");
+            onChangeField("age", val);
+          }}
+        />
+      </div>
+
+      <div style={styles.infoEditField}>
+        <label style={styles.infoEditLabel}>Gender</label>
+        <div style={styles.infoEditChipList}>
+          {(["male", "female", "other"] as const).map((g) => (
+            <button
+              key={g}
+              type="button"
+              style={{
+                ...styles.preferenceChoice,
+                ...(draft.gender === g ? styles.preferenceChoiceActive : {}),
+              }}
+              disabled={isSaving}
+              onClick={() => onChangeField("gender", draft.gender === g ? "" : g)}
+            >
+              {g.charAt(0).toUpperCase() + g.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={styles.infoEditField}>
+        <label style={styles.infoEditLabel}>Nationality</label>
+        <input
+          type="text"
+          value={draft.nationality}
+          placeholder="e.g. Korean"
+          style={styles.infoEditInput}
+          disabled={isSaving}
+          onChange={(e) => onChangeField("nationality", e.target.value)}
+        />
+      </div>
+
+      <div style={styles.infoEditorActions}>
+        <button
+          type="button"
+          style={styles.secondaryButton}
+          disabled={isSaving}
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          style={{
+            ...styles.primaryButton,
+            ...(isSaving ? styles.buttonDisabled : {}),
+          }}
+          disabled={isSaving}
+          onClick={onSave}
+        >
+          {isSaving ? "Saving..." : "Save"}
         </button>
       </div>
     </div>
@@ -2405,6 +2664,82 @@ const styles: Record<string, CSSProperties> = {
   settingsInfoTitle: {
     color: "var(--text-primary)",
   },
+  infoTitleRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  infoEditButton: {
+    minHeight: 32,
+    border: "1px solid rgba(5,181,187,0.28)",
+    borderRadius: 999,
+    padding: "0 14px",
+    background: "var(--brand-primary-soft)",
+    color: "var(--brand-primary-deep)",
+    fontSize: "0.78rem",
+    fontWeight: 900,
+    cursor: "pointer",
+    whiteSpace: "nowrap" as const,
+  },
+  infoEditor: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    padding: 14,
+    borderRadius: 16,
+    background: "rgba(5,181,187,0.06)",
+    border: "1px solid rgba(5,181,187,0.14)",
+  },
+  infoEditorError: {
+    margin: 0,
+    padding: "8px 12px",
+    borderRadius: 10,
+    background: "rgba(220,38,38,0.08)",
+    color: "#dc2626",
+    fontSize: "0.82rem",
+    fontWeight: 800,
+  },
+  infoEditField: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+  },
+  infoEditLabel: {
+    color: "var(--neutral-700)",
+    fontSize: "0.78rem",
+    fontWeight: 800,
+  },
+  infoEditInput: {
+    width: "100%",
+    minHeight: 40,
+    border: "1px solid var(--neutral-200)",
+    borderRadius: 10,
+    padding: "0 12px",
+    background: "#ffffff",
+    color: "var(--text-primary)",
+    fontSize: "0.9rem",
+    fontFamily: "inherit",
+    outline: "none",
+    boxSizing: "border-box" as const,
+  },
+  infoEditInputReadonly: {
+    background: "var(--neutral-100)",
+    color: "var(--neutral-700)",
+    cursor: "not-allowed",
+    opacity: 0.7,
+  },
+  infoEditChipList: {
+    display: "flex",
+    flexWrap: "wrap" as const,
+    gap: 8,
+  },
+  infoEditorActions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+    paddingTop: 4,
+  },
   infoList: {
     borderRadius: 16,
     background: "rgba(255,255,255,0.88)",
@@ -2937,83 +3272,14 @@ const styles: Record<string, CSSProperties> = {
   },
   likeUser: {
     display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    padding: "6px 10px",
+    alignItems: "cent\er",
+    gap: 8,
+    padding: "4px 8px",
     borderRadius: 999,
     background: "var(--neutral-100)",
     color: "var(--text-secondary)",
-    fontSize: "0.8rem",
-    fontWeight: 800,
-  },
-  likeAvatar: {
-    width: 20,
-    height: 20,
-    borderRadius: "50%",
-    objectFit: "cover",
-  },
-  commentForm: {
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) auto",
-    gap: 8,
-  },
-  feedCommentInput: {
-    width: "100%",
-    minHeight: 40,
-    border: "none",
-    borderRadius: 0,
-    padding: 0,
-    background: "transparent",
-    color: "var(--text-primary)",
-    outline: "none",
-    fontWeight: 700,
-  },
-  feedPostSubmitButton: {
-    border: "none",
-    background: "transparent",
-    color: "var(--brand-primary-deep)",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  commentItem: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 12,
-    padding: "10px 0",
-    borderTop: "1px solid var(--neutral-200)",
-  },
-  feedPostCommentMain: {
-    minWidth: 0,
-    flex: 1,
-  },
-  feedCommentAvatar: {
-    width: 51,
-    height: 51,
-    borderRadius: "50%",
-    objectFit: "cover",
-    background: "var(--neutral-100)",
-    flexShrink: 0,
-  },
-  commentAuthor: {
-    display: "block",
-    color: "var(--text-primary)",
-    fontSize: "0.86rem",
-  },
-  commentText: {
-    margin: "4px 0 0",
-    color: "var(--neutral-700)",
-    fontSize: "0.88rem",
-    lineHeight: 1.45,
-    overflowWrap: "anywhere",
-  },
-  commentDeleteButton: {
-    alignSelf: "flex-start",
-    border: "none",
-    background: "transparent",
-    color: "#dc2626",
     fontSize: "0.78rem",
-    fontWeight: 900,
-    cursor: "pointer",
+    fontWeight: 800,
   },
 };
 
@@ -3042,20 +3308,15 @@ function createOptimisticFeedPost({
   caption: string;
   visibility: FeedVisibility;
 }): FeedPostItem {
-  const now = new Date().toISOString();
-
   return {
     post_id: postId,
-    user_id: "",
-    visibility,
-    caption: caption || null,
     original_url: previewUrl,
-    thumbnail_small_url: previewUrl,
-    thumbnail_medium_url: previewUrl,
+    thumbnail_url: previewUrl,
+    caption,
+    visibility,
     like_count: 0,
     comment_count: 0,
-    created_at: now,
-    updated_at: now,
+    created_at: new Date().toISOString(),
     uploadStatus: "uploading",
     uploadProgress: 0,
     uploadFile: file,
@@ -3066,181 +3327,112 @@ function createOptimisticFeedPost({
 }
 
 function getFeedImageUrl(post: FeedPostItem): string {
-  return (
-    post.uploadPreviewUrl ||
-    post.thumbnail_medium_url ||
-    post.thumbnail_small_url ||
-    post.original_url
-  );
+  return post.uploadPreviewUrl || post.thumbnail_url || post.original_url || "";
 }
 
 async function isAnimatedFeedImage(file: File): Promise<boolean> {
-  if (file.type === "image/png") {
-    return isAnimatedPng(new Uint8Array(await file.arrayBuffer()));
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  if (file.type === "image/png" || file.type === "image/apng") {
+    return isAnimatedPng(bytes);
   }
-
   if (file.type === "image/webp") {
-    return isAnimatedWebp(new Uint8Array(await file.arrayBuffer()));
+    return isAnimatedWebp(bytes);
   }
-
   return false;
 }
 
 function isAnimatedPng(bytes: Uint8Array): boolean {
-  const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
-  if (!pngSignature.every((value, index) => bytes[index] === value)) return false;
-
+  const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+  for (let i = 0; i < sig.length; i++) {
+    if (bytes[i] !== sig[i]) return false;
+  }
   let offset = 8;
   while (offset + 12 <= bytes.length) {
-    const chunkLength =
+    const len =
       (bytes[offset] << 24) |
       (bytes[offset + 1] << 16) |
       (bytes[offset + 2] << 8) |
       bytes[offset + 3];
-    const chunkType = bytesToAscii(bytes, offset + 4, offset + 8);
-    if (chunkType === "acTL") return true;
-    if (chunkType === "IDAT" || chunkType === "IEND") return false;
-    offset += 12 + chunkLength;
+    const type = String.fromCharCode(
+      bytes[offset + 4],
+      bytes[offset + 5],
+      bytes[offset + 6],
+      bytes[offset + 7]
+    );
+    if (type === "acTL") return true;
+    if (type === "IDAT") break;
+    offset += 12 + len;
   }
-
   return false;
 }
 
 function isAnimatedWebp(bytes: Uint8Array): boolean {
-  if (
-    bytesToAscii(bytes, 0, 4) !== "RIFF" ||
-    bytesToAscii(bytes, 8, 12) !== "WEBP"
-  ) {
-    return false;
+  if (bytes.length < 12) return false;
+  const riff = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+  const webp = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]);
+  if (riff !== "RIFF" || webp !== "WEBP") return false;
+  let offset = 12;
+  while (offset + 8 <= bytes.length) {
+    const fourcc = String.fromCharCode(
+      bytes[offset],
+      bytes[offset + 1],
+      bytes[offset + 2],
+      bytes[offset + 3]
+    );
+    if (fourcc === "ANIM") return true;
+    const size =
+      bytes[offset + 4] |
+      (bytes[offset + 5] << 8) |
+      (bytes[offset + 6] << 16) |
+      (bytes[offset + 7] << 24);
+    offset += 8 + size + (size & 1);
   }
-
-  const header = bytesToAscii(bytes, 12, 16);
-  if (header === "VP8X" && bytes.length > 20 && (bytes[20] & 0b00000010) !== 0) {
-    return true;
-  }
-
-  return bytesToAscii(bytes, 12, bytes.length).includes("ANIM");
+  return false;
 }
 
-function bytesToAscii(bytes: Uint8Array, start: number, end: number): string {
-  return Array.from(bytes.slice(start, end))
-    .map((byte) => String.fromCharCode(byte))
-    .join("");
-}
-
-function toPreferencePayload(profile: UserProfile | null): ProfilePreferencesPayload {
-  if (!profile) return EMPTY_PREFERENCES;
-
-  return splitTravelStylesIntoPreferenceGroups([
-    ...(profile.travel_styles ?? []),
-  ]);
-}
-
-const ALLOWED_TRAVEL_STYLE_KEYS = new Set(TRAVEL_STYLE_OPTIONS.map((item) => item.key));
-const ALLOWED_FOOD_KEYS = new Set(FOOD_OPTIONS.map((item) => item.key));
-const ALLOWED_DENSITY_KEYS = new Set(DENSITY_OPTIONS.map((item) => item.key));
-const ALLOWED_BUDGET_KEYS = new Set(BUDGET_OPTIONS.map((item) => item.key));
-const ALLOWED_WALKING_KEYS = new Set(WALKING_OPTIONS.map((item) => item.key));
-const ALLOWED_TRANSPORT_KEYS = new Set(TRANSPORT_OPTIONS.map((item) => item.key));
-const ALLOWED_COMPANION_KEYS = new Set(COMPANION_OPTIONS.map((item) => item.key));
-const ALLOWED_TIME_KEYS = new Set(TIME_OPTIONS.map((item) => item.key));
-const ALLOWED_COMMUNICATION_KEYS = new Set(COMMUNICATION_OPTIONS.map((item) => item.key));
-const ALLOWED_PLANNING_KEYS = new Set(PLANNING_OPTIONS.map((item) => item.key));
-
-function normalizePreferenceToken(value?: string | null): string {
-  return String(value ?? "").trim().toLowerCase();
-}
-
-function normalizePreferenceList(
-  values: string[] | undefined,
-  allowed: Set<string>
-): string[] {
-  return Array.from(
-    new Set(
-      (values ?? [])
-        .map(normalizePreferenceToken)
-        .filter((item) => allowed.has(item))
-    )
-  );
-}
-
-function normalizePreferenceValue(
-  value: string | undefined,
-  allowed: Set<string>
-): string {
-  const normalized = normalizePreferenceToken(value);
-  return allowed.has(normalized) ? normalized : "";
-}
-
-function sanitizePreferencePayload(
-  value: ProfilePreferencesPayload
+function toPreferencePayload(
+  profile: UserProfile | null
 ): ProfilePreferencesPayload {
+  if (!profile) return EMPTY_PREFERENCES;
   return {
-    travel_styles: normalizePreferenceList(value.travel_styles, ALLOWED_TRAVEL_STYLE_KEYS),
-    food_preferences: normalizePreferenceList(value.food_preferences, ALLOWED_FOOD_KEYS),
-    density_preference: normalizePreferenceValue(value.density_preference, ALLOWED_DENSITY_KEYS),
-    budget_preference: normalizePreferenceValue(value.budget_preference, ALLOWED_BUDGET_KEYS),
-    walking_preference: normalizePreferenceValue(value.walking_preference, ALLOWED_WALKING_KEYS),
-    transport_preferences: normalizePreferenceList(value.transport_preferences, ALLOWED_TRANSPORT_KEYS),
-    companion_preference: normalizePreferenceValue(value.companion_preference, ALLOWED_COMPANION_KEYS),
-    time_preferences: normalizePreferenceList(value.time_preferences, ALLOWED_TIME_KEYS),
-    communication_preference: normalizePreferenceValue(
-      value.communication_preference,
-      ALLOWED_COMMUNICATION_KEYS
-    ),
-    planning_preference: normalizePreferenceValue(value.planning_preference, ALLOWED_PLANNING_KEYS),
+    travel_styles: profile.travel_styles ?? [],
+    food_preferences: profile.food_preferences ?? [],
+    density_preference: profile.density_preference ?? "",
+    budget_preference: profile.budget_preference ?? "",
+    walking_preference: profile.walking_preference ?? "",
+    transport_preferences: profile.transport_preferences ?? [],
+    companion_preference: profile.companion_preference ?? "",
+    time_preferences: profile.time_preferences ?? [],
+    communication_preference: profile.communication_preference ?? "",
+    planning_preference: profile.planning_preference ?? "",
   };
 }
 
-function splitTravelStylesIntoPreferenceGroups(values: string[]): ProfilePreferencesPayload {
-  const normalized = Array.from(
-    new Set(values.map(normalizePreferenceToken).filter(Boolean))
-  );
-
-  const findOne = (allowed: Set<string>) =>
-    normalized.find((item) => allowed.has(item)) ?? "";
-
+function sanitizePreferencePayload(
+  payload: ProfilePreferencesPayload
+): ProfilePreferencesPayload {
   return {
-    travel_styles: normalized.filter((item) => ALLOWED_TRAVEL_STYLE_KEYS.has(item)),
-    food_preferences: normalized.filter((item) => ALLOWED_FOOD_KEYS.has(item)),
-    density_preference: findOne(ALLOWED_DENSITY_KEYS),
-    budget_preference: findOne(ALLOWED_BUDGET_KEYS),
-    walking_preference: findOne(ALLOWED_WALKING_KEYS),
-    transport_preferences: normalized.filter((item) => ALLOWED_TRANSPORT_KEYS.has(item)),
-    companion_preference: findOne(ALLOWED_COMPANION_KEYS),
-    time_preferences: normalized.filter((item) => ALLOWED_TIME_KEYS.has(item)),
-    communication_preference: findOne(ALLOWED_COMMUNICATION_KEYS),
-    planning_preference: findOne(ALLOWED_PLANNING_KEYS),
+    travel_styles: payload.travel_styles ?? [],
+    food_preferences: payload.food_preferences ?? [],
+    density_preference: payload.density_preference ?? "",
+    budget_preference: payload.budget_preference ?? "",
+    walking_preference: payload.walking_preference ?? "",
+    transport_preferences: payload.transport_preferences ?? [],
+    companion_preference: payload.companion_preference ?? "",
+    time_preferences: payload.time_preferences ?? [],
+    communication_preference: payload.communication_preference ?? "",
+    planning_preference: payload.planning_preference ?? "",
   };
 }
 
 function toTravelStylesOnlyPayload(
-  value: ProfilePreferencesPayload
-): Pick<ProfilePreferencesPayload, "travel_styles"> {
-  const normalized = sanitizePreferencePayload(value);
-
+  preferences: ProfilePreferencesPayload
+): ProfileUpdatePayload {
   return {
-    travel_styles: Array.from(
-      new Set(
-        [
-          ...normalized.travel_styles,
-          ...(normalized.food_preferences ?? []),
-          normalized.density_preference,
-          normalized.budget_preference,
-          normalized.walking_preference,
-          ...(normalized.transport_preferences ?? []),
-          normalized.companion_preference,
-          ...(normalized.time_preferences ?? []),
-          normalized.communication_preference,
-          normalized.planning_preference,
-        ]
-          .map(normalizePreferenceToken)
-          .filter(Boolean)
-      )
-    ),
+    travel_styles: preferences.travel_styles,
   };
 }
-
 
 function getVisibilityLabel(visibility: FeedVisibility): string {
   if (visibility === "public") return "Public";
