@@ -16,10 +16,11 @@ import {
   type UserProfile,
 } from "../../api/auth/auth";
 import NotificationBell from "../../components/NotificationBell";
-<<<<<<< Updated upstream
-=======
-import { getPlaceCategoryImageUrl } from "../../data/placeCategoryImages";
->>>>>>> Stashed changes
+
+import {
+  PLACE_CATEGORY_IMAGE_LINKS,
+} from "../../data/placeCategoryImages";
+
 import { showAppToast } from "../../utils/appToast";
 
 const DEFAULT_LOCATION = { lat: 37.5665, lng: 126.978 };
@@ -350,34 +351,12 @@ function getPlacePhotos(item: TourPlaceApiItem): string[] {
     : [];
 }
 
-<<<<<<< Updated upstream
-=======
+
 function getPlaceThumbnailUrl(place: Place): string {
-  const categoryImageUrl = getPlaceCategoryImageUrl(place.category);
+  const categoryImageUrl = PLACE_CATEGORY_IMAGE_LINKS[place.category];
   return place.photos[0] || categoryImageUrl || "";
 }
-
-function getPlaceFallbackThumbnailUrl(place: Place): string {
-  return getPlaceCategoryImageUrl(place.category);
-}
-
-function handlePlaceThumbnailError(
-  event: SyntheticEvent<HTMLImageElement>,
-  place: Place
-): void {
-  const image = event.currentTarget;
-  const fallbackImageUrl = getPlaceFallbackThumbnailUrl(place);
-
-  if (!fallbackImageUrl || image.dataset.fallbackApplied === "true") {
-    image.style.display = "none";
-    return;
-  }
-
-  image.dataset.fallbackApplied = "true";
-  image.src = fallbackImageUrl;
-}
-
->>>>>>> Stashed changes
+  
 function mapTourPlace(item: TourPlaceApiItem): Place {
   const coordinates = getPlaceCoordinates(item);
   const description =
@@ -1153,9 +1132,9 @@ export default function HomePage() {
                   onClick={() => openPlaceDetail(place)}
                 >
                   <div style={styles.thumbnail}>
-                    {place.photos[0] ? (
+                    {getPlaceThumbnailUrl(place) ? (
                       <img
-                        src={place.photos[0]}
+                        src={getPlaceThumbnailUrl(place)}
                         alt={place.name}
                         loading="lazy"
                         onError={(event) => handlePlaceThumbnailError(event, place)}
@@ -1242,9 +1221,9 @@ export default function HomePage() {
             <div
               style={{
                 ...styles.modalHero,
-                ...(selectedPlace.photos[0]
+                ...(getPlaceThumbnailUrl(selectedPlace)
                   ? {
-                      backgroundImage: `linear-gradient(180deg, rgba(24,26,32,0.16), rgba(24,26,32,0.56)), url(${selectedPlace.photos[0]})`,
+                      backgroundImage: `linear-gradient(180deg, rgba(24,26,32,0.16), rgba(24,26,32,0.56)), url(${getPlaceThumbnailUrl(selectedPlace)})`,
                       backgroundSize: "cover",
                       backgroundPosition: "center",
                     }
@@ -1266,7 +1245,7 @@ export default function HomePage() {
                 <h2
                   style={{
                     ...styles.modalTitle,
-                    ...(selectedPlace.photos[0] ? styles.modalTitleOnImage : {}),
+                    ...(getPlaceThumbnailUrl(selectedPlace) ? styles.modalTitleOnImage : {}),
                   }}
                 >
                   {selectedPlace.name}
@@ -1274,7 +1253,7 @@ export default function HomePage() {
                 <p
                   style={{
                     ...styles.modalDistance,
-                    ...(selectedPlace.photos[0] ? styles.modalDistanceOnImage : {}),
+                    ...(getPlaceThumbnailUrl(selectedPlace) ? styles.modalDistanceOnImage : {}),
                   }}
                 >
                   {locationLabel} / {formatDistance(selectedPlace.distanceKm)}
