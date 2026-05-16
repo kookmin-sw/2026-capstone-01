@@ -131,6 +131,7 @@ function savedPlanToRecommendation(plan: PlanDetailResponse): TourRecommendRespo
           reason: "Saved in your trip plan.",
           estimated_cost_krw: 0,
           stay_minutes: 60,
+          photos: item.photos ?? [],
         })),
         movements: [],
         budget_breakdown: [],

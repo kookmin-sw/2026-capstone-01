@@ -153,6 +153,8 @@ type ChatToastState = {
 
 const GESTURE_TAB_PATHS = ["/home", "/plan", "/menu", "/mate", "/my"] as const;
 const MIN_HORIZONTAL_SWIPE_PX: number = 76;
+const MAX_VERTICAL_SWIPE_PX: number = 42;
+const HORIZONTAL_SWIPE_DOMINANCE: number = 1.7;
 const ACTIVITY_TOAST_POLL_INTERVAL_MS: number = 5000;
 
 type TouchPoint = {
@@ -276,7 +278,11 @@ function PageGestureController() {
       const absoluteDeltaX: number = Math.abs(deltaX);
       const absoluteDeltaY: number = Math.abs(deltaY);
 
-      if (absoluteDeltaX > absoluteDeltaY && absoluteDeltaX >= MIN_HORIZONTAL_SWIPE_PX) {
+      if (
+        absoluteDeltaX >= MIN_HORIZONTAL_SWIPE_PX &&
+        absoluteDeltaY <= MAX_VERTICAL_SWIPE_PX &&
+        absoluteDeltaX >= absoluteDeltaY * HORIZONTAL_SWIPE_DOMINANCE
+      ) {
         moveTabBySwipe(deltaX, location.pathname, navigate);
       }
     }

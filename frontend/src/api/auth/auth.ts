@@ -25,16 +25,33 @@ export interface UserProfile {
   profile_image_url?: string | null;
   profileImageUrl?: string;
   avatar_url?: string;
+  food_preferences?: string[];
+  density_preference?: string;
+  budget_preference?: string;
+  walking_preference?: string;
+  transport_preferences?: string[];
+  companion_preference?: string;
+  time_preferences?: string[];
+  communication_preference?: string;
+  planning_preference?: string;
 }
 
 export interface ProfileImageResponse {
   profile_image_url: string | null;
 }
 
-export type ProfilePreferencesPayload = Pick<
-  RegisterPayload,
-  | "travel_styles"
->;
+export interface ProfilePreferencesPayload {
+  travel_styles: string[];
+  food_preferences?: string[];
+  density_preference?: string;
+  budget_preference?: string;
+  walking_preference?: string;
+  transport_preferences?: string[];
+  companion_preference?: string;
+  time_preferences?: string[];
+  communication_preference?: string;
+  planning_preference?: string;
+}
 
 export type ProfileUpdatePayload = Partial<
   Pick<
@@ -452,13 +469,30 @@ function readStringList(
   return undefined;
 }
 
+function readStringValue(
+  source: Record<string, unknown>,
+  key: string
+): string | undefined {
+  const value = source[key];
+  return typeof value === "string" ? value : undefined;
+}
+
 function normalizeUserProfile(value: unknown): UserProfile | null {
   const profile = unwrapProfileResponse(value);
   if (!profile) return null;
 
   return {
-    ...(profile as UserProfile),
+    ...(profile as unknown as UserProfile),
     travel_styles: readStringList(profile, "travel_styles"),
+    food_preferences: readStringList(profile, "food_preferences"),
+    density_preference: readStringValue(profile, "density_preference"),
+    budget_preference: readStringValue(profile, "budget_preference"),
+    walking_preference: readStringValue(profile, "walking_preference"),
+    transport_preferences: readStringList(profile, "transport_preferences"),
+    companion_preference: readStringValue(profile, "companion_preference"),
+    time_preferences: readStringList(profile, "time_preferences"),
+    communication_preference: readStringValue(profile, "communication_preference"),
+    planning_preference: readStringValue(profile, "planning_preference"),
   };
 }
 

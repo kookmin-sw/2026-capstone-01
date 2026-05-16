@@ -23,6 +23,8 @@ import {
   getChatWebSocketUrl,
   type ChatMessage,
   type ChatRoom,
+  type LastMessageContent,
+  type SystemContent,
 } from "../../api/chat";
 import { reportChatNetworkError } from "../../utils/chatDiagnostics";
 
@@ -96,6 +98,29 @@ const DEFAULT_ROOM_PAGE_STATE: RoomPageState = {
   isLoadingInitialMessages: false,
   isLoadingOlderMessages: false,
 };
+
+function normalizeLastMessageContent(
+  content: unknown,
+  type: ChatMessage["type"]
+): LastMessageContent {
+  if (content === null) return null;
+  if (typeof content === "string") return content;
+  if (type === "system" && isSystemContent(content)) return content;
+  return "";
+}
+
+function isSystemContent(content: unknown): content is SystemContent {
+  if (!content || typeof content !== "object") return false;
+
+  const value = content as Partial<SystemContent>;
+  if (value.action === "created" || value.action === "leave") {
+    return "actor_id" in value;
+  }
+  if (value.action === "join" || value.action === "kick") {
+    return "actor_id" in value && Array.isArray(value.target_ids);
+  }
+  return false;
+}
 
 const ChatContext = createContext<ChatContextValue | null>(null);
 
@@ -311,7 +336,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                   server_seq: message.server_seq,
                   sender_id: message.sender_id,
                   type: message.type,
-                  content: message.content,
+                  content: normalizeLastMessageContent(message.content, message.type),
                   created_at: message.created_at,
                 },
                 last_message_at: message.created_at,
@@ -782,7 +807,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           setRooms((current) =>
             current.map((room) =>
               room.last_message?.message_id === event.message_id
-                ? { ...room, last_message: { ...room.last_message, content: event.content } }
+                ? {
+                    ...room,
+                    last_message: {
+                      ...room.last_message,
+                      content: normalizeLastMessageContent(
+                        event.content,
+                        room.last_message.type
+                      ),
+                    },
+                  }
                 : room
             )
           );
