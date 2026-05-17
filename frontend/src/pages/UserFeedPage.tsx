@@ -791,7 +791,10 @@ const styles: Record<string, CSSProperties> = {
   },
   detailImagePane: {
     minHeight: "min(58dvh, 520px)",
+    display: "grid",
+    placeItems: "center",
     background: "#050608",
+    overflow: "hidden",
   },
   detailSidePane: {
     minHeight: 260,

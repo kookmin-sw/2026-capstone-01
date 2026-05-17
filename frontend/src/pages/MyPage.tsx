@@ -3265,6 +3265,46 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "0.94rem",
     fontWeight: 900,
   },
+  commentItem: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: "8px 0",
+  },
+  feedCommentAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: "50%",
+    objectFit: "cover" as const,
+    flexShrink: 0,
+    background: "#3a3d45",
+  },
+  feedPostCommentMain: {
+    minWidth: 0,
+    flex: 1,
+  },
+  commentAuthor: {
+    display: "block",
+    color: "var(--text-primary)",
+    fontSize: "0.84rem",
+    fontWeight: 900,
+  },
+  commentText: {
+    margin: "2px 0 0",
+    color: "var(--text-secondary)",
+    fontSize: "0.86rem",
+    lineHeight: 1.4,
+    overflowWrap: "anywhere" as const,
+  },
+  commentDeleteButton: {
+    border: "none",
+    background: "transparent",
+    color: "#ef4444",
+    fontSize: "0.72rem",
+    fontWeight: 900,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
   likesList: {
     display: "flex",
     flexWrap: "wrap",
@@ -3272,7 +3312,7 @@ const styles: Record<string, CSSProperties> = {
   },
   likeUser: {
     display: "inline-flex",
-    alignItems: "cent\er",
+    alignItems: "center",
     gap: 8,
     padding: "4px 8px",
     borderRadius: 999,
@@ -3280,6 +3320,31 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--text-secondary)",
     fontSize: "0.78rem",
     fontWeight: 800,
+  },
+  commentForm: {
+    display: "grid",
+    gridTemplateColumns: "1fr auto",
+    gap: 8,
+    marginTop: 4,
+  },
+  feedCommentInput: {
+    minHeight: 38,
+    minWidth: 0,
+    border: "1px solid var(--border-soft)",
+    borderRadius: 999,
+    padding: "0 12px",
+    color: "var(--text-primary)",
+    outline: "none",
+    fontFamily: "inherit",
+  },
+  feedPostSubmitButton: {
+    border: "none",
+    borderRadius: 999,
+    padding: "0 14px",
+    background: "var(--text-primary)",
+    color: "#ffffff",
+    fontWeight: 900,
+    cursor: "pointer",
   },
 };
 
@@ -3308,15 +3373,19 @@ function createOptimisticFeedPost({
   caption: string;
   visibility: FeedVisibility;
 }): FeedPostItem {
+  const now = new Date().toISOString();
   return {
     post_id: postId,
+    user_id: "",
     original_url: previewUrl,
-    thumbnail_url: previewUrl,
+    thumbnail_small_url: previewUrl,
+    thumbnail_medium_url: previewUrl,
     caption,
     visibility,
     like_count: 0,
     comment_count: 0,
-    created_at: new Date().toISOString(),
+    created_at: now,
+    updated_at: now,
     uploadStatus: "uploading",
     uploadProgress: 0,
     uploadFile: file,
@@ -3327,7 +3396,7 @@ function createOptimisticFeedPost({
 }
 
 function getFeedImageUrl(post: FeedPostItem): string {
-  return post.uploadPreviewUrl || post.thumbnail_url || post.original_url || "";
+  return post.uploadPreviewUrl || post.thumbnail_medium_url || post.thumbnail_small_url || post.original_url || "";
 }
 
 async function isAnimatedFeedImage(file: File): Promise<boolean> {
