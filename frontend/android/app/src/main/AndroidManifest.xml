@@ -13,8 +13,8 @@
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="krip-activity" />
         <meta-data
-            android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@mipmap/ic_launcher" />
+    android:name="com.google.firebase.messaging.default_notification_icon"
+    android:resource="@drawable/ic_stat_name" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/splash_background" />
