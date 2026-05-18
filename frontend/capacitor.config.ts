@@ -10,6 +10,12 @@ const config: CapacitorConfig = {
   plugins: {
     CapacitorHttp: {
       enabled: true
+    },
+    PushNotifications: {
+      presentationOptions: []
+    },
+    LocalNotifications: {
+      presentationOptions: ["banner", "list", "sound"]
     }
   }
 };

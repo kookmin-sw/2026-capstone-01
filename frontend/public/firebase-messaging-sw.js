@@ -39,7 +39,7 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const targetUrl = event.notification.data?.url || "/mate";
+  const targetUrl = getNotificationTargetUrl(event.notification.data || {});
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       const existingClient = clients.find((client) => "focus" in client);
@@ -54,6 +54,9 @@ self.addEventListener("notificationclick", (event) => {
             data: event.notification.data || {},
           },
         });
+        if ("navigate" in existingClient) {
+          return existingClient.navigate(targetUrl).then((client) => client?.focus());
+        }
         return existingClient.focus();
       }
 
@@ -61,3 +64,33 @@ self.addEventListener("notificationclick", (event) => {
     })
   );
 });
+
+function getNotificationTargetUrl(data) {
+  const type = [
+    data.type,
+    data.notification_type,
+    data.notificationType,
+    data.event_type,
+    data.eventType,
+    data.action,
+    data.target_type,
+    data.targetType,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (type.includes("tripmate")) return "/mate";
+  if (type.includes("feed") || type.includes("comment") || type.includes("like")) {
+    const targetId =
+      data.target_id ||
+      data.targetId ||
+      data.post_id ||
+      data.postId ||
+      data.feed_post_id ||
+      data.feedPostId;
+    return targetId ? `/my?feedPost=${encodeURIComponent(targetId)}` : "/my";
+  }
+
+  return data.url || data.path || "/mate";
+}

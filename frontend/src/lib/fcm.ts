@@ -1,7 +1,19 @@
 import { deleteToken, getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
 import type { MessagePayload } from "firebase/messaging";
+import { Capacitor } from "@capacitor/core";
+import type { PluginListenerHandle } from "@capacitor/core";
+import {
+  PushNotifications,
+  type ActionPerformed as PushNotificationActionPerformed,
+  type PushNotificationSchema,
+} from "@capacitor/push-notifications";
+import {
+  LocalNotifications,
+  type ActionPerformed as LocalNotificationActionPerformed,
+} from "@capacitor/local-notifications";
 
 import client from "../api/client";
+import type { InboxNotification, NotificationType } from "../api/notification";
 import { firebaseApp } from "./firebase";
 import { rememberLikeNotification } from "./notifications";
 
@@ -10,6 +22,27 @@ const DEBUG_FCM_LOG = import.meta.env.DEV && import.meta.env.VITE_DEBUG_FCM_LOG 
 const FCM_REGISTER_PATH = import.meta.env.VITE_FCM_REGISTER_PATH?.trim() || "";
 let fcmTokenRegistrationPromise: Promise<string | null> | null = null;
 let foregroundMessageListenerStarted = false;
+let nativePushSetupPromise: Promise<string | null> | null = null;
+let nativePushListenersStarted = false;
+const nativePushListenerHandles: PluginListenerHandle[] = [];
+
+type PushData = Record<string, string>;
+
+type KripPushPayload = {
+  notification?: {
+    title?: string;
+    body?: string;
+  };
+  data?: PushData;
+};
+
+type ToastPayload = {
+  title: string;
+  body: string;
+  path: string;
+  imageUrl: string | null;
+  notification?: InboxNotification;
+};
 
 async function issueAndRegisterFcmToken(): Promise<string | null> {
   const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
@@ -35,31 +68,15 @@ async function issueAndRegisterFcmToken(): Promise<string | null> {
     return null;
   }
 
-  const storedToken = localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
-  localStorage.setItem(FCM_TOKEN_STORAGE_KEY, currentToken);
-
-  if (storedToken === currentToken) {
-    return currentToken;
-  }
-
-  if (!FCM_REGISTER_PATH) {
-    return currentToken;
-  }
-
-  try {
-    await client.post(FCM_REGISTER_PATH, {
-      token: currentToken,
-    });
-  } catch (error) {
-    if (DEBUG_FCM_LOG) {
-      console.warn("Failed to save FCM token to backend", error);
-    }
-  }
-
+  await persistPushToken(currentToken);
   return currentToken;
 }
 
 export function registerFcmToken(): Promise<string | null> {
+  if (Capacitor.isNativePlatform()) {
+    return registerNativePushNotifications();
+  }
+
   if (!fcmTokenRegistrationPromise) {
     fcmTokenRegistrationPromise = issueAndRegisterFcmToken().finally(() => {
       fcmTokenRegistrationPromise = null;
@@ -69,6 +86,116 @@ export function registerFcmToken(): Promise<string | null> {
   return fcmTokenRegistrationPromise;
 }
 
+async function persistPushToken(token: string): Promise<void> {
+  if (!token) return;
+
+  const storedToken = localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
+  localStorage.setItem(FCM_TOKEN_STORAGE_KEY, token);
+
+  if (storedToken === token || !FCM_REGISTER_PATH) {
+    return;
+  }
+
+  try {
+    await client.post(FCM_REGISTER_PATH, { token });
+  } catch (error) {
+    if (DEBUG_FCM_LOG) {
+      console.warn("Failed to save FCM token to backend", error);
+    }
+  }
+}
+
+function registerNativePushNotifications(): Promise<string | null> {
+  if (!nativePushSetupPromise) {
+    nativePushSetupPromise = setupNativePushNotifications().finally(() => {
+      nativePushSetupPromise = null;
+    });
+  }
+
+  return nativePushSetupPromise;
+}
+
+async function setupNativePushNotifications(): Promise<string | null> {
+  if (!Capacitor.isNativePlatform()) return null;
+
+  await ensureNativePushListeners();
+  await ensureNativeNotificationChannels();
+
+  const pushPermission = await PushNotifications.requestPermissions();
+  await LocalNotifications.requestPermissions().catch(() => undefined);
+
+  if (pushPermission.receive !== "granted") {
+    if (DEBUG_FCM_LOG) console.warn("Push notification permission denied");
+    return null;
+  }
+
+  await PushNotifications.register();
+  return localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
+}
+
+async function ensureNativePushListeners(): Promise<void> {
+  if (nativePushListenersStarted) return;
+  nativePushListenersStarted = true;
+
+  nativePushListenerHandles.push(
+    await PushNotifications.addListener("registration", (token) => {
+      void persistPushToken(token.value);
+    })
+  );
+
+  nativePushListenerHandles.push(
+    await PushNotifications.addListener("registrationError", (error) => {
+      if (DEBUG_FCM_LOG) console.warn("Native push registration failed", error);
+    })
+  );
+
+  nativePushListenerHandles.push(
+    await PushNotifications.addListener("pushNotificationReceived", (notification) => {
+      handleNotificationPayload(toPayloadFromNativeNotification(notification));
+    })
+  );
+
+  nativePushListenerHandles.push(
+    await PushNotifications.addListener(
+      "pushNotificationActionPerformed",
+      (event: PushNotificationActionPerformed) => {
+        openNotificationPath(
+          getNotificationPath(toPayloadFromNativeNotification(event.notification), false)
+        );
+      }
+    )
+  );
+
+  nativePushListenerHandles.push(
+    await LocalNotifications.addListener(
+      "localNotificationActionPerformed",
+      (event: LocalNotificationActionPerformed) => {
+        const path = getPathFromLocalNotificationAction(event);
+        if (path) openNotificationPath(path);
+      }
+    )
+  );
+}
+
+async function ensureNativeNotificationChannels(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+
+  const channel = {
+    id: "krip-activity",
+    name: "Krip activity",
+    description: "Likes, comments, tripmate, and chat notifications",
+    importance: 4 as const,
+    visibility: 1 as const,
+    lights: true,
+    vibration: true,
+  };
+
+  await Promise.allSettled([
+    PushNotifications.createChannel(channel),
+    LocalNotifications.createChannel(channel),
+  ]);
+}
+
 export async function unregisterFcmToken(): Promise<void> {
   const storedToken = localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
   localStorage.removeItem(FCM_TOKEN_STORAGE_KEY);
@@ -76,8 +203,14 @@ export async function unregisterFcmToken(): Promise<void> {
   if (!storedToken) return;
 
   try {
-    if (!(await isSupported())) return;
-    await deleteToken(getMessaging(firebaseApp));
+    if (Capacitor.isNativePlatform()) {
+      await PushNotifications.unregister();
+      return;
+    }
+
+    if (await isSupported()) {
+      await deleteToken(getMessaging(firebaseApp));
+    }
     // TODO: call backend FCM unregister endpoint when available.
   } catch (error) {
     if (DEBUG_FCM_LOG) {
@@ -87,6 +220,11 @@ export async function unregisterFcmToken(): Promise<void> {
 }
 
 export async function requestPermission(): Promise<void> {
+  if (Capacitor.isNativePlatform()) {
+    await registerNativePushNotifications();
+    return;
+  }
+
   if (!("Notification" in window) || Notification.permission !== "default") {
     return;
   }
@@ -110,6 +248,12 @@ export async function requestPermission(): Promise<void> {
 
 export async function listenForegroundMessages(): Promise<void> {
   if (foregroundMessageListenerStarted) {
+    return;
+  }
+
+  if (Capacitor.isNativePlatform()) {
+    foregroundMessageListenerStarted = true;
+    await ensureNativePushListeners();
     return;
   }
 
@@ -138,27 +282,40 @@ export async function listenForegroundMessages(): Promise<void> {
   });
 }
 
-function handleNotificationPayload(payload: MessagePayload): void {
-  const title = payload.notification?.title || payload.data?.title || "Krip";
-  const body = payload.notification?.body || payload.data?.body || "New notification";
+function handleNotificationPayload(payload: KripPushPayload): void {
   const likeNotification = isLikeNotificationPayload(payload);
   const feedActivityNotification = isFeedActivityNotificationPayload(payload);
+  const inboxNotification = toInboxNotification(payload);
+  const title = getToastTitle(payload, inboxNotification);
+  const body = getToastBody(payload, inboxNotification);
   const roomId =
     payload.data?.chatRoomId ||
     payload.data?.chat_room_id ||
-    extractChatRoomId(payload.data?.url);
+    (!feedActivityNotification && !likeNotification
+      ? extractChatRoomId(payload.data?.url)
+      : undefined);
   const path =
-    payload.data?.url ||
-    payload.data?.path ||
-    (roomId
+    roomId
       ? `/chat/${roomId}`
-      : getNotificationPath(payload, likeNotification || feedActivityNotification));
+      : likeNotification || feedActivityNotification
+        ? getNotificationPath(payload, true)
+        : payload.data?.url || payload.data?.path || getNotificationPath(payload, false);
   const imageUrl =
+    inboxNotification?.actor_profile_image_url ||
+    inboxNotification?.target_preview ||
+    payload.data?.actor_profile_image_url ||
+    payload.data?.actorProfileImageUrl ||
+    payload.data?.target_preview ||
+    payload.data?.targetPreview ||
     payload.data?.profile_image_url ||
     payload.data?.profileImageUrl ||
     payload.data?.senderProfileImageUrl ||
     payload.data?.imageUrl ||
     null;
+
+  if (Capacitor.isNativePlatform() && document.visibilityState !== "visible") {
+    void scheduleNativeLocalNotification({ title, body, path, imageUrl, notification: inboxNotification }, payload.data);
+  }
 
   if (likeNotification) {
     rememberLikeNotification({
@@ -193,7 +350,7 @@ function handleNotificationPayload(payload: MessagePayload): void {
 
   window.dispatchEvent(
     new CustomEvent("krip:notification-inbox-updated", {
-      detail: { toastHandled: true },
+      detail: { toastHandled: true, notification: inboxNotification },
     })
   );
 
@@ -225,7 +382,210 @@ function handleNotificationPayload(payload: MessagePayload): void {
   );
 }
 
-function isLikeNotificationPayload(payload: MessagePayload): boolean {
+function toPayloadFromNativeNotification(
+  notification: PushNotificationSchema
+): KripPushPayload {
+  const data = normalizePushData(notification.data);
+  const notificationTitle =
+    notification.title || data.title || data.notification_title || data.notificationTitle;
+  const notificationBody =
+    notification.body || data.body || data.notification_body || data.notificationBody;
+
+  return {
+    notification: {
+      title: notificationTitle,
+      body: notificationBody,
+    },
+    data,
+  };
+}
+
+function normalizePushData(value: unknown): PushData {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key, item]) => key && item != null)
+      .map(([key, item]) => [
+        key,
+        typeof item === "string" ? item : String(item),
+      ])
+  );
+}
+
+async function scheduleNativeLocalNotification(
+  toast: ToastPayload,
+  data?: PushData
+): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+
+  const permission = await LocalNotifications.checkPermissions().catch(() => null);
+  if (permission?.display !== "granted") return;
+
+  await LocalNotifications.schedule({
+    notifications: [
+      {
+        id: Math.floor(Date.now() % 2147483647),
+        title: toast.title,
+        body: toast.body,
+        channelId: "krip-activity",
+        autoCancel: true,
+        extra: {
+          path: toast.path,
+          data: data ?? {},
+        },
+      },
+    ],
+  }).catch((error) => {
+    if (DEBUG_FCM_LOG) console.warn("Failed to show local notification fallback", error);
+  });
+}
+
+function getPathFromLocalNotificationAction(
+  event: LocalNotificationActionPerformed
+): string {
+  const extra = event.notification.extra as
+    | { path?: string; data?: Record<string, unknown> }
+    | undefined;
+  if (extra?.path) return extra.path;
+
+  return getNotificationPath(
+    {
+      notification: {
+        title: event.notification.title,
+        body: event.notification.body,
+      },
+      data: normalizePushData(extra?.data),
+    },
+    false
+  );
+}
+
+function openNotificationPath(path: string): void {
+  if (!path) return;
+
+  window.dispatchEvent(
+    new CustomEvent("krip:notification-open", {
+      detail: { path },
+    })
+  );
+}
+
+function toInboxNotification(payload: KripPushPayload): InboxNotification | undefined {
+  const data = payload.data ?? {};
+  const type = normalizeNotificationType(
+    [
+      data.type,
+      data.notification_type,
+      data.notificationType,
+      data.event_type,
+      data.eventType,
+      data.action,
+      data.target_type,
+      data.targetType,
+      payload.notification?.title,
+      payload.notification?.body,
+      data.title,
+      data.body,
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+  if (!type) return undefined;
+
+  const targetType = data.target_type || data.targetType || "";
+  const targetId =
+    data.target_id ||
+    data.targetId ||
+    data.post_id ||
+    data.postId ||
+    data.feed_post_id ||
+    data.feedPostId ||
+    "";
+
+  return {
+    notification_id:
+      data.notification_id ||
+      data.notificationId ||
+      data.id ||
+      `${Date.now()}-${type}-${targetId}`,
+    type,
+    actor_id: data.actor_id || data.actorId || "",
+    actor_name:
+      data.actor_name ||
+      data.actorName ||
+      data.user_name ||
+      data.userName ||
+      data.sender_name ||
+      data.senderName ||
+      extractActorName(payload.notification?.title || "", payload.notification?.body || ""),
+    actor_profile_image_url:
+      data.actor_profile_image_url ||
+      data.actorProfileImageUrl ||
+      data.profile_image_url ||
+      data.profileImageUrl ||
+      null,
+    target_type: targetType === "tripmate_post" ? "tripmate_post" : "feed_post",
+    target_id: targetId,
+    comment_id: data.comment_id || data.commentId || null,
+    target_preview:
+      data.target_preview ||
+      data.targetPreview ||
+      data.target_preview_url ||
+      data.targetPreviewUrl ||
+      data.thumbnail_url ||
+      data.thumbnailUrl ||
+      null,
+    comment_preview:
+      data.comment_preview ||
+      data.commentPreview ||
+      data.comment_content ||
+      data.commentContent ||
+      null,
+    is_read: false,
+    created_at: data.created_at || data.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeNotificationType(value?: string): NotificationType | undefined {
+  if (value === "feed_like" || value === "feed_comment" || value === "tripmate_like") {
+    return value;
+  }
+
+  const lowerValue = (value || "").toLowerCase();
+  if (lowerValue.includes("tripmate") && lowerValue.includes("like")) return "tripmate_like";
+  if (lowerValue.includes("comment")) return "feed_comment";
+  if (lowerValue.includes("like")) return "feed_like";
+
+  return undefined;
+}
+
+function getToastTitle(
+  payload: KripPushPayload,
+  notification: InboxNotification | undefined
+): string {
+  if (notification) {
+    const actor = notification.actor_name || "Someone";
+    if (notification.type === "feed_like") return `${actor} liked your feed post.`;
+    if (notification.type === "feed_comment") return `${actor} commented on your feed post.`;
+    if (notification.type === "tripmate_like") return `${actor} liked your tripmate post.`;
+  }
+
+  return payload.notification?.title || payload.data?.title || "Krip";
+}
+
+function getToastBody(
+  payload: KripPushPayload,
+  notification: InboxNotification | undefined
+): string {
+  if (notification?.comment_preview) return notification.comment_preview;
+  if (notification?.target_type === "feed_post") return "Feed post";
+  if (notification?.target_type === "tripmate_post") return "Tripmate post";
+
+  return payload.notification?.body || payload.data?.body || "New notification";
+}
+
+function isLikeNotificationPayload(payload: KripPushPayload): boolean {
   const data = payload.data ?? {};
   const type = [
     data.type,
@@ -253,7 +613,7 @@ function isLikeNotificationPayload(payload: MessagePayload): boolean {
   );
 }
 
-function isFeedActivityNotificationPayload(payload: MessagePayload): boolean {
+function isFeedActivityNotificationPayload(payload: KripPushPayload): boolean {
   const data = payload.data ?? {};
   const type = [
     data.type,
@@ -281,7 +641,7 @@ function isFeedActivityNotificationPayload(payload: MessagePayload): boolean {
   );
 }
 
-function getNotificationPath(payload: MessagePayload, feedNotification: boolean): string {
+function getNotificationPath(payload: KripPushPayload, feedNotification: boolean): string {
   const data = payload.data ?? {};
   const type = [
     data.type,
@@ -299,9 +659,20 @@ function getNotificationPath(payload: MessagePayload, feedNotification: boolean)
 
   if (type.includes("tripmate")) return "/mate";
   if (type.includes("feed") || feedNotification) {
-    const actorId = data.actor_id || data.actorId || data.user_id || data.userId;
-    return actorId ? `/profile/${encodeURIComponent(actorId)}` : "/my";
+    const targetId =
+      data.target_id ||
+      data.targetId ||
+      data.post_id ||
+      data.postId ||
+      data.feed_post_id ||
+      data.feedPostId;
+    return targetId ? `/my?feedPost=${encodeURIComponent(targetId)}` : "/my";
   }
+  if (data.url || data.path) return data.url || data.path || "/chat";
+
+  const roomId = data.chatRoomId || data.chat_room_id || extractChatRoomId(data.url);
+  if (roomId) return `/chat/${roomId}`;
+
   return "/chat";
 }
 

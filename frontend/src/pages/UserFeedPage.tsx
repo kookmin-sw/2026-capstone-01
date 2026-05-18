@@ -195,24 +195,18 @@ export default function UserFeedPage() {
   async function handleLike(): Promise<void> {
     if (!selectedPost || detailBusy) return;
 
+    const alreadyLiked = selectedLikes.some((u) => u.user_id === viewerUserId);
+
     setDetailBusy(true);
     setDetailError("");
     try {
-      const response = await likeFeedPost(selectedPost.post_id);
+      const response = alreadyLiked
+        ? await unlikeFeedPost(selectedPost.post_id)
+        : await likeFeedPost(selectedPost.post_id);
       updatePostState({ ...selectedPost, like_count: response.like_count });
       setSelectedLikes((await getFeedPostLikes(selectedPost.post_id)).users);
     } catch (likeError) {
-      if (getApiStatus(likeError) === 400) {
-        try {
-          const response = await unlikeFeedPost(selectedPost.post_id);
-          updatePostState({ ...selectedPost, like_count: response.like_count });
-          setSelectedLikes((await getFeedPostLikes(selectedPost.post_id)).users);
-        } catch (unlikeError) {
-          setDetailError(toErrorMessage(unlikeError, "Failed to update like."));
-        }
-      } else {
-        setDetailError(toErrorMessage(likeError, "Failed to update like."));
-      }
+      setDetailError(toErrorMessage(likeError, "Failed to update like."));
     } finally {
       setDetailBusy(false);
     }
@@ -374,16 +368,6 @@ export default function UserFeedPage() {
             <div style={styles.statePanel}>No visible feed photos.</div>
           )}
 
-          {nextCursor ? (
-            <button
-              type="button"
-              style={styles.loadMoreButton}
-              onClick={() => void loadMore()}
-              disabled={loadingMore}
-            >
-              {loadingMore ? "Loading..." : "More"}
-            </button>
-          ) : null}
         </>
       ) : null}
 
@@ -711,7 +695,7 @@ const styles: Record<string, CSSProperties> = {
   tileImage: {
     width: "100%",
     height: "100%",
-    objectFit: "contain",
+    objectFit: "cover",
     display: "block",
     background: "#050608",
   },

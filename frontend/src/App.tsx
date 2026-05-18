@@ -38,7 +38,11 @@ import {
   savePreferences,
   type AiPreferenceState,
 } from "./api/aiPlanShared";
-import { getNotificationUnreadCount } from "./api/notification";
+import {
+  getNotificationInbox,
+  getNotificationUnreadCount,
+  type InboxNotification,
+} from "./api/notification";
 
 const DEBUG_AUTH_LOG = import.meta.env.DEV && import.meta.env.VITE_DEBUG_AUTH_LOG === "true";
 
@@ -369,6 +373,8 @@ function ActivityNotificationToastWatcher() {
   const location = useLocation();
   const isAuthFreeRef = useRef(isAuthFreePath(location.pathname));
   const previousUnreadCountRef = useRef<number | null>(null);
+  const lastHandledActivityToastAtRef = useRef(0);
+  const fallbackToastTimerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const authFree = isAuthFreePath(location.pathname);
@@ -381,7 +387,7 @@ function ActivityNotificationToastWatcher() {
   useEffect(() => {
     let cancelled = false;
 
-    async function syncUnreadCount(showToast: boolean): Promise<void> {
+    async function syncUnreadCount(): Promise<void> {
       if (isAuthFreeRef.current) return;
 
       try {
@@ -391,18 +397,14 @@ function ActivityNotificationToastWatcher() {
         const previousCount = previousUnreadCountRef.current;
         previousUnreadCountRef.current = count;
 
-        if (showToast && previousCount !== null && count > previousCount) {
-          const newCount = count - previousCount;
-          window.dispatchEvent(
-            new CustomEvent<AppToastDetail>("krip:app-toast", {
-              detail: {
-                title: "New activity",
-                message: `${newCount} new notification${newCount > 1 ? "s" : ""}.`,
-                variant: "info",
-                path: "/my",
-              },
-            })
-          );
+        if (previousCount !== null && count > previousCount) {
+          const detectedAt = Date.now();
+          window.clearTimeout(fallbackToastTimerRef.current);
+          fallbackToastTimerRef.current = window.setTimeout(() => {
+            if (lastHandledActivityToastAtRef.current >= detectedAt) return;
+
+            void showLatestNotificationToastFromInbox(detectedAt);
+          }, 1000);
         }
       } catch {
         // Ignore transient notification polling failures.
@@ -410,19 +412,21 @@ function ActivityNotificationToastWatcher() {
     }
 
     function handleInboxUpdated(event: Event): void {
-      const toastHandled = Boolean(
-        (event as CustomEvent<{ toastHandled?: boolean }>).detail?.toastHandled
-      );
-      void syncUnreadCount(!toastHandled);
+      if ((event as CustomEvent<{ toastHandled?: boolean }>).detail?.toastHandled) {
+        lastHandledActivityToastAtRef.current = Date.now();
+        markActivityToastHandled();
+        window.clearTimeout(fallbackToastTimerRef.current);
+      }
+      void syncUnreadCount();
     }
 
     function handleFocus(): void {
-      void syncUnreadCount(true);
+      void syncUnreadCount();
     }
 
-    void syncUnreadCount(false);
+    void syncUnreadCount();
     const intervalId: number = window.setInterval(
-      () => void syncUnreadCount(true),
+      () => void syncUnreadCount(),
       ACTIVITY_TOAST_POLL_INTERVAL_MS
     );
 
@@ -432,6 +436,7 @@ function ActivityNotificationToastWatcher() {
 
     return () => {
       cancelled = true;
+      window.clearTimeout(fallbackToastTimerRef.current);
       window.clearInterval(intervalId);
       window.removeEventListener("focus", handleFocus);
       window.removeEventListener("krip:like-notifications-updated", handleInboxUpdated);
@@ -440,6 +445,84 @@ function ActivityNotificationToastWatcher() {
   }, []);
 
   return null;
+}
+
+async function showLatestNotificationToastFromInbox(detectedAt: number): Promise<void> {
+  if (lastActivityToastHandledAt() >= detectedAt) return;
+
+  try {
+    const inbox = await getNotificationInbox();
+    const notification =
+      inbox.notifications.find((item) => !item.is_read) ?? inbox.notifications[0];
+    if (!notification || lastActivityToastHandledAt() >= detectedAt) return;
+
+    markActivityToastHandled();
+    window.dispatchEvent(
+      new CustomEvent<AppToastDetail>("krip:app-toast", {
+        detail: {
+          title: getInboxNotificationTitle(notification),
+          message: getInboxNotificationMessage(notification),
+          variant: "info",
+          path: getInboxNotificationPath(notification),
+          imageUrl:
+            notification.actor_profile_image_url ||
+            notification.target_preview,
+        },
+      })
+    );
+  } catch {
+    if (lastActivityToastHandledAt() >= detectedAt) return;
+
+    markActivityToastHandled();
+    window.dispatchEvent(
+      new CustomEvent<AppToastDetail>("krip:app-toast", {
+        detail: {
+          title: "New notification",
+          message: "Open notifications to view the latest activity.",
+          variant: "info",
+          path: "/my",
+        },
+      })
+    );
+  }
+}
+
+function lastActivityToastHandledAt(): number {
+  return activityToastHandledAt;
+}
+
+function markActivityToastHandled(): void {
+  activityToastHandledAt = Date.now();
+}
+
+let activityToastHandledAt = 0;
+
+function getInboxNotificationTitle(item: InboxNotification): string {
+  const actor = item.actor_name || "Someone";
+
+  if (item.type === "feed_like") return `${actor} liked your feed post.`;
+  if (item.type === "feed_comment") return `${actor} commented on your feed post.`;
+  if (item.type === "tripmate_like") return `${actor} liked your tripmate post.`;
+
+  return `${actor} sent a notification.`;
+}
+
+function getInboxNotificationMessage(item: InboxNotification): string {
+  if (item.comment_preview) return item.comment_preview;
+  if (item.target_type === "feed_post") return "Feed post";
+  if (item.target_type === "tripmate_post") return "Tripmate post";
+
+  return "";
+}
+
+function getInboxNotificationPath(item: InboxNotification): string {
+  if (item.target_type === "tripmate_post") return "/mate";
+  if (item.target_type === "feed_post" && item.target_id) {
+    return `/my?feedPost=${encodeURIComponent(item.target_id)}`;
+  }
+  if (item.target_type === "feed_post") return "/my";
+
+  return "/home";
 }
 /**
  * Avoid notification requests on auth routes where a user token may not exist.
@@ -569,6 +652,27 @@ function AppToast() {
     </div>,
     getToastRoot()
   );
+}
+
+function NotificationOpenNavigator() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    function handleNotificationOpen(event: Event): void {
+      const path = (event as CustomEvent<{ path?: string }>).detail?.path;
+      if (!path) return;
+
+      navigate(path);
+    }
+
+    window.addEventListener("krip:notification-open", handleNotificationOpen);
+
+    return () => {
+      window.removeEventListener("krip:notification-open", handleNotificationOpen);
+    };
+  }, [navigate]);
+
+  return null;
 }
 
 /**
@@ -830,6 +934,7 @@ export default function App() {
         <ActivityNotificationToastWatcher />
         <AppToast />
         <ChatMessageToast />
+        <NotificationOpenNavigator />
       </ChatProvider>
     </BrowserRouter>
   );
