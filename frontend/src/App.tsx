@@ -890,7 +890,9 @@ function UnauthorizedRedirect() {
 
 export default function App() {
   useEffect(() => {
-    void requestPermission();
+    requestPermission().catch((error) => {
+      console.warn("Failed to initialize push permissions", error);
+    });
     listenForegroundMessages().catch((error) => {
       console.warn("Failed to listen for foreground FCM messages", error);
     });
@@ -1054,7 +1056,8 @@ const appToastStyles: Record<string, CSSProperties> = {
     border: "1px solid rgba(5,181,187,0.18)",
     borderRadius: 18,
     background: "rgba(255,255,255,0.97)",
-    boxShadow: "0 18px 42px rgba(24,26,32,0.16)",
+    boxShadow:
+      "0 26px 64px rgba(15,23,42,0.26), 0 8px 20px rgba(15,23,42,0.14)",
     backdropFilter: "blur(16px)",
     pointerEvents: "auto",
     textAlign: "left",
