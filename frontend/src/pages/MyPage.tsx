@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   deleteMyProfileImage,
   getMyProfile,
@@ -26,6 +26,7 @@ import {
   deleteFeedComment,
   deleteFeedPost,
   getFeedComments,
+  getFeedPost,
   getFeedPostLikes,
   getMyFeedPosts,
   likeFeedPost,
@@ -184,8 +185,10 @@ const EMPTY_PREFERENCES: ProfilePreferencesPayload = {
 
 export default function MyPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const profileImageInputRef = useRef<HTMLInputElement>(null);
   const feedImageInputRef = useRef<HTMLInputElement>(null);
+  const openedNotificationPostIdRef = useRef("");
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState("");
@@ -256,6 +259,35 @@ export default function MyPage() {
       if (feedPreviewUrl) URL.revokeObjectURL(feedPreviewUrl);
     };
   }, [feedPreviewUrl]);
+
+  useEffect(() => {
+    const targetPostId = new URLSearchParams(location.search).get("feedPost") || "";
+    if (!targetPostId || openedNotificationPostIdRef.current === targetPostId) return;
+
+    const existingPost = feedPosts.find((post) => post.post_id === targetPostId);
+    if (existingPost) {
+      openedNotificationPostIdRef.current = targetPostId;
+      void openFeedPost(existingPost);
+      return;
+    }
+
+    if (isFeedLoading) return;
+
+    openedNotificationPostIdRef.current = targetPostId;
+    void getFeedPost(targetPostId)
+      .then((post) => {
+        setFeedPosts((current) =>
+          current.some((item) => item.post_id === post.post_id)
+            ? current
+            : [post, ...current]
+        );
+        void openFeedPost(post);
+      })
+      .catch((error) => {
+        openedNotificationPostIdRef.current = "";
+        setFeedError(toErrorMessage(error, "Failed to open feed photo."));
+      });
+  }, [location.search, feedPosts, isFeedLoading]);
 
   async function loadFeedPosts(cursor?: string): Promise<void> {
     setIsFeedLoading(true);
@@ -930,9 +962,7 @@ export default function MyPage() {
               <span style={styles.avatarOverlay}>Uploading...</span>
             ) : isDeletingProfileImage ? (
               <span style={styles.avatarOverlay}>Deleting...</span>
-            ) : (
-              <span style={styles.avatarEditBadge}>Change</span>
-            )}
+            ) : null}
           </button>
           {isProfileImageMenuOpen ? (
             <div style={styles.avatarMenu}>
@@ -975,7 +1005,7 @@ export default function MyPage() {
               onClick={() => setIsSettingsOpen(true)}
               aria-label="Open settings"
             >
-              <img src="/setting.png" alt="settings" style={{ width: 20, height: 20, objectFit: "contain", display: "block" }} />
+              <img src="/SettingsIcon.svg" alt="settings" style={{ width: 20, height: 20, objectFit: "contain", display: "block" }} />
             </button>
             <button
               type="button"
@@ -989,7 +1019,7 @@ export default function MyPage() {
               }}
               aria-label="Create new post"
             >
-              +
+              <img src="/PostIcon.svg" alt="" aria-hidden="true" style={{ width: 20, height: 20, objectFit: "contain", display: "block" }} />
             </button>
           </div>
           <span style={styles.profileStat}>
@@ -2139,12 +2169,11 @@ const styles: Record<string, CSSProperties> = {
     height: 38,
     border: "none",
     borderRadius: 0,
-    padding: "4px 0 0 0",
+    padding: 0,
     background: "transparent",
-    color: "var(--brand-primary)",
-    fontSize: "1.35rem",
-    lineHeight: 1,
-    fontWeight: 900,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     cursor: "pointer",
     boxShadow: "none",
   },

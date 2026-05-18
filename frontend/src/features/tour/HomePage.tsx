@@ -47,6 +47,15 @@ const CATEGORY_GROUPS = {
 
 const SORT_FILTERS = ["Nearest", "Top Rated", "Most Reviewed", "Favorites"] as const;
 
+const CATEGORY_DISPLAY_ORDER = [
+  "Food & Drink",
+  "Shopping",
+  "Other",
+  "Stay",
+  "Attractions",
+  "Essentials",
+];
+
 type SortFilter = (typeof SORT_FILTERS)[number];
 type LocationStatus = "detecting" | "ready" | "approximate" | "fallback";
 type PlaceCategory = string;
@@ -808,17 +817,23 @@ export default function HomePage() {
   );
 
   const categoryFilters = useMemo<string[]>(() => {
-    const source = activeSort === "Favorites" ? favoritePlacesWithMeta : places;
     const categories = Array.from(
       new Set(
-        source
+        places
           .map((place) => place.groupCategory.trim())
           .filter(Boolean)
       )
-    ).sort((left, right) => left.localeCompare(right, "ko"));
+    ).sort((left, right) => {
+      const li = CATEGORY_DISPLAY_ORDER.indexOf(left);
+      const ri = CATEGORY_DISPLAY_ORDER.indexOf(right);
+      if (li === -1 && ri === -1) return left.localeCompare(right, "ko");
+      if (li === -1) return 1;
+      if (ri === -1) return -1;
+      return li - ri;
+    });
 
     return [ALL_CATEGORY, ...categories];
-  }, [activeSort, favoritePlacesWithMeta, places]);
+  }, [places]);
 
   useEffect(() => {
     if (!categoryFilters.includes(activeCategory)) {
@@ -1525,10 +1540,10 @@ export default function HomePage() {
 function SearchIcon() {
   return (
     <img
-      src="/searchIcon.png"
+      src="/SearchIcon.svg"
       alt="search"
-      width={25}
-      height={25}
+      width={20}
+      height={20}
       style={{ display: "block", objectFit: "contain" }}
     />
   );
@@ -1557,7 +1572,7 @@ function HomeHeader({
       <div style={styles.header}>
         <div style={styles.headerLogoWrap}>
           <img
-            src="/krip_register_logo.png"
+            src="/kripInAppLogo.svg"
             alt="KRIP"
             style={styles.headerLogo}
           />
@@ -1578,6 +1593,7 @@ function HomeHeader({
                 onOpenSearch();
               }}
               placeholder="Search places by name or keyword"
+              className="search-input"
               style={styles.searchInput}
               readOnly
             />
@@ -1598,21 +1614,14 @@ function HomeHeader({
 
 function BookmarkIcon({ filled }: { filled: boolean }) {
   return (
-    <svg
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
+    <img
+      src={filled ? "/FavoriteIcon_active.svg" : "/FavoriteIcon.svg"}
+      alt=""
       aria-hidden="true"
-    >
-      <path
-        d="M6.5 4.5C6.5 3.67 7.17 3 8 3H16C16.83 3 17.5 3.67 17.5 4.5V20.25L12 16.75L6.5 20.25V4.5Z"
-        fill={filled ? "#9f9f9f" : "transparent"}
-        stroke="#6f6f6f"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-    </svg>
+      width={24}
+      height={24}
+      style={{ display: "block" }}
+    />
   );
 }
 
@@ -1719,8 +1728,8 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 6,
-    paddingTop: "calc(10px + var(--app-safe-top))",
-    paddingBottom: 6,
+    paddingTop: "calc(12px + var(--app-safe-top))",
+    paddingBottom: 14,
     boxSizing: "border-box",
     marginBottom: -1,
     background: "#f5f5f5",
@@ -1729,19 +1738,15 @@ const styles: Record<string, CSSProperties> = {
     willChange: "transform, opacity",
   },
   header: {
-    position: "relative",
     display: "flex",
     alignItems: "center",
-    justifyContent: "flex-end",
-    padding: "8px 16px 0",
+    justifyContent: "space-between",
+    padding: "16px 16px 0",
   },
   headerLogoWrap: {
-    position: "absolute",
-    left: "50%",
-    transform: "translateX(-50%)",
     display: "flex",
     alignItems: "center",
-    pointerEvents: "none",
+    alignSelf: "flex-start",
   },
   headerLogo: {
     height: "clamp(28px, 6vw, 40px)",
@@ -1754,6 +1759,9 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     gap: 10,
     flexShrink: 0,
+    alignSelf: "flex-start",
+    marginRight: 8,
+    marginTop: -8,
   },
   notificationButton: {
     position: "relative",
@@ -1818,7 +1826,7 @@ const styles: Record<string, CSSProperties> = {
     flex: 1,
     display: "flex",
     alignItems: "center",
-    padding: "0 0.7rem 0 1.3rem",
+    padding: "0 1rem 0 1.7rem",
     minHeight: "2.75rem",
     borderRadius: "3rem",
     background: "#fff",
@@ -2010,6 +2018,7 @@ const styles: Record<string, CSSProperties> = {
     background: "transparent",
     cursor: "pointer",
     flexShrink: 0,
+    opacity: 0.65,
   },
   favoriteButtonPending: {
     opacity: 0.4,
@@ -2051,21 +2060,20 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     alignItems: "flex-end",
-    gap: 4,
+    gap: 2,
     marginLeft: "auto",
     flexShrink: 0,
   },
   distance: {
-    color: "var(--neutral-600)",
-    fontWeight: 800,
-    fontSize: "0.9rem",
+    color: "var(--neutral-500)",
+    fontWeight: 500,
+    fontSize: "0.82rem",
     whiteSpace: "nowrap",
   },
   reviewText: {
-    color: "var(--neutral-600)",
-    textAlign: "left",
-    fontSize: "0.7rem",
-    paddingBottom: 2,
+    color: "var(--neutral-400)",
+    textAlign: "right",
+    fontSize: "0.62rem",
     whiteSpace: "nowrap",
   },
   emptyState: {

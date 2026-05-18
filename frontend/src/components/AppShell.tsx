@@ -11,11 +11,11 @@ type NavIconSize = {
 };
 
 const TAB_ITEMS = [
-  { to: "/home", label: "Home", icon: "home", iconSize: { width: 22, height: 23 } },
-  { to: "/plan", label: "Plan", icon: "plan", iconSize: { width: 21, height: 24 } },
-  { to: "/menu", label: "Menu", icon: "menu", iconSize: { width: 20, height: 24 } },
-  { to: "/mate", label: "Mate", icon: "mate", iconSize: { width: 21, height: 23 } },
-  { to: "/my", label: "My Page", icon: "my", iconSize: { width: 20, height: 23 } },
+  { to: "/home", label: "Home", icon: "home", iconSize: { width: 29, height: 30 } },
+  { to: "/plan", label: "Plan", icon: "plan", iconSize: { width: 27, height: 31 } },
+  { to: "/menu", label: "Menu", icon: "menu", iconSize: { width: 26, height: 31 } },
+  { to: "/mate", label: "Mate", icon: "mate", iconSize: { width: 27, height: 30 } },
+  { to: "/my", label: "My Page", icon: "my", iconSize: { width: 26, height: 30 } },
 ] as const;
 
 const TAB_ROOT_PATHS = TAB_ITEMS.map((item) => item.to);
@@ -73,6 +73,14 @@ export default function AppShell() {
               <span style={styles.navIconWrap}>
                 <NavIcon name={item.icon} active={active} size={item.iconSize} />
               </span>
+              {active && (
+                <img
+                  src="/CurrentNavBar.svg"
+                  alt=""
+                  aria-hidden="true"
+                  style={styles.navActiveBar}
+                />
+              )}
             </NavLink>
           );
         })}
@@ -148,11 +156,11 @@ function getNavIconAsset(
   name: (typeof TAB_ITEMS)[number]["icon"],
   active: boolean
 ): string | null {
-  if (name === "home") return active ? "/home_active.svg" : "/home.svg";
-  if (name === "plan") return active ? "/plan_active.svg" : "/plan.svg";
-  if (name === "menu") return active ? "/menu_active.svg" : "/menu.svg";
-  if (name === "mate") return active ? "/mate_active.svg" : "/mate.svg";
-  if (name === "my") return active ? "/my_active.svg" : "/my.svg";
+  if (name === "home") return active ? "/HomeIcon_active.svg" : "/HomeIcon.svg";
+  if (name === "plan") return active ? "/PlanIcon_active.svg" : "/PlanIcon.svg";
+  if (name === "menu") return active ? "/MenuIcon_active.svg" : "/MenuIcon.svg";
+  if (name === "mate") return active ? "/MateChatIcon_active.svg" : "/MateChatIcon.svg";
+  if (name === "my") return active ? "/MyPageIcon_active.svg" : "/MyPageIcon.svg";
   return null;
 }
 
@@ -210,9 +218,11 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 15,
   },
   navItem: {
+    position: "relative",
     textDecoration: "none",
     color: "#a9a9a9",
     display: "flex",
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
     minHeight: "var(--app-bottom-nav-height)",
@@ -230,6 +240,15 @@ const styles: Record<string, CSSProperties> = {
     height: 40,
     display: "block",
     fill: "currentColor",
+  },
+  navActiveBar: {
+    position: "absolute",
+    bottom: 0,
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: 40,
+    height: 8,
+    display: "block",
   },
   notificationBadge: {
     position: "absolute",
