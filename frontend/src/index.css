@@ -236,3 +236,8 @@ textarea:focus-visible {
     transform: translateX(0);
   }
 }
+
+/* Search bar placeholder */
+.search-input::placeholder {
+  opacity: 0.55;
+}

@@ -378,21 +378,14 @@ function NotificationItem({
 
 function BellIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M18 8.8a6 6 0 0 0-12 0c0 7.2-3 7.2-3 7.2h18s-3 0-3-7.2Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M13.73 20a2 2 0 0 1-3.46 0"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
+    <img
+      src="/NotificationBellIcon.svg"
+      alt=""
+      aria-hidden="true"
+      width={24}
+      height={24}
+      style={{ display: "block" }}
+    />
   );
 }
 
@@ -415,8 +408,8 @@ function getNotificationSubtitle(item: InboxNotification): string {
 
 function getNotificationPath(item: InboxNotification): string {
   if (item.target_type === "tripmate_post") return "/mate";
-  if (item.target_type === "feed_post" && item.actor_id) {
-    return `/profile/${encodeURIComponent(item.actor_id)}`;
+  if (item.target_type === "feed_post" && item.target_id) {
+    return `/my?feedPost=${encodeURIComponent(item.target_id)}`;
   }
   if (item.target_type === "feed_post") return "/my";
 
@@ -445,8 +438,8 @@ function formatGenderLabel(gender: string): string {
 const styles: Record<string, CSSProperties> = {
   notificationButton: {
     position: "relative",
-    width: 48,
-    height: 48,
+    width: 32,
+    height: 32,
     border: "1px solid rgba(5,181,187,0.18)",
     borderRadius: "50%",
     display: "grid",
