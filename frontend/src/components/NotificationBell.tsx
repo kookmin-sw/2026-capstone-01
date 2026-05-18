@@ -9,8 +9,6 @@ import {
   type InboxNotification,
 } from "../api/notification";
 
-type NotificationTab = "activity" | "friends";
-
 type NotificationRealtimeEventDetail = {
   toastHandled?: boolean;
   notification?: InboxNotification;
@@ -24,7 +22,6 @@ export default function NotificationBell({
   const navigate = useNavigate();
 
   const [isOpen, setIsOpen] = useState(false);
-  const [tab, setTab] = useState<NotificationTab>("activity");
   const [notifications, setNotifications] = useState<InboxNotification[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -214,70 +211,66 @@ export default function NotificationBell({
           </button>
         </div>
 
-        <div style={styles.notificationTabs}>
-          <button
-            type="button"
-            style={{
-              ...styles.notificationTab,
-              ...(tab === "activity" ? styles.notificationTabActive : {}),
-            }}
-            onClick={() => setTab("activity")}
-          >
-            Activity
-            {unreadCount > 0 ? (
-              <span style={styles.notificationTabBadge}>
-                {unreadCount >= 999 ? "999+" : unreadCount}
-              </span>
-            ) : null}
-          </button>
-
-          <button
-            type="button"
-            style={{
-              ...styles.notificationTab,
-              ...(tab === "friends" ? styles.notificationTabActive : {}),
-            }}
-            onClick={() => setTab("friends")}
-          >
-            Friends
-            {friendNotifications.length > 0 ? (
-              <span style={styles.notificationTabBadge}>
-                {friendNotifications.length}
-              </span>
-            ) : null}
-          </button>
-        </div>
-
         <div style={styles.notificationList}>
           {isLoading ? (
             <div style={styles.notificationEmpty}>
               <span style={styles.spinner} />
               <p style={styles.emptyCopy}>Loading notifications...</p>
             </div>
-          ) : tab === "activity" ? (
+          ) : (
             <>
-              {notifications.length > 0 ? (
-                notifications.map((item, index) => (
-                  <NotificationItem
-                    key={
-                      item.notification_id || `${item.type}-${item.target_id}-${item.created_at}-${index}`}
-                    item={item}
-                    hiding={actionId === item.notification_id}
-                    onHide={() => void handleHideNotification(item.notification_id)}
-                    onOpen={() => {
-                      setIsOpen(false);
-                      navigate(getNotificationPath(item));
-                    }}
+              {friendNotifications.map((request, index) => (
+                <button
+                  key={request.friendship_id || `${request.peer.user_id}-${request.created_at}-${index}`}
+                  type="button"
+                  style={{ ...styles.notificationItem, ...styles.unreadItem }}
+                  onClick={() => {
+                    setIsOpen(false);
+                    navigate("/mate", {
+                      state: { mainTab: "chat", friendManagerTab: "request" },
+                    });
+                  }}
+                >
+                  <img
+                    src={request.peer.profile_image_url || "/default-profile.png"}
+                    alt=""
+                    style={styles.notificationAvatar}
                   />
-                ))
-              ) : (
+                  <span style={{ ...styles.notificationItemText, ...styles.unreadItemText }}>
+                    <strong style={styles.notificationItemTitle}>
+                      <span style={styles.unreadDot} />
+                      {request.peer.user_name} sent you a friend request.
+                    </strong>
+                    <span>
+                      {request.peer.nationality} /{" "}
+                      {formatGenderLabel(request.peer.gender)}
+                    </span>
+                    <small>{formatNotificationDate(request.created_at)}</small>
+                  </span>
+                </button>
+              ))}
+
+              {notifications.map((item, index) => (
+                <NotificationItem
+                  key={item.notification_id || `${item.type}-${item.target_id}-${item.created_at}-${index}`}
+                  item={item}
+                  hiding={actionId === item.notification_id}
+                  onHide={() => void handleHideNotification(item.notification_id)}
+                  onOpen={() => {
+                    setIsOpen(false);
+                    navigate(getNotificationPath(item));
+                  }}
+                />
+              ))}
+
+              {friendNotifications.length === 0 && notifications.length === 0 ? (
                 <div style={styles.notificationEmpty}>
-                  <p style={styles.emptyTitle}>No activity notifications yet.</p>
+                  <p style={styles.emptyTitle}>No notifications yet.</p>
                   <p style={styles.emptyCopy}>
-                    Likes and comments from other users will appear here.
+                    Friend requests, likes, and comments will appear here.
                   </p>
                 </div>
-              )}
+              ) : null}
 
               {nextCursor ? (
                 <button
@@ -290,44 +283,6 @@ export default function NotificationBell({
                 </button>
               ) : null}
             </>
-          ) : friendNotifications.length > 0 ? (
-            friendNotifications.map((request, index) => (
-              <button
-                key={request.friendship_id || `${request.peer.user_id}-${request.created_at}-${index}`}
-                type="button"
-                style={styles.notificationItem}
-                onClick={() => {
-                  setIsOpen(false);
-                  navigate("/mate", {
-                    state: { mainTab: "chat", friendManagerTab: "request" },
-                  });
-                }}
-              >
-                <img
-                  src={request.peer.profile_image_url || "/default-profile.png"}
-                  alt=""
-                  style={styles.notificationAvatar}
-                />
-
-                <span style={styles.notificationItemText}>
-                  <strong>
-                    {request.peer.user_name} sent you a friend request.
-                  </strong>
-                  <span>
-                    {request.peer.nationality} /{" "}
-                    {formatGenderLabel(request.peer.gender)}
-                  </span>
-                  <small>{formatNotificationDate(request.created_at)}</small>
-                </span>
-              </button>
-            ))
-          ) : (
-            <div style={styles.notificationEmpty}>
-              <p style={styles.emptyTitle}>No friend notifications yet.</p>
-              <p style={styles.emptyCopy}>
-                New friend requests will appear here.
-              </p>
-            </div>
           )}
         </div>
       </aside>
@@ -341,7 +296,6 @@ export default function NotificationBell({
         style={{ ...styles.notificationButton, ...buttonStyle }}
         onClick={() => {
           setIsOpen(true);
-          setTab("activity");
           void fetchFirstPage();
         }}
         aria-label="Open notifications"
@@ -569,40 +523,6 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--text-secondary)",
     fontWeight: 900,
     cursor: "pointer",
-  },
-  notificationTabs: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 8,
-    padding: 6,
-    borderRadius: 18,
-    background: "var(--surface-muted)",
-  },
-  notificationTab: {
-    minHeight: 42,
-    border: "none",
-    borderRadius: 14,
-    background: "transparent",
-    color: "var(--neutral-700)",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  notificationTabActive: {
-    background: "#ffffff",
-    color: "var(--text-primary)",
-    boxShadow: "0 8px 20px rgba(24,26,32,0.08)",
-  },
-  notificationTabBadge: {
-    display: "inline-grid",
-    placeItems: "center",
-    minWidth: 18,
-    height: 18,
-    marginLeft: 6,
-    padding: "0 5px",
-    borderRadius: 999,
-    background: "var(--brand-secondary)",
-    color: "var(--text-primary)",
-    fontSize: "0.68rem",
   },
   notificationList: {
     minHeight: 0,

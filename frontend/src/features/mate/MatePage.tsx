@@ -1021,8 +1021,8 @@ export default function MatePage() {
   const renderHeaderStack = (inputRef: RefObject<HTMLInputElement | null>) => (
     <>
       <header style={styles.header}>
-        <div>
-          <p style={styles.eyebrow}>Trip Mate</p>
+        <div style={styles.headerLogoRow}>
+          <img src="/krip_register_logo.png" alt="KRIP" style={styles.headerLogo} />
           <h1 style={styles.headerTitle}>{mainTab === "mate" ? "Mate" : "Chat"}</h1>
         </div>
         <div style={styles.headerActions}>
@@ -1032,7 +1032,9 @@ export default function MatePage() {
               style={styles.headerButton}
               onClick={() => handleTabChange(tab === "list" ? "write" : "list")}
             >
-              {tab === "list" ? "Post" : "Mate"}
+              {tab === "list" ? (
+                <img src="/postIcon.png" alt="Post" style={{ width: 28, height: 28, objectFit: "contain", display: "block" }} />
+              ) : "Cancel"}
             </button>
           ) : (
             <>
@@ -1168,17 +1170,7 @@ export default function MatePage() {
             ) : null}
 
             <section style={styles.recommendationPanel}>
-              <div style={styles.recommendationHeader}>
-                <div>
-                  <p style={styles.recommendationEyebrow}>Recommended</p>
-                  <h2 style={styles.recommendationTitle}>Travelers for you</h2>
-                </div>
-                <span style={styles.recommendationSource}>
-                  {recommendationSourceTags.length
-                    ? recommendationSourceTags.slice(0, 4).join(" / ")
-                    : "No preferences yet"}
-                </span>
-              </div>
+              <p style={styles.recommendationEyebrow}>Recommended Friends</p>
 
               <div className="mate-recommendation-list" style={styles.recommendationList}>
                 {mateRecommendations.length > 0 ? (
@@ -2527,8 +2519,7 @@ const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
     padding: "0 16px calc(40px + var(--app-bottom-nav-reserved))",
-    background:
-      "linear-gradient(180deg, #e4f7f7 0px, #e4f7f7 145px, #ffffff 145px, #ffffff 38%, #f2f3f5 100%)",
+    background: "#f5f5f5",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   shell: {
@@ -2549,8 +2540,7 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     gap: 14,
     padding: "calc(24px + var(--app-safe-top)) 16px 12px",
-    background:
-      "linear-gradient(180deg, #e4f7f7 0px, #e4f7f7 121px, #ffffff 121px, #ffffff 100%)",
+    background: "#f1f8f6",
     opacity: 0,
     pointerEvents: "none",
     transform: "translateY(calc(-100% - 16px))",
@@ -2566,22 +2556,26 @@ const styles: Record<string, CSSProperties> = {
     maxWidth: 760,
     margin: "0 auto",
     display: "flex",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: 16,
   },
-  eyebrow: {
-    margin: 0,
-    color: "var(--brand-primary-deep)",
-    fontSize: "0.78rem",
-    fontWeight: 800,
-    letterSpacing: "0.14em",
-    textTransform: "uppercase",
+  headerLogoRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  headerLogo: {
+    height: 28,
+    width: "auto",
+    objectFit: "contain",
+    display: "block",
   },
   headerTitle: {
-    margin: "6px 0 8px",
-    fontSize: "clamp(1.9rem, 5vw, 2.4rem)",
-    lineHeight: 1.05,
+    margin: 0,
+    fontSize: "1.2rem",
+    fontWeight: 800,
+    lineHeight: 1.2,
     color: "var(--text-primary)",
   },
   headerCopy: {
@@ -2598,11 +2592,11 @@ const styles: Record<string, CSSProperties> = {
     flexShrink: 0,
   },
   headerButton: {
-    border: "1px solid rgba(5,181,187,0.2)",
+    border: "none",
     borderRadius: 999,
-    padding: "12px 16px",
-    background: "linear-gradient(135deg, var(--brand-primary), #12c0c6)",
-    color: "#ffffff",
+    padding: "6px 8px",
+    background: "transparent",
+    color: "var(--brand-primary)",
     fontWeight: 800,
     cursor: "pointer",
     flexShrink: 0,
@@ -2632,23 +2626,24 @@ const styles: Record<string, CSSProperties> = {
     marginLeft: "calc(50% - 50vw)",
     marginRight: "calc(50% - 50vw)",
     borderRadius: "22px 22px 0 0",
-    background: "#FFE397",
+    background: "#f1f8f6",
     border: "none",
-    boxShadow: "0 -8px 12px rgba(30, 166, 211, 0.1)",
+    boxShadow: "0 -4px 16px rgba(0,0,0,0.06)",
     overflow: "hidden",
   },
   tabButton: {
     minHeight: 46,
     border: "none",
     borderRadius: "22px 22px 0 0",
-    background: "#FFE397",
-    color: "#FFB900",
+    background: "#f1f8f6",
+    color: "var(--neutral-500)",
     fontWeight: 800,
     cursor: "pointer",
   },
   tabButtonActive: {
-    background: "#ffffff",
+    background: "#f5f5f5",
     color: "var(--text-primary)",
+    boxShadow: "inset 0 3px 8px rgba(0,0,0,0.06)",
   },
   chatEmbed: {
     margin: "-18px -16px calc(-40px - var(--app-bottom-nav-reserved))",
@@ -2935,9 +2930,9 @@ const styles: Record<string, CSSProperties> = {
     marginBottom: 12,
   },
   recommendationEyebrow: {
-    margin: 0,
+    margin: "0 0 8px",
     color: "var(--brand-primary-deep)",
-    fontSize: "0.74rem",
+    fontSize: "0.7rem",
     fontWeight: 800,
     letterSpacing: "0.12em",
     textTransform: "uppercase",

@@ -881,7 +881,7 @@ function cancelSpeech(): void {
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "100dvh",
-    background: "#f3f4f6",
+    background: "#f5f5f5",
     padding: "24px 16px 40px",
     display: "flex",
     alignItems: "flex-start",

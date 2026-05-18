@@ -93,7 +93,7 @@ const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
     padding: "calc(20px + var(--app-safe-top)) 16px 20px",
-    background: "linear-gradient(180deg, #f7ffff 0%, #fefdf7 100%)",
+    background: "#f5f5f5",
     fontFamily: '"Nunito", "Apple SD Gothic Neo", sans-serif',
   },
   phoneFrame: {
