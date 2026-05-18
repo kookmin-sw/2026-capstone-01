@@ -1092,14 +1092,6 @@ export default function MyPage() {
                     )}
                   </span>
                 ) : null}
-                <span
-                  style={{
-                    ...styles.feedTileMeta,
-                    ...(post.uploadStatus ? styles.feedTileMetaHidden : {}),
-                  }}
-                >
-                  {post.like_count} likes · {post.comment_count} comments
-                </span>
               </button>
             ))}
           </div>
@@ -2354,9 +2346,8 @@ const styles: Record<string, CSSProperties> = {
   feedTileImage: {
     width: "100%",
     height: "100%",
-    objectFit: "contain",
+    objectFit: "cover",
     display: "block",
-    background: "#050608",
   },
   feedUploadOverlay: {
     position: "absolute",
