@@ -35,7 +35,7 @@ export default function FeedPopup({
       .then((response) => {
         if (isMounted) {
           setPopup(response);
-          setNextCursor(response.feed.items.at(-1)?.post_id ?? null);
+          setNextCursor(response.feed.items[response.feed.items.length - 1]?.post_id ?? null);
           setHasMoreFeed(response.feed.items.length >= 9);
         }
       })
@@ -61,7 +61,7 @@ export default function FeedPopup({
   async function handleLoadMore(): Promise<void> {
     if (!popup || loadingMore || !hasMoreFeed) return;
 
-    const cursor = nextCursor || popup.feed.items.at(-1)?.post_id;
+    const cursor = nextCursor || popup.feed.items[popup.feed.items.length - 1]?.post_id;
     if (!cursor) return;
 
     setLoadingMore(true);

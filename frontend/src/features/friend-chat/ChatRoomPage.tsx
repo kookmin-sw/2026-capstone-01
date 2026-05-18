@@ -410,7 +410,7 @@ export default function ChatRoomPage() {
       return;
     }
 
-    const latestMessage = messages.at(-1);
+    const latestMessage = messages[messages.length - 1];
     const latestMessageKey = latestMessage ? getMessageKey(latestMessage) : "";
     const previousLatestMessageKey = latestMessageKeyRef.current;
     const hasNewLatestMessage =

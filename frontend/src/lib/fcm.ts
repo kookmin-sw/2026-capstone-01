@@ -18,12 +18,15 @@ import { firebaseApp } from "./firebase";
 import { rememberLikeNotification } from "./notifications";
 
 const FCM_TOKEN_STORAGE_KEY = "FCMtoken";
+const FCM_REGISTERED_TOKEN_STORAGE_KEY = "FCMtokenRegistered";
 const DEBUG_FCM_LOG = import.meta.env.DEV && import.meta.env.VITE_DEBUG_FCM_LOG === "true";
-const FCM_REGISTER_PATH = import.meta.env.VITE_FCM_REGISTER_PATH?.trim() || "";
+const FCM_REGISTER_PATH =
+  import.meta.env.VITE_FCM_REGISTER_PATH?.trim() || "/api/notification/fcm-token";
 let fcmTokenRegistrationPromise: Promise<string | null> | null = null;
 let foregroundMessageListenerStarted = false;
 let nativePushSetupPromise: Promise<string | null> | null = null;
 let nativePushListenersStarted = false;
+let nativePushRegistered = false;
 const nativePushListenerHandles: PluginListenerHandle[] = [];
 
 type PushData = Record<string, string>;
@@ -89,15 +92,16 @@ export function registerFcmToken(): Promise<string | null> {
 async function persistPushToken(token: string): Promise<void> {
   if (!token) return;
 
-  const storedToken = localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
+  const registeredToken = localStorage.getItem(FCM_REGISTERED_TOKEN_STORAGE_KEY);
   localStorage.setItem(FCM_TOKEN_STORAGE_KEY, token);
 
-  if (storedToken === token || !FCM_REGISTER_PATH) {
+  if (registeredToken === token || !FCM_REGISTER_PATH) {
     return;
   }
 
   try {
     await client.post(FCM_REGISTER_PATH, { token });
+    localStorage.setItem(FCM_REGISTERED_TOKEN_STORAGE_KEY, token);
   } catch (error) {
     if (DEBUG_FCM_LOG) {
       console.warn("Failed to save FCM token to backend", error);
@@ -106,6 +110,10 @@ async function persistPushToken(token: string): Promise<void> {
 }
 
 function registerNativePushNotifications(): Promise<string | null> {
+  if (nativePushRegistered) {
+    return Promise.resolve(localStorage.getItem(FCM_TOKEN_STORAGE_KEY));
+  }
+
   if (!nativePushSetupPromise) {
     nativePushSetupPromise = setupNativePushNotifications().finally(() => {
       nativePushSetupPromise = null;
@@ -118,19 +126,25 @@ function registerNativePushNotifications(): Promise<string | null> {
 async function setupNativePushNotifications(): Promise<string | null> {
   if (!Capacitor.isNativePlatform()) return null;
 
-  await ensureNativePushListeners();
-  await ensureNativeNotificationChannels();
+  try {
+    await ensureNativePushListeners();
+    await ensureNativeNotificationChannels();
 
-  const pushPermission = await PushNotifications.requestPermissions();
-  await LocalNotifications.requestPermissions().catch(() => undefined);
+    const pushPermission = await PushNotifications.requestPermissions();
+    await requestLocalNotificationPermissionIfNeeded();
 
-  if (pushPermission.receive !== "granted") {
-    if (DEBUG_FCM_LOG) console.warn("Push notification permission denied");
+    if (pushPermission.receive !== "granted") {
+      if (DEBUG_FCM_LOG) console.warn("Push notification permission denied");
+      return null;
+    }
+
+    await PushNotifications.register();
+    nativePushRegistered = true;
+    return localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
+  } catch (error) {
+    console.warn("Native push initialization failed", error);
     return null;
   }
-
-  await PushNotifications.register();
-  return localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
 }
 
 async function ensureNativePushListeners(): Promise<void> {
@@ -196,13 +210,30 @@ async function ensureNativeNotificationChannels(): Promise<void> {
   ]);
 }
 
+async function requestLocalNotificationPermissionIfNeeded(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+
+  if (Capacitor.getPlatform() === "android") {
+    const androidVersion = Number(Capacitor.getPlatformVersion?.() ?? 0);
+    if (androidVersion > 0 && androidVersion < 13) return;
+  }
+
+  await LocalNotifications.requestPermissions().catch(() => undefined);
+}
+
 export async function unregisterFcmToken(): Promise<void> {
   const storedToken = localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
   localStorage.removeItem(FCM_TOKEN_STORAGE_KEY);
+  localStorage.removeItem(FCM_REGISTERED_TOKEN_STORAGE_KEY);
+  nativePushRegistered = false;
 
   if (!storedToken) return;
 
   try {
+    if (FCM_REGISTER_PATH) {
+      await client.delete(FCM_REGISTER_PATH, { data: { token: storedToken } });
+    }
+
     if (Capacitor.isNativePlatform()) {
       await PushNotifications.unregister();
       return;
@@ -211,7 +242,6 @@ export async function unregisterFcmToken(): Promise<void> {
     if (await isSupported()) {
       await deleteToken(getMessaging(firebaseApp));
     }
-    // TODO: call backend FCM unregister endpoint when available.
   } catch (error) {
     if (DEBUG_FCM_LOG) {
       console.warn("Failed to delete FCM token", error);
@@ -403,7 +433,7 @@ function toPayloadFromNativeNotification(
 function normalizePushData(value: unknown): PushData {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
 
-  return Object.fromEntries(
+  const normalized = Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
       .filter(([key, item]) => key && item != null)
       .map(([key, item]) => [
@@ -411,6 +441,20 @@ function normalizePushData(value: unknown): PushData {
         typeof item === "string" ? item : String(item),
       ])
   );
+
+  for (const nestedKey of ["data", "extras", "payload"]) {
+    const nestedValue = normalized[nestedKey];
+    if (!nestedValue || typeof nestedValue !== "string") continue;
+
+    try {
+      const nested = JSON.parse(nestedValue) as unknown;
+      Object.assign(normalized, normalizePushData(nested));
+    } catch {
+      // Some Android extras are plain strings; only JSON-shaped nested data is flattened.
+    }
+  }
+
+  return normalized;
 }
 
 async function scheduleNativeLocalNotification(
@@ -643,6 +687,12 @@ function isFeedActivityNotificationPayload(payload: KripPushPayload): boolean {
 
 function getNotificationPath(payload: KripPushPayload, feedNotification: boolean): string {
   const data = payload.data ?? {};
+  const roomId = getChatRoomId(data);
+  if (roomId) return `/chat/${encodeURIComponent(roomId)}`;
+
+  const explicitPath = getExplicitNotificationPath(data);
+  if (explicitPath) return explicitPath;
+
   const type = [
     data.type,
     data.notification_type,
@@ -657,6 +707,7 @@ function getNotificationPath(payload: KripPushPayload, feedNotification: boolean
     .join(" ")
     .toLowerCase();
 
+  if (type.includes("chat")) return "/chat";
   if (type.includes("tripmate")) return "/mate";
   if (type.includes("feed") || feedNotification) {
     const targetId =
@@ -668,12 +719,34 @@ function getNotificationPath(payload: KripPushPayload, feedNotification: boolean
       data.feedPostId;
     return targetId ? `/my?feedPost=${encodeURIComponent(targetId)}` : "/my";
   }
-  if (data.url || data.path) return data.url || data.path || "/chat";
-
-  const roomId = data.chatRoomId || data.chat_room_id || extractChatRoomId(data.url);
-  if (roomId) return `/chat/${roomId}`;
 
   return "/chat";
+}
+
+function getChatRoomId(data: PushData): string | undefined {
+  return (
+    data.chatRoomId ||
+    data.chat_room_id ||
+    data.chat_room ||
+    data.roomId ||
+    data.room_id ||
+    extractChatRoomId(data.url) ||
+    extractChatRoomId(data.path) ||
+    extractChatRoomId(data.click_action) ||
+    extractChatRoomId(data.link)
+  );
+}
+
+function getExplicitNotificationPath(data: PushData): string | undefined {
+  const rawPath = data.url || data.path || data.click_action || data.link;
+  if (!rawPath) return undefined;
+
+  try {
+    const url = new URL(rawPath, window.location.origin);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return rawPath.startsWith("/") ? rawPath : undefined;
+  }
 }
 
 function extractActorName(title: string, body: string): string {

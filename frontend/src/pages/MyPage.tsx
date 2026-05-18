@@ -3029,7 +3029,7 @@ const styles: Record<string, CSSProperties> = {
     background: "rgba(255,255,255,0.98)",
     border: "1px solid rgba(255,255,255,0.82)",
     boxShadow:
-      "0 28px 80px rgba(15,23,42,0.34), 0 10px 28px rgba(15,23,42,0.18)",
+      "0 32px 86px rgba(15,23,42,0.38), 0 14px 32px rgba(15,23,42,0.22)",
     color: "var(--text-primary)",
     textAlign: "center",
   },

@@ -20,3 +20,6 @@ export const firebaseApp = initializeApp(firebaseConfig);
 export const firebaseAnalytics: Promise<Analytics | null> = isSupported()
   .then((supported) => (supported ? getAnalytics(firebaseApp) : null))
   .catch(() => null);
+  
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);

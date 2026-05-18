@@ -23,6 +23,7 @@ import {
   sendFriendRequest,
   type FriendshipStatus,
 } from "../api/friend";
+import ConfirmToast from "../components/ConfirmToast";
 
 const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
@@ -47,6 +48,7 @@ export default function UserFeedPage() {
   const [friendshipStatus, setFriendshipStatus] = useState<FriendshipStatus | null>(null);
   const [isRequester, setIsRequester] = useState<boolean | null>(null);
   const [relationshipBusy, setRelationshipBusy] = useState(false);
+  const [commentDeleteTarget, setCommentDeleteTarget] = useState<FeedComment | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -59,7 +61,7 @@ export default function UserFeedPage() {
         if (!mounted) return;
         setProfile(response);
         setPosts(response.feed.items);
-        setNextCursor(response.feed.items.at(-1)?.post_id ?? null);
+        setNextCursor(response.feed.items[response.feed.items.length - 1]?.post_id ?? null);
       })
       .catch((loadError) => {
         if (mounted) setError(toErrorMessage(loadError, "Feed could not be loaded."));
@@ -235,18 +237,24 @@ export default function UserFeedPage() {
 
   async function handleCommentDelete(comment: FeedComment): Promise<void> {
     if (!selectedPost || detailBusy) return;
+    setCommentDeleteTarget(comment);
+  }
+
+  async function confirmCommentDelete(): Promise<void> {
+    if (!selectedPost || !commentDeleteTarget || detailBusy) return;
 
     setDetailBusy(true);
     setDetailError("");
     try {
-      await deleteFeedComment(selectedPost.post_id, comment.comment_id);
+      await deleteFeedComment(selectedPost.post_id, commentDeleteTarget.comment_id);
       setSelectedComments((current) =>
-        current.filter((item) => item.comment_id !== comment.comment_id)
+        current.filter((item) => item.comment_id !== commentDeleteTarget.comment_id)
       );
       updatePostState({
         ...selectedPost,
         comment_count: Math.max(0, selectedPost.comment_count - 1),
       });
+      setCommentDeleteTarget(null);
     } catch (deleteError) {
       setDetailError(toErrorMessage(deleteError, "Failed to delete comment."));
     } finally {
@@ -494,6 +502,18 @@ export default function UserFeedPage() {
             </aside>
           </div>
         </div>
+      ) : null}
+
+      {commentDeleteTarget ? (
+        <ConfirmToast
+          title="Delete this comment?"
+          message="This action cannot be undone."
+          confirmLabel="Delete"
+          destructive
+          busy={detailBusy}
+          onCancel={() => setCommentDeleteTarget(null)}
+          onConfirm={() => void confirmCommentDelete()}
+        />
       ) : null}
     </div>
   );

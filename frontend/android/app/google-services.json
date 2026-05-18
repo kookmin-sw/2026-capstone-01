@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "149172625115",
+    "project_id": "krip-a4d7d",
+    "storage_bucket": "krip-a4d7d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:149172625115:android:629dfc27d291008243f6fe",
+        "android_client_info": {
+          "package_name": "com.krip.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCnGTD1j1Keo08VDZm_zM6yKqMY4-2DP0s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
