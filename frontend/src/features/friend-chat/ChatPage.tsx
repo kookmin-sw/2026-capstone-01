@@ -1088,7 +1088,7 @@ const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
     padding: "calc(20px + var(--app-safe-top)) 0 34px",
-    background: "#ffffff",
+    background: "#f1f8f6",
     fontFamily: "'Pretendard Variable', 'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   shell: {
@@ -1356,7 +1356,7 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 76,
     padding: "10px 17px",
     borderRadius: 0,
-    background: "#ffffff",
+    background: "#f1f8f6",
     border: "none",
     cursor: "pointer",
     textAlign: "left",

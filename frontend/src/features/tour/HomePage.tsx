@@ -54,6 +54,7 @@ type PlaceTag = "Indoor" | "Outdoor" | "Crowded" | "Quiet";
 
 interface Place {
   id: string;
+  googlePlaceId: string;
   favoriteId?: string;
   favoriteCreatedAt?: string;
   initialIsFavorite?: boolean;
@@ -384,6 +385,7 @@ function mapTourPlace(item: TourPlaceApiItem): Place {
 
   return {
     id: String(item.id || item.place_id || crypto.randomUUID()),
+    googlePlaceId: String(item.place_id || item.id || ""),
     initialIsFavorite: item.is_favorite === true,
     name: String(item.display_name || item.name || item.title || "Unnamed place"),
     category: formatCategoryLabel(getBackendCategory(item)),
@@ -503,6 +505,7 @@ export default function HomePage() {
     right: false,
   });
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
@@ -980,10 +983,10 @@ export default function HomePage() {
 
     try {
       if (place.isFavorite) {
-        await removeTourPlaceFavorite(place.favoriteId || place.id, place.id);
+        await removeTourPlaceFavorite(place.googlePlaceId || place.id, place.googlePlaceId || place.id);
         syncPlaceFavoriteState(place.id, false);
       } else {
-        await addTourPlaceFavorite(place.id);
+        await addTourPlaceFavorite(place.googlePlaceId || place.id);
         syncPlaceFavoriteState(place.id, true);
         await fetchFavoritePlaces();
       }
@@ -1065,7 +1068,13 @@ export default function HomePage() {
       setIsHeaderHidden(false);
     }
 
+    setShowScrollTop(nextScrollTop > 800);
+
     lastScrollTopRef.current = nextScrollTop;
+  }
+
+  function scrollToTop() {
+    bodyScrollerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   return (
@@ -1082,24 +1091,13 @@ export default function HomePage() {
             isHidden={isHeaderHidden}
           />
 
-          <section style={styles.locationSection}>
-            <div style={styles.locationBar}>
-              <button
-                type="button"
-                style={styles.locationButton}
-                onClick={requestCurrentLocation}
-              >
-                Use my location
-              </button>
-            </div>
-          </section>
 
           <section style={styles.filtersSection}>
             <div ref={categoryFilterRef}
               className="filter-group-scroll"
               style={{
                 ...styles.filterGroup,
-                justifyContent: "flex-start",
+                justifyContent: "center",
                 WebkitMaskImage: getFilterMask(
                   categoryFilterFade.left,
                   categoryFilterFade.right
@@ -1509,21 +1507,30 @@ export default function HomePage() {
         </div>
       ) : null}
 
+      {showScrollTop ? (
+        <button
+          type="button"
+          style={styles.scrollTopButton}
+          onClick={scrollToTop}
+          aria-label="Scroll to top"
+        >
+          ↑
+        </button>
+      ) : null}
+
     </div>
   );
 }
 
 function SearchIcon() {
   return (
-    <svg width="25" height="25" viewBox="0 0 24 24" fill="#848484" aria-hidden="true">
-      <path
-        d="M10.5 18a7.5 7.5 0 1 1 5.303-12.803A7.5 7.5 0 0 1 10.5 18Zm0-13a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11Zm10 15l-4.35-4.35"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <img
+      src="/searchIcon.png"
+      alt="search"
+      width={25}
+      height={25}
+      style={{ display: "block", objectFit: "contain" }}
+    />
   );
 }
 
@@ -1548,9 +1555,12 @@ function HomeHeader({
       }}
     >
       <div style={styles.header}>
-        <div>
-          <p style={styles.eyebrow}>Trip Finder</p>
-          <h1 style={styles.headerTitle}>Explore Nearby Places</h1>
+        <div style={styles.headerLogoWrap}>
+          <img
+            src="/krip_register_logo.png"
+            alt="KRIP"
+            style={styles.headerLogo}
+          />
         </div>
         <div style={styles.headerActions}>
           <NotificationBell buttonStyle={styles.myPageButton} />
@@ -1672,8 +1682,7 @@ const styles: Record<string, CSSProperties> = {
     height: "calc(var(--app-viewport-height) - var(--app-bottom-nav-reserved))",
     minHeight: "calc(var(--app-viewport-height) - var(--app-bottom-nav-reserved))",
     overflow: "visible",
-    background:
-      "linear-gradient(180deg, #d5f6f5 0%, #d9f5f2 30%, #eef4ef 58%, #fafafa 100%)",
+    background: "#f5f5f5",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   shell: {
@@ -1697,8 +1706,7 @@ const styles: Record<string, CSSProperties> = {
     overscrollBehavior: "contain",
     WebkitOverflowScrolling: "touch",
     paddingBottom: 40,
-    background:
-      "linear-gradient(180deg, rgba(221,246,244,0.98) 0%, rgba(230,244,240,0.94) 28%, rgba(250,250,250,1) 52%)",
+    background: "#f5f5f5",
     transition: "padding-top 220ms ease",
   },
 
@@ -1710,38 +1718,36 @@ const styles: Record<string, CSSProperties> = {
     flexShrink: 0,
     display: "flex",
     flexDirection: "column",
-    gap: 12,
-    paddingTop: "calc(20px + var(--app-safe-top))",
-    paddingBottom: 12,
+    gap: 6,
+    paddingTop: "calc(10px + var(--app-safe-top))",
+    paddingBottom: 6,
     boxSizing: "border-box",
     marginBottom: -1,
-    background:
-      "linear-gradient(180deg, rgba(211,246,245,1) 0%, rgba(220,247,245,0.98) 68%, rgba(221,246,244,0.98) 100%)",
+    background: "#f5f5f5",
     transition:
       "transform 240ms ease, opacity 180ms ease",
     willChange: "transform, opacity",
   },
   header: {
+    position: "relative",
     display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 16,
-    padding: "16px 16px 0",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    padding: "8px 16px 0",
   },
-  eyebrow: {
-    margin: 0,
-    color: "var(--brand-primary-deep)",
-    fontSize: "0.7rem",
-    fontWeight: 800,
-    letterSpacing: "0.14em",
-    textTransform: "uppercase",
+  headerLogoWrap: {
+    position: "absolute",
+    left: "50%",
+    transform: "translateX(-50%)",
+    display: "flex",
+    alignItems: "center",
+    pointerEvents: "none",
   },
-  headerTitle: {
-    margin: "2px 0 0",
-    fontSize: "clamp(1.15rem, 3.7vw, 2rem)",
-    fontWeight: 800,
-    lineHeight: 1.25,
-    color: "var(--text-primary)",
+  headerLogo: {
+    height: "clamp(28px, 6vw, 40px)",
+    width: "auto",
+    objectFit: "contain",
+    display: "block",
   },
   headerActions: {
     display: "flex",
@@ -1783,13 +1789,13 @@ const styles: Record<string, CSSProperties> = {
     position: "relative",
     width: 40,
     height: 40,
-    border: "1px solid rgba(5,181,187,0.18)",
+    border: "none",
     borderRadius: "50%",
     display: "grid",
     placeItems: "center",
-    background: "rgba(255,255,255,0.94)",
+    background: "transparent",
     color: "var(--brand-primary-deep)",
-    boxShadow: "var(--shadow-soft)",
+    boxShadow: "none",
     cursor: "pointer",
     flexShrink: 0,
     fontWeight: 900,
@@ -1861,8 +1867,8 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     margin: "0",
-    padding: "0 16px 0.8rem",
-    gap: 8,
+    padding: "0 16px 0.4rem",
+    gap: 6,
     minHeight: 54,
     overflow: "visible",
   },
@@ -1870,7 +1876,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexWrap: "nowrap",
     gap: "0.3rem",
-    justifyContent: "flex-start",
+    justifyContent: "center",
     alignItems: "center",
     overflowX: "auto",
     overflowY: "hidden",
@@ -1884,7 +1890,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexWrap: "nowrap",
     gap: "0.3rem",
-    justifyContent: "flex-start",
+    justifyContent: "center",
     alignItems: "center",
     minWidth: "100%",
     width: "max-content",
@@ -1930,7 +1936,7 @@ const styles: Record<string, CSSProperties> = {
     background: "#fff",
     borderRadius: "1.8rem",
     boxShadow: "var(--shadow-soft)",
-    paddingTop: 12,
+    paddingTop: 6,
   },
   emptyListSection: {
     display: "flex",
@@ -1939,23 +1945,23 @@ const styles: Record<string, CSSProperties> = {
   },
   card: {
     display: "grid",
-    gridTemplateColumns: "minmax(5.75rem, 6.5rem) minmax(0, 1fr)",
+    gridTemplateColumns: "minmax(3.8rem, 4.4rem) minmax(0, 1fr)",
     gap: 14,
-    padding: "0.8rem 16px",
-    minHeight: "9.25rem",
+    padding: "0.35rem 16px",
+    minHeight: "6rem",
     cursor: "pointer",
   },
   thumbnail: {
     width: "100%",
     aspectRatio: "1 / 1.24",
-    minHeight: 108,
-    maxHeight: 132,
-    borderRadius: 22,
+    minHeight: 68,
+    maxHeight: 84,
+    borderRadius: 14,
     overflow: "hidden",
     display: "flex",
     alignItems: "flex-end",
     justifyContent: "flex-start",
-    padding: 8,
+    padding: 6,
     boxSizing: "border-box",
     background: "linear-gradient(160deg, rgba(5,181,187,0.18), rgba(248,180,0,0.14))",
   },
@@ -1982,16 +1988,16 @@ const styles: Record<string, CSSProperties> = {
   cardCategory: {
     margin: 0,
     color: "var(--brand-primary-deep)",
-    fontSize: "0.8rem",
+    fontSize: "0.68rem",
     fontWeight: 700,
     lineHeight: 1.25,
   },
   cardTitle: {
-    margin: "2px 0 0",
+    margin: "1px 0 0",
     color: "var(--text-primary)",
-    fontSize: "1.1rem",
+    fontSize: "0.92rem",
     fontWeight: 700,
-    lineHeight: 1.35,
+    lineHeight: 1.3,
     display: "-webkit-box",
     WebkitLineClamp: 2,
     WebkitBoxOrient: "vertical",
@@ -2012,10 +2018,10 @@ const styles: Record<string, CSSProperties> = {
   cardDescription: {
     margin: 0,
     color: "var(--neutral-500)",
-    lineHeight: 1.5,
-    fontSize: "0.75rem",
+    lineHeight: 1.4,
+    fontSize: "0.68rem",
     display: "-webkit-box",
-    WebkitLineClamp: 2,
+    WebkitLineClamp: 1,
     WebkitBoxOrient: "vertical",
     overflow: "hidden",
   },
@@ -2540,5 +2546,24 @@ const styles: Record<string, CSSProperties> = {
     margin: 0,
     color: "var(--neutral-700)",
     lineHeight: 1.5,
+  },
+  scrollTopButton: {
+    position: "fixed",
+    bottom: "calc(24px + var(--app-bottom-nav-reserved, 0px))",
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: "50%",
+    border: "none",
+    background: "var(--brand-primary)",
+    color: "#fff",
+    fontSize: "1.2rem",
+    fontWeight: 900,
+    display: "grid",
+    placeItems: "center",
+    boxShadow: "0 4px 16px rgba(1,192,192,0.35)",
+    cursor: "pointer",
+    zIndex: 30,
+    animation: "fadeInOverlay 200ms ease-out",
   },
 };
