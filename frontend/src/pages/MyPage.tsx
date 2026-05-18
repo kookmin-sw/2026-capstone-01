@@ -116,6 +116,17 @@ const PLANNING_OPTIONS: PreferenceOption[] = [
   { key: "follower", label: "Follower" },
 ];
 
+const TRAVEL_STYLE_KEYS = new Set(TRAVEL_STYLE_OPTIONS.map((option) => option.key));
+const FOOD_KEYS = new Set(FOOD_OPTIONS.map((option) => option.key));
+const DENSITY_KEYS = new Set(DENSITY_OPTIONS.map((option) => option.key));
+const BUDGET_KEYS = new Set(BUDGET_OPTIONS.map((option) => option.key));
+const WALKING_KEYS = new Set(WALKING_OPTIONS.map((option) => option.key));
+const TRANSPORT_KEYS = new Set(TRANSPORT_OPTIONS.map((option) => option.key));
+const COMPANION_KEYS = new Set(COMPANION_OPTIONS.map((option) => option.key));
+const TIME_KEYS = new Set(TIME_OPTIONS.map((option) => option.key));
+const COMMUNICATION_KEYS = new Set(COMMUNICATION_OPTIONS.map((option) => option.key));
+const PLANNING_KEYS = new Set(PLANNING_OPTIONS.map((option) => option.key));
+
 const MIN_AGE = 20;
 const MAX_AGE = 100;
 
@@ -3464,17 +3475,21 @@ function toPreferencePayload(
   profile: UserProfile | null
 ): ProfilePreferencesPayload {
   if (!profile) return EMPTY_PREFERENCES;
+  if (Array.isArray(profile.travel_styles)) {
+    return splitTravelStyles(profile.travel_styles);
+  }
+
   return {
-    travel_styles: profile.travel_styles ?? [],
-    food_preferences: profile.food_preferences ?? [],
-    density_preference: profile.density_preference ?? "",
-    budget_preference: profile.budget_preference ?? "",
-    walking_preference: profile.walking_preference ?? "",
-    transport_preferences: profile.transport_preferences ?? [],
-    companion_preference: profile.companion_preference ?? "",
-    time_preferences: profile.time_preferences ?? [],
-    communication_preference: profile.communication_preference ?? "",
-    planning_preference: profile.planning_preference ?? "",
+    travel_styles: [],
+    food_preferences: normalizePreferenceList(profile.food_preferences),
+    density_preference: normalizePreferenceValue(profile.density_preference),
+    budget_preference: normalizePreferenceValue(profile.budget_preference),
+    walking_preference: normalizePreferenceValue(profile.walking_preference),
+    transport_preferences: normalizePreferenceList(profile.transport_preferences),
+    companion_preference: normalizePreferenceValue(profile.companion_preference),
+    time_preferences: normalizePreferenceList(profile.time_preferences),
+    communication_preference: normalizePreferenceValue(profile.communication_preference),
+    planning_preference: normalizePreferenceValue(profile.planning_preference),
   };
 }
 
@@ -3482,16 +3497,16 @@ function sanitizePreferencePayload(
   payload: ProfilePreferencesPayload
 ): ProfilePreferencesPayload {
   return {
-    travel_styles: payload.travel_styles ?? [],
-    food_preferences: payload.food_preferences ?? [],
-    density_preference: payload.density_preference ?? "",
-    budget_preference: payload.budget_preference ?? "",
-    walking_preference: payload.walking_preference ?? "",
-    transport_preferences: payload.transport_preferences ?? [],
-    companion_preference: payload.companion_preference ?? "",
-    time_preferences: payload.time_preferences ?? [],
-    communication_preference: payload.communication_preference ?? "",
-    planning_preference: payload.planning_preference ?? "",
+    travel_styles: normalizePreferenceList(payload.travel_styles),
+    food_preferences: normalizePreferenceList(payload.food_preferences),
+    density_preference: normalizePreferenceValue(payload.density_preference),
+    budget_preference: normalizePreferenceValue(payload.budget_preference),
+    walking_preference: normalizePreferenceValue(payload.walking_preference),
+    transport_preferences: normalizePreferenceList(payload.transport_preferences),
+    companion_preference: normalizePreferenceValue(payload.companion_preference),
+    time_preferences: normalizePreferenceList(payload.time_preferences),
+    communication_preference: normalizePreferenceValue(payload.communication_preference),
+    planning_preference: normalizePreferenceValue(payload.planning_preference),
   };
 }
 
@@ -3499,8 +3514,70 @@ function toTravelStylesOnlyPayload(
   preferences: ProfilePreferencesPayload
 ): ProfileUpdatePayload {
   return {
-    travel_styles: preferences.travel_styles,
+    travel_styles: mergeUnique(
+      preferences.travel_styles,
+      preferences.food_preferences,
+      [
+        preferences.density_preference,
+        preferences.budget_preference,
+        preferences.walking_preference,
+      ],
+      preferences.transport_preferences,
+      [preferences.companion_preference],
+      preferences.time_preferences,
+      [preferences.communication_preference, preferences.planning_preference]
+    ),
   };
+}
+
+function splitTravelStyles(values: string[]): ProfilePreferencesPayload {
+  const result: ProfilePreferencesPayload = {
+    travel_styles: [],
+    food_preferences: [],
+    density_preference: "",
+    budget_preference: "",
+    walking_preference: "",
+    transport_preferences: [],
+    companion_preference: "",
+    time_preferences: [],
+    communication_preference: "",
+    planning_preference: "",
+  };
+
+  normalizePreferenceList(values).forEach((value) => {
+    if (TRAVEL_STYLE_KEYS.has(value)) result.travel_styles.push(value);
+    else if (FOOD_KEYS.has(value)) result.food_preferences?.push(value);
+    else if (DENSITY_KEYS.has(value)) result.density_preference = value;
+    else if (BUDGET_KEYS.has(value)) result.budget_preference = value;
+    else if (WALKING_KEYS.has(value)) result.walking_preference = value;
+    else if (TRANSPORT_KEYS.has(value)) result.transport_preferences?.push(value);
+    else if (COMPANION_KEYS.has(value)) result.companion_preference = value;
+    else if (TIME_KEYS.has(value)) result.time_preferences?.push(value);
+    else if (COMMUNICATION_KEYS.has(value)) result.communication_preference = value;
+    else if (PLANNING_KEYS.has(value)) result.planning_preference = value;
+    else result.travel_styles.push(value);
+  });
+
+  return result;
+}
+
+function normalizePreferenceList(values?: string[]): string[] {
+  return mergeUnique(values);
+}
+
+function normalizePreferenceValue(value?: string): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function mergeUnique(...groups: Array<Array<string | undefined> | undefined>): string[] {
+  return Array.from(
+    new Set(
+      groups
+        .flatMap((group) => group ?? [])
+        .map(normalizePreferenceValue)
+        .filter(Boolean)
+    )
+  );
 }
 
 function getVisibilityLabel(visibility: FeedVisibility): string {
