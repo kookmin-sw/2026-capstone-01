@@ -27,6 +27,7 @@ class FeedPostResponse(BaseModel):
     thumbnail_medium_url: str = Field(..., description="720×720 썸네일 URL — 확대/상세용")
     like_count: int = Field(..., description="좋아요 수 (응답 시점 스냅샷)")
     comment_count: int = Field(..., description="댓글 수 (응답 시점 스냅샷)")
+    is_liked: bool = Field(..., description="요청 유저(viewer)가 이 게시물에 좋아요를 눌렀는지 여부")
     created_at: datetime = Field(..., description="업로드 시각")
     updated_at: datetime = Field(..., description="마지막 수정 시각")
 

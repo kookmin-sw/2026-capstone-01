@@ -15,7 +15,7 @@
 """
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func
+from sqlalchemy import select, or_, func, literal, exists
 
 from app.domain.feed.model.feed_post import FeedPost, FeedVisibility
 from app.domain.feed.model.feed_post_like import FeedPostLike
@@ -49,6 +49,27 @@ def _comment_count_subquery():
     )
 
 
+def _is_liked_subquery(viewer_id: Optional[str]):
+    """viewer 가 해당 게시물에 좋아요 눌렀는지 — bool.
+
+    - `viewer_id is None` (인증 없는 호출 가정 미래 대비): SQL 측 `false` 상수로 단락 평가.
+    - 그 외: `EXISTS (SELECT 1 FROM feed_post_like WHERE post_id=:p AND user_id=:v)` —
+      `feed_post_like` 의 composite PK `(user_id, post_id)` 가 정확히 lookup 인덱스로 작동
+      해 row 0/1 건 평가에서 즉시 종료. like_count(SUM) 보다 짧음.
+    """
+    if viewer_id is None:
+        return literal(False).label("is_liked")
+    return exists(
+        select(1)
+        .select_from(FeedPostLike)
+        .where(
+            FeedPostLike.post_id == FeedPost.post_id,
+            FeedPostLike.user_id == viewer_id,
+        )
+        .correlate(FeedPost)
+    ).label("is_liked")
+
+
 class FeedPostRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -75,20 +96,27 @@ class FeedPostRepository:
 
     # ──────────────────── Read (단건) ────────────────────
 
-    async def find_by_post_id(self, post_id: str) -> Optional[FeedPostWithCounts]:
-        """post_id PK 단건 + 좋아요/댓글 수 한 쿼리 일괄 조회.
+    async def find_by_post_id(
+        self,
+        post_id: str,
+        viewer_id: Optional[str] = None,
+    ) -> Optional[FeedPostWithCounts]:
+        """post_id PK 단건 + 좋아요/댓글 수 + viewer 좋아요 여부 한 쿼리 일괄 조회.
 
-        `_load_owned_post` (mutate / 단건 조회) 와 `access.load_viewable_post` (좋아요/댓글
-        access check) 가 공통 사용. 후자는 카운트 미사용이지만 (~ 0.5ms 오버헤드) 메서드
-        분화 회피 — 단일 진입점 일관성 우선.
+        `_load_owned_post` (mutate / 단건 조회) 와 `access.load_viewable_post` (좋아요/댓글 access check) 가 공통 사용. 
+        후자는 카운트 미사용이지만 (~ 0.5ms 오버헤드) 메서드 분화 회피 — 단일 진입점 일관성 우선.
+
+        `viewer_id is None` 이면 is_liked 는 SQL 측 `false` 단락 평가 (extra row hit 없음).
         """
         like_count = _like_count_subquery()
         comment_count = _comment_count_subquery()
+        is_liked = _is_liked_subquery(viewer_id)
         stmt = (
             select(
                 FeedPost,
                 like_count.label("like_count"),
                 comment_count.label("comment_count"),
+                is_liked,
             )
             .where(FeedPost.post_id == post_id)
         )
@@ -100,6 +128,7 @@ class FeedPostRepository:
             post=row.FeedPost,
             like_count=row.like_count,
             comment_count=row.comment_count,
+            is_liked=bool(row.is_liked),
         )
 
 
@@ -112,6 +141,7 @@ class FeedPostRepository:
         visibilities: list[FeedVisibility],
         cursor: Optional[str] = None,
         limit: int = PAGE_SIZE,
+        viewer_id: Optional[str] = None,
     ) -> list[FeedPostWithCounts]:
         """소유자 + visibility 부분집합 조건으로 limit 만큼 조회 + 카운트 합성.
 
@@ -137,10 +167,12 @@ class FeedPostRepository:
 
         like_count = _like_count_subquery()
         comment_count = _comment_count_subquery()
+        is_liked = _is_liked_subquery(viewer_id)
         stmt = select(
             FeedPost,
             like_count.label("like_count"),
             comment_count.label("comment_count"),
+            is_liked,
         ).where(
             FeedPost.user_id == owner_id,
             FeedPost.visibility.in_(visibilities),
@@ -171,6 +203,7 @@ class FeedPostRepository:
                 post=row.FeedPost,
                 like_count=row.like_count,
                 comment_count=row.comment_count,
+                is_liked=bool(row.is_liked),
             )
             for row in result.all()
         ]

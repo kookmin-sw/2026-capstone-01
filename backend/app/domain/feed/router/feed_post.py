@@ -213,6 +213,7 @@ def _to_response(post: FeedPostData) -> FeedPostResponse:
         thumbnail_medium_url=post.thumbnail_medium_url,
         like_count=post.like_count,
         comment_count=post.comment_count,
+        is_liked=post.is_liked,
         created_at=post.created_at,
         updated_at=post.updated_at,
     )

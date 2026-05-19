@@ -87,7 +87,9 @@ async def load_viewable_post(
         FeedNotFoundError, FeedBlockedError
     """
     repo = FeedPostRepository(session)
-    row = await repo.find_by_post_id(post_id)
+    # access check 경로는 .post 만 unwrap 하므로 is_liked 자체는 안 쓰지만, 단일 진입점 유지를
+    # 위해 viewer_id 를 그대로 전달 (subquery 비용 ~0.3ms 무시).
+    row = await repo.find_by_post_id(post_id, viewer_id=viewer_id)
     if row is None:
         raise FeedNotFoundError("존재하지 않는 게시물입니다.")
 

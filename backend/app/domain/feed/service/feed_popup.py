@@ -57,13 +57,14 @@ class FeedPopupService:
             self._session, viewer_id=viewer_id, owner_id=owner_id,
         )
 
-        # 3. 최근 9개 피드 + 카운트 일괄 조회 (cursor 없음, popup 은 첫 페이지만).
+        # 3. 최근 9개 피드 + 카운트 + viewer 좋아요 여부 일괄 조회 (cursor 없음, popup 은 첫 페이지만).
         feed_repo = FeedPostRepository(self._session)
         rows = await feed_repo.find_by_owner(
             owner_id=owner_id,
             visibilities=visibilities,
             cursor=None,
             limit=POPUP_FEED_LIMIT,
+            viewer_id=viewer_id,
         )
 
         return FeedPopupData(
@@ -94,6 +95,7 @@ class FeedPopupService:
             thumbnail_medium_url=post.thumbnail_medium_url,
             like_count=row.like_count,
             comment_count=row.comment_count,
+            is_liked=row.is_liked,
             created_at=post.created_at,
             updated_at=post.updated_at,
         )

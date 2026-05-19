@@ -137,8 +137,10 @@ class FeedPostService:
             await self._safe_cleanup(prefix)
             raise
 
-        # 신규 업로드 → 좋아요/댓글 0 명백. reload 없이 row 합성 (round-trip 절약).
-        return self._to_dto(FeedPostWithCounts(post=post, like_count=0, comment_count=0))
+        # 신규 업로드 → 좋아요/댓글 0, is_liked False 명백. reload 없이 row 합성 (round-trip 절약).
+        return self._to_dto(
+            FeedPostWithCounts(post=post, like_count=0, comment_count=0, is_liked=False)
+        )
 
 
     @transactional
@@ -191,6 +193,7 @@ class FeedPostService:
             owner_id=user_id,
             visibilities=list(FeedVisibility),  # 본인은 모든 visibility 조회 가능
             cursor=cursor,
+            viewer_id=user_id,
         )
         next_cursor = rows[-1].post.post_id if len(rows) == PAGE_SIZE else None
         return FeedPostListData(
@@ -236,6 +239,7 @@ class FeedPostService:
             owner_id=owner_id,
             visibilities=visibilities,
             cursor=cursor,
+            viewer_id=viewer_id,
         )
         next_cursor = rows[-1].post.post_id if len(rows) == PAGE_SIZE else None
         return FeedPostListData(
@@ -345,7 +349,8 @@ class FeedPostService:
         사용하거나 `.post` 로 unwrap.
         """
         repo = FeedPostRepository(self._session)
-        row = await repo.find_by_post_id(post_id)
+        # viewer 가 본인이므로 is_liked 도 본인 기준으로 합성된 row 가 응답까지 그대로 전달됨.
+        row = await repo.find_by_post_id(post_id, viewer_id=user_id)
         if row is None:
             raise FeedNotFoundError("존재하지 않는 게시물입니다.")
         if row.post.user_id != user_id:
@@ -387,6 +392,7 @@ class FeedPostService:
             thumbnail_medium_url=post.thumbnail_medium_url,
             like_count=row.like_count,
             comment_count=row.comment_count,
+            is_liked=row.is_liked,
             created_at=post.created_at,
             updated_at=post.updated_at,
         )
