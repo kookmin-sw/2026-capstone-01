@@ -7,6 +7,7 @@ from app.domain.notification.model.fcm_token import FcmToken
 from app.domain.notification.dto.fcm_token import FcmTokenData
 from app.domain.chat.repository.chat_member import ChatRoomMemberRepository
 from app.domain.auth.repository.user import UserRepository
+from app.domain.auth.repository.user_detail_inform import UserDetailInformRepository
 from app.database.session import UnitOfWork, transactional
 from app.core.logger import get_logger
 from app.core.fcm import get_fcm_app
@@ -19,6 +20,10 @@ from app.core.instrumentation import (
 
 
 logger = get_logger("fcm_service")
+
+
+# 발신자 이름 조회 실패(탈퇴/detail 결손) 시 푸시 title fallback.
+_DEFAULT_CHAT_PUSH_TITLE = "새 메시지"
 
 
 class FcmService:
@@ -86,8 +91,8 @@ class FcmService:
         user_ids: list[str],
         chat_room_id: str,
         sender_id: str,
-        title: str,
         body: str,
+        title: str | None = None,
     ) -> int:
         """채팅 새 메시지 푸시 — N 명에게 한 트랜잭션 + 한 multicast 로 fan-out.
 
@@ -97,11 +102,13 @@ class FcmService:
           3. 위 둘을 통과한 user 들의 모든 FCM 토큰을 모아 `MulticastMessage` 1회
           4. `UnregisteredError` 토큰은 bulk DELETE 로 정리
 
-        그룹방 100명도 DB 쿼리 3회 + FCM 호출 1회로 끝 (이전: 300+ 쿼리, 100 트랜잭션).
+        그룹방 100명도 DB 쿼리 3회 (+ 발신자 이름 PK SELECT 1회) + FCM 호출 1회로 끝.
 
         Args:
             user_ids: 발송 후보. 보통 발신자 제외한 방의 활성 멤버 목록.
-            chat_room_id, sender_id, title, body: 알림 내용. data 페이로드 자동 빌드.
+            chat_room_id, sender_id, body: 알림 내용. data 페이로드 자동 빌드.
+            title: 명시되면 그대로 사용. None 이면 `sender_id` 의 `user_name` 을 조회해
+                title 로 사용하고, 조회 실패(탈퇴/detail 결손) 시 `"새 메시지"` 로 폴백.
         Returns:
             multicast 성공 디바이스 수 (모두 차단됐거나 토큰 없으면 0).
         """
@@ -128,6 +135,12 @@ class FcmService:
         if not rows:
             return 0
 
+        # title 결정 — 호출부가 지정하지 않은 일반 채팅 푸시는 발신자 이름을 title 로.
+        #   PK 조회라 비용 미미. 어떤 사유로든 이름을 못 가져오면 기본 문구로 폴백.
+        final_title = title if title is not None else (
+            await self._resolve_sender_display_name(sender_id)
+        )
+
         tokens = [r.token for r in rows]
         data = {
             "type": "chat",
@@ -137,7 +150,7 @@ class FcmService:
         }
         multicast = messaging.MulticastMessage(
             tokens=tokens,
-            notification=messaging.Notification(title=title, body=body),
+            notification=messaging.Notification(title=final_title, body=body),
             data=data,
         )
 
@@ -192,6 +205,30 @@ class FcmService:
             )
 
         return batch.success_count
+
+
+    # ──────────────────── 발신자 이름 해석 ────────────────────
+
+    async def _resolve_sender_display_name(self, sender_id: str) -> str:
+        """발신자 user_id → 푸시 title 로 쓸 이름. 실패 시 기본 문구로 폴백.
+
+        같은 @transactional 세션에서 PK 로 1건 SELECT — `find_unmuted_user_ids` 등
+        다른 가드 쿼리와 동일 트랜잭션이라 추가 커넥션 비용 없음.
+        """
+        try:
+            detail_repo = UserDetailInformRepository(self._session)
+            detail = await detail_repo.find_by_user_id(sender_id)
+        except Exception as e:
+            # 이름 조회 실패가 푸시 자체를 막아선 안 된다 — 기본 문구로 진행. 예를 들어 탈퇴는 하는 동시에 채팅을 보냈을 때
+            logger.warning(
+                "발신자 이름 조회 실패 sender_id={} error={}",
+                sender_id, type(e).__name__,
+            )
+            return _DEFAULT_CHAT_PUSH_TITLE
+
+        if detail is None or not detail.user_name:
+            return _DEFAULT_CHAT_PUSH_TITLE
+        return detail.user_name
 
 
     # ──────────────────── 변환 ────────────────────

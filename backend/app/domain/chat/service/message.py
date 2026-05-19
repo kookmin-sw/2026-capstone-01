@@ -678,11 +678,12 @@ class MessageService:
                 else content
             )
 
+            # title 미지정 — FcmService 가 sender_id 로 발신자 user_name 을 조회해 채우고
+            # 탈퇴/detail 결손 시 "새 메시지" 로 폴백. 한 트랜잭션 안에서 PK 1회 조회라 비용 무시.
             await self._fcm.send_chat_push(
                 user_ids=recipients,
                 chat_room_id=room_id,
                 sender_id=sender_user_id,
-                title="새 메시지",
                 body=body,
             )
         except Exception as e:
