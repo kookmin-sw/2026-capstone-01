@@ -1951,7 +1951,7 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     background: "#fff",
     borderRadius: "1.8rem",
-    boxShadow: "var(--shadow-soft)",
+    boxShadow: "none",
     paddingTop: 6,
   },
   emptyListSection: {
