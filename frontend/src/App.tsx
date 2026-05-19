@@ -6,7 +6,7 @@ import type { NavigateFunction } from "react-router-dom";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { Capacitor } from "@capacitor/core";
-import { confirmTokenSaved, removeToken, saveToken } from "./utils/tokens";
+import { confirmTokenSaved, readToken, removeToken, saveToken } from "./utils/tokens";
 import AppShell from "./components/AppShell";
 import LoginPage from "./pages/LoginPage";
 import OnboardingPage from "./pages/OnboardingPage";
@@ -27,7 +27,13 @@ import AiPlanDesignPage from "./features/plan/AiPlanDesignPage";
 import AiPlanResultPage from "./features/plan/AiPlanResultPage";
 import ManualPlanPage from "./features/plan/Manualplanpage";
 import "./lib/firebase";
-import { listenForegroundMessages, requestPermission, unregisterFcmToken } from "./lib/fcm";
+import {
+  consumePendingNotificationPath,
+  hasPendingNotificationPath,
+  listenForegroundMessages,
+  requestPermission,
+  unregisterFcmToken,
+} from "./lib/fcm";
 import type { AppToastDetail } from "./utils/appToast";
 import {
   clearPreferences,
@@ -656,21 +662,69 @@ function AppToast() {
 
 function NotificationOpenNavigator() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
+    let pendingCheckAttempts = 0;
+
+    function openPath(path: string): void {
+      if (!path) return;
+
+      const roomId = path.match(/^\/chat\/([^/?#]+)/)?.[1];
+      if (roomId) {
+        window.sessionStorage.setItem("krip:chat-scroll-room", decodeURIComponent(roomId));
+      }
+
+      navigate(path, { replace: true });
+    }
+
     function handleNotificationOpen(event: Event): void {
       const path = (event as CustomEvent<{ path?: string }>).detail?.path;
       if (!path) return;
+      if (!readToken()) return;
 
-      navigate(path);
+      if (location.pathname !== "/home") {
+        navigate("/home", { replace: true });
+        window.setTimeout(() => {
+          window.dispatchEvent(new Event("krip:auth-ready"));
+        }, 80);
+        return;
+      }
+
+      consumePendingNotificationPath();
+      openPath(path);
+    }
+
+    function openPendingPath(): boolean {
+      if (!hasPendingNotificationPath()) return false;
+      if (!readToken()) return false;
+      if (location.pathname !== "/home") return false;
+
+      const pendingPath = consumePendingNotificationPath();
+      if (!pendingPath) return false;
+
+      openPath(pendingPath);
+      return true;
     }
 
     window.addEventListener("krip:notification-open", handleNotificationOpen);
+    window.addEventListener("krip:auth-ready", openPendingPath);
+    window.addEventListener("focus", openPendingPath);
+    window.setTimeout(openPendingPath, 0);
+    const pendingCheckInterval = window.setInterval(() => {
+      pendingCheckAttempts += 1;
+      if (openPendingPath() || pendingCheckAttempts >= 30) {
+        window.clearInterval(pendingCheckInterval);
+      }
+    }, 100);
 
     return () => {
+      window.clearInterval(pendingCheckInterval);
       window.removeEventListener("krip:notification-open", handleNotificationOpen);
+      window.removeEventListener("krip:auth-ready", openPendingPath);
+      window.removeEventListener("focus", openPendingPath);
     };
-  }, [navigate]);
+  }, [location.pathname, navigate]);
 
   return null;
 }
@@ -735,8 +789,15 @@ function AppUrlOpenHandler() {
         void closeAuthBrowser();
         return;
       }
-
       if (status === "complete") {
+        if (hasPendingNotificationPath()) {
+          navigate("/home", { replace: true });
+          window.setTimeout(() => {
+            window.dispatchEvent(new Event("krip:auth-ready"));
+          }, 120);
+          void closeAuthBrowser();
+          return;
+        }
         navigate("/home", { replace: true });
       } else if (status === "new" || status === "in_progress") {
         navigate("/register", { state: { email, name }, replace: true });

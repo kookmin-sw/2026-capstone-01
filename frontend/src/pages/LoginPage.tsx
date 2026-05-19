@@ -5,6 +5,7 @@ import { Capacitor } from "@capacitor/core";
 import { useNavigate } from "react-router-dom";
 import { createLoginUrl, getMyProfile } from "../api/auth/auth";
 import { confirmTokenSaved, readToken, saveToken } from "../utils/tokens";
+import { hasPendingNotificationPath } from "../lib/fcm";
 
 type LoginStatus = "complete" | "new" | "in_progress" | "withdrawal_pending";
 
@@ -42,6 +43,13 @@ export default function LoginPage() {
       }
 
       if (status === "complete") {
+        if (hasPendingNotificationPath()) {
+          navigate("/home", { replace: true });
+          window.setTimeout(() => {
+            window.dispatchEvent(new Event("krip:auth-ready"));
+          }, 120);
+          return;
+        }
         navigate("/home", { replace: true });
       } else if (status === "new" || status === "in_progress") {
         navigate("/register", { state: { email, name }, replace: true });
@@ -69,6 +77,13 @@ export default function LoginPage() {
 
     getMyProfile()
       .then((profile) => {
+        if (hasPendingNotificationPath()) {
+          navigate("/home", { replace: true });
+          window.setTimeout(() => {
+            window.dispatchEvent(new Event("krip:auth-ready"));
+          }, 120);
+          return;
+        }
         if (profile) {
           navigate("/home", { replace: true });
         }

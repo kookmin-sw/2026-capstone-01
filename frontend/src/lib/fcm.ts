@@ -19,6 +19,8 @@ import { rememberLikeNotification } from "./notifications";
 
 const FCM_TOKEN_STORAGE_KEY = "FCMtoken";
 const FCM_REGISTERED_TOKEN_STORAGE_KEY = "FCMtokenRegistered";
+const PENDING_NOTIFICATION_PATH_STORAGE_KEY = "krip:pending-notification-path";
+const PENDING_NOTIFICATION_PATH_TTL_MS = 10 * 60 * 1000;
 const DEBUG_FCM_LOG = import.meta.env.DEV && import.meta.env.VITE_DEBUG_FCM_LOG === "true";
 const FCM_REGISTER_PATH =
   import.meta.env.VITE_FCM_REGISTER_PATH?.trim() || "/api/notification/fcm-token";
@@ -508,11 +510,48 @@ function getPathFromLocalNotificationAction(
 function openNotificationPath(path: string): void {
   if (!path) return;
 
+  rememberPendingNotificationPath(path);
   window.dispatchEvent(
     new CustomEvent("krip:notification-open", {
       detail: { path },
     })
   );
+}
+
+export function consumePendingNotificationPath(): string {
+  const record = readPendingNotificationPath();
+  sessionStorage.removeItem(PENDING_NOTIFICATION_PATH_STORAGE_KEY);
+  localStorage.removeItem(PENDING_NOTIFICATION_PATH_STORAGE_KEY);
+  return record;
+}
+
+export function hasPendingNotificationPath(): boolean {
+  return Boolean(readPendingNotificationPath());
+}
+
+function readPendingNotificationPath(): string {
+  const raw = localStorage.getItem(PENDING_NOTIFICATION_PATH_STORAGE_KEY);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as { path?: string; createdAt?: number };
+      const isFresh =
+        parsed.path &&
+        parsed.createdAt &&
+        Date.now() - parsed.createdAt < PENDING_NOTIFICATION_PATH_TTL_MS;
+      if (isFresh) return parsed.path || "";
+    } catch {
+      if (raw.startsWith("/")) return raw;
+    }
+    localStorage.removeItem(PENDING_NOTIFICATION_PATH_STORAGE_KEY);
+  }
+
+  return sessionStorage.getItem(PENDING_NOTIFICATION_PATH_STORAGE_KEY) || "";
+}
+
+function rememberPendingNotificationPath(path: string): void {
+  const record = JSON.stringify({ path, createdAt: Date.now() });
+  localStorage.setItem(PENDING_NOTIFICATION_PATH_STORAGE_KEY, record);
+  sessionStorage.setItem(PENDING_NOTIFICATION_PATH_STORAGE_KEY, path);
 }
 
 function toInboxNotification(payload: KripPushPayload): InboxNotification | undefined {
