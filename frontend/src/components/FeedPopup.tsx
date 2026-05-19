@@ -296,7 +296,7 @@ const styles: Record<string, CSSProperties> = {
     aspectRatio: "1 / 1",
     padding: 0,
     border: "none",
-    borderRadius: 8,
+    borderRadius: 0,
     overflow: "hidden",
     background: "#050608",
     cursor: "pointer",

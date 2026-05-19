@@ -189,25 +189,39 @@ export default function UserFeedPage() {
 
   function updatePostState(post: FeedPost): void {
     setPosts((current) =>
-      current.map((item) => (item.post_id === post.post_id ? post : item))
+      current.map((item) => (item.post_id === post.post_id ? mergeFeedPost(item, post) : item))
     );
-    setSelectedPost((current) => (current?.post_id === post.post_id ? post : current));
+    setSelectedPost((current) =>
+      current?.post_id === post.post_id ? mergeFeedPost(current, post) : current
+    );
   }
 
   async function handleLike(): Promise<void> {
     if (!selectedPost || detailBusy) return;
 
-    const alreadyLiked = selectedLikes.some((u) => u.user_id === viewerUserId);
+    const previousPost = selectedPost;
+    const nextLiked = !previousPost.is_liked;
+    const optimisticPost = {
+      ...previousPost,
+      is_liked: nextLiked,
+      like_count: Math.max(0, previousPost.like_count + (nextLiked ? 1 : -1)),
+    };
 
     setDetailBusy(true);
     setDetailError("");
+    updatePostState(optimisticPost);
     try {
-      const response = alreadyLiked
-        ? await unlikeFeedPost(selectedPost.post_id)
-        : await likeFeedPost(selectedPost.post_id);
-      updatePostState({ ...selectedPost, like_count: response.like_count });
-      setSelectedLikes((await getFeedPostLikes(selectedPost.post_id)).users);
+      const response = nextLiked
+        ? await likeFeedPost(previousPost.post_id)
+        : await unlikeFeedPost(previousPost.post_id);
+      updatePostState({
+        ...optimisticPost,
+        like_count: response.like_count,
+        is_liked: nextLiked,
+      });
+      setSelectedLikes((await getFeedPostLikes(previousPost.post_id)).users);
     } catch (likeError) {
+      updatePostState(previousPost);
       setDetailError(toErrorMessage(likeError, "Failed to update like."));
     } finally {
       setDetailBusy(false);
@@ -270,10 +284,6 @@ export default function UserFeedPage() {
     : profileMetaItems.slice(0, 3);
   const hiddenMetaCount = Math.max(0, profileMetaItems.length - visibleProfileMetaItems.length);
   const canShowProfileActions = Boolean(id && viewerUserId && id !== viewerUserId);
-
-  const isSelectedPostLikedByViewer = selectedLikes.some(
-    (likeUser) => likeUser.user_id === viewerUserId
-  );
 
   return (
     <div style={styles.page}>
@@ -469,7 +479,7 @@ export default function UserFeedPage() {
                     aria-label="Like"
                   >
                     <span style={styles.actionCount}>{selectedPost.like_count}</span>
-                    <HeartIcon filled={isSelectedPostLikedByViewer} />
+                    <HeartIcon filled={selectedPost.is_liked} />
                   </button>
                   <span style={styles.commentSummary}>
                     <span style={styles.actionCount}>{selectedPost.comment_count}</span>
@@ -521,6 +531,15 @@ export default function UserFeedPage() {
 
 function getFeedImageUrl(post: FeedPost): string {
   return post.thumbnail_medium_url || post.thumbnail_small_url || post.original_url;
+}
+
+function mergeFeedPost(current: FeedPost, next: FeedPost): FeedPost {
+  return {
+    ...current,
+    ...next,
+    is_liked:
+      typeof next.is_liked === "boolean" ? next.is_liked : current.is_liked,
+  };
 }
 
 function formatMeta(value: string): string {

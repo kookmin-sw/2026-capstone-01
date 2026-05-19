@@ -4,9 +4,11 @@ import { useNavigate } from "react-router-dom";
 import { getMyProfile } from "../../api/auth";
 import {
   createGroupChatRoom,
+  leaveChatRoom,
   type ChatRoom,
   type SystemContent,
 } from "../../api/chat";
+import { setChatRoomNotificationMuted } from "../../api/notification";
 import {
   acceptFriendRequest,
   blockUser,
@@ -94,6 +96,8 @@ export default function ChatPage({
   const [groupTitle, setGroupTitle] = useState("");
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
   const [isGroupCreateConfirmOpen, setIsGroupCreateConfirmOpen] = useState(false);
+  const [openActionRoomId, setOpenActionRoomId] = useState("");
+  const [leaveConfirmRoom, setLeaveConfirmRoom] = useState<ChatRoom | null>(null);
 
   const pendingCount = receivedRequests.length;
   const displayNamesById = useMemo(() => {
@@ -125,6 +129,10 @@ export default function ChatPage({
     (userId: string | null): string =>
       userId === null ? "Unknown user" : displayNamesById.get(userId) || "Unknown user",
     [displayNamesById]
+  );
+  const roomById = useMemo(
+    () => new Map(chatRooms.map((room) => [room.chat_room_id, room])),
+    [chatRooms]
   );
   const chatRows = useMemo(
     () => chatRooms.map((room) => toChatRow(room, resolveDisplayName)),
@@ -341,6 +349,40 @@ export default function ChatPage({
     setIsGroupCreateConfirmOpen(true);
   }
 
+  async function handleToggleRoomMute(room: ChatRoom): Promise<void> {
+    const nextMuted = room.notification_muted !== true;
+    setActionId(`mute:${room.chat_room_id}`);
+    try {
+      await setChatRoomNotificationMuted(room.chat_room_id, nextMuted);
+      await refreshRooms();
+      setNotice(nextMuted ? "Chat notifications muted." : "Chat notifications enabled.");
+      setOpenActionRoomId("");
+    } catch (muteError) {
+      setError(toErrorMessage(muteError, "Failed to update chat notifications."));
+    } finally {
+      setActionId("");
+    }
+  }
+
+  function requestLeaveRoom(room: ChatRoom): void {
+    setLeaveConfirmRoom(room);
+  }
+
+  async function handleLeaveRoom(room: ChatRoom): Promise<void> {
+    setActionId(`leave:${room.chat_room_id}`);
+    try {
+      await leaveChatRoom(room.chat_room_id);
+      await refreshRooms();
+      setNotice("Left chat room.");
+      setOpenActionRoomId("");
+      setLeaveConfirmRoom(null);
+    } catch (leaveError) {
+      setError(toErrorMessage(leaveError, "Failed to leave chat room."));
+    } finally {
+      setActionId("");
+    }
+  }
+
   function toggleGroupMember(userId: string): void {
     setSelectedGroupMemberIds((current) =>
       current.includes(userId)
@@ -436,33 +478,24 @@ export default function ChatPage({
           {chatLoading && filteredChatRows.length === 0 ? (
             <p style={styles.mutedText}>Loading chats...</p>
           ) : filteredChatRows.length > 0 ? (
-            filteredChatRows.map((chat) => (
-              <button
-                key={chat.id}
-                type="button"
-                style={styles.chatRow}
-                onClick={() => navigate(`/chat/${chat.id}`)}
-              >
-                <Avatar name={chat.name} imageUrl={chat.imageUrl} />
-                <span style={styles.rowMain}>
-                  <strong style={styles.rowTitle}>
-                    {chat.name}
-                    {chat.memberCount ? (
-                      <span style={styles.rowTitleMeta}>{chat.memberCount}</span>
-                    ) : null}
-                  </strong>
-                  <span style={styles.rowSubtitle}>{chat.preview}</span>
-                </span>
-                <span style={styles.chatRowMeta}>
-                  <span style={styles.chatRowTime}>{chat.time}</span>
-                  {chat.unreadCount > 0 ? (
-                    <span style={styles.unreadBadge}>
-                      {chat.unreadCount >= 999 ? "999+" : chat.unreadCount}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
-            ))
+            filteredChatRows.map((chat) => {
+              const room = roomById.get(chat.id);
+              if (!room) return null;
+              return (
+                <SwipeChatRow
+                  key={chat.id}
+                  chat={chat}
+                  room={room}
+                  isOpen={openActionRoomId === chat.id}
+                  busy={actionId.endsWith(`:${chat.id}`)}
+                  onOpenActions={() => setOpenActionRoomId(chat.id)}
+                  onCloseActions={() => setOpenActionRoomId("")}
+                  onNavigate={() => navigate(`/chat/${chat.id}`)}
+                  onMute={() => void handleToggleRoomMute(room)}
+                  onLeave={() => requestLeaveRoom(room)}
+                />
+              );
+            })
           ) : (
             <EmptyCard
               title={searchQuery.trim() ? "No matching chats" : "No chats yet"}
@@ -810,6 +843,21 @@ export default function ChatPage({
           />
         ) : null}
 
+        {leaveConfirmRoom ? (
+          <ConfirmToast
+            title="Leave this chat?"
+            message={`You will leave "${getRoomDisplayName(
+              leaveConfirmRoom,
+              resolveDisplayName
+            )}".`}
+            confirmLabel="Leave"
+            destructive
+            busy={actionId === `leave:${leaveConfirmRoom.chat_room_id}`}
+            onConfirm={() => void handleLeaveRoom(leaveConfirmRoom)}
+            onCancel={() => setLeaveConfirmRoom(null)}
+          />
+        ) : null}
+
         {feedPopupUserId ? (
           <FeedPopup
             key={feedPopupUserId}
@@ -866,6 +914,81 @@ function RequestSection({
       ) : (
         <EmptyCard title={emptyTitle} copy={emptyCopy} />
       )}
+    </div>
+  );
+}
+
+type ChatRowView = ReturnType<typeof toChatRow>;
+
+function SwipeChatRow({
+  chat,
+  room,
+  isOpen,
+  busy,
+  onOpenActions,
+  onCloseActions,
+  onNavigate,
+  onMute,
+  onLeave,
+}: {
+  chat: ChatRowView;
+  room: ChatRoom;
+  isOpen: boolean;
+  busy: boolean;
+  onOpenActions: () => void;
+  onCloseActions: () => void;
+  onNavigate: () => void;
+  onMute: () => void;
+  onLeave: () => void;
+}) {
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+  return (
+    <div
+      style={styles.chatSwipeWrap}
+      onTouchStart={(event) => setTouchStartX(event.touches[0]?.clientX ?? null)}
+      onTouchEnd={(event) => {
+        if (touchStartX === null) return;
+        const deltaX = event.changedTouches[0].clientX - touchStartX;
+        setTouchStartX(null);
+        if (deltaX < -44) onOpenActions();
+        if (deltaX > 44) onCloseActions();
+      }}
+    >
+      <div style={styles.chatSwipeActions}>
+        <button type="button" style={styles.muteRoomButton} disabled={busy} onClick={onMute}>
+          {room.notification_muted ? "Unmute" : "Mute"}
+        </button>
+        <button type="button" style={styles.leaveRoomButton} disabled={busy} onClick={onLeave}>
+          Leave
+        </button>
+      </div>
+      <button
+        type="button"
+        style={{ ...styles.chatRow, ...(isOpen ? styles.chatRowShifted : {}) }}
+        onClick={() => {
+          if (isOpen) onCloseActions();
+          else onNavigate();
+        }}
+      >
+        <Avatar name={chat.name} imageUrl={chat.imageUrl} />
+        <span style={styles.rowMain}>
+          <strong style={styles.rowTitle}>
+            {chat.name}
+            {chat.memberCount ? <span style={styles.rowTitleMeta}>{chat.memberCount}</span> : null}
+          </strong>
+          <span style={styles.rowSubtitle}>{chat.preview}</span>
+        </span>
+        <span style={styles.chatRowMeta}>
+          <span style={styles.chatRowTime}>{chat.time}</span>
+          {room.notification_muted ? <span style={styles.mutedBadge}>Muted</span> : null}
+          {chat.unreadCount > 0 ? (
+            <span style={styles.unreadBadge}>
+              {chat.unreadCount >= 999 ? "999+" : chat.unreadCount}
+            </span>
+          ) : null}
+        </span>
+      </button>
     </div>
   );
 }
@@ -988,6 +1111,27 @@ function toChatRow(
     memberCount: room.type === "group" ? room.members?.length ?? null : null,
     time: formatChatTime(room.effective_last_at || room.last_message_at || room.last_message?.created_at || ""),
   };
+}
+
+function getRoomDisplayName(
+  room: ChatRoom,
+  resolveDisplayName: (userId: string | null) => string
+): string {
+  if (room.type === "direct") {
+    return room.peer?.user_name || "Deleted User";
+  }
+
+  if (room.title) {
+    return room.title;
+  }
+
+  const memberNames =
+    room.members
+      ?.filter((member) => member.user_id)
+      .map((member) => member.user_name || resolveDisplayName(member.user_id))
+      .filter(Boolean) ?? [];
+
+  return memberNames.length > 0 ? memberNames.join(", ") : "Group Chat";
 }
 
 function renderLastMessage(
@@ -1360,6 +1504,42 @@ const styles: Record<string, CSSProperties> = {
     border: "none",
     cursor: "pointer",
     textAlign: "left",
+    transition: "transform 180ms ease",
+    position: "relative",
+    zIndex: 1,
+  },
+  chatRowShifted: {
+    transform: "translateX(-148px)",
+  },
+  chatSwipeWrap: {
+    position: "relative",
+    overflow: "hidden",
+    borderBottom: "1px solid #f0f0f0",
+  },
+  chatSwipeActions: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    display: "flex",
+    width: 148,
+    zIndex: 0,
+  },
+  muteRoomButton: {
+    width: 74,
+    border: "none",
+    background: "#f6c453",
+    color: "#222",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  leaveRoomButton: {
+    width: 74,
+    border: "none",
+    background: "#ef4444",
+    color: "#fff",
+    fontWeight: 900,
+    cursor: "pointer",
   },
   avatar: {
     width: 56,
@@ -1421,6 +1601,14 @@ const styles: Record<string, CSSProperties> = {
     color: "#848484",
     fontSize: "0.688rem",
     whiteSpace: "nowrap",
+  },
+  mutedBadge: {
+    padding: "2px 6px",
+    borderRadius: 999,
+    background: "#ededed",
+    color: "#777",
+    fontSize: "0.62rem",
+    fontWeight: 900,
   },
   userId: {
     color: "var(--neutral-500)",

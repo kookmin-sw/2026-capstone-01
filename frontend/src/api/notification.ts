@@ -137,6 +137,25 @@ export async function hideNotification(notificationId: string): Promise<void> {
   rememberHiddenNotification(notificationId);
 }
 
+export async function setGlobalNotificationMuted(muted: boolean): Promise<void> {
+  await client.put(
+    "/api/notification/mute/global",
+    { muted },
+    { useConfiguredBearer: true }
+  );
+}
+
+export async function setChatRoomNotificationMuted(
+  chatRoomId: string,
+  muted: boolean
+): Promise<void> {
+  await client.put(
+    `/api/notification/mute/rooms/${encodeURIComponent(chatRoomId)}`,
+    { muted },
+    { useConfiguredBearer: true }
+  );
+}
+
 function normalizeInboxNotification(notification: RawInboxNotification): InboxNotification {
   return {
     notification_id:
