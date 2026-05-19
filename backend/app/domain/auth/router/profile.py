@@ -14,6 +14,7 @@ from app.domain.auth.schema.profile import (
     ProfileImageResponse,
     OtherUserProfileResponse,
     OtherUserProfileListResponse,
+    ProfileStatsResponse,
 )
 from app.core.logger import get_logger
 from app.container import Container
@@ -118,6 +119,29 @@ async def update_my_profile(
         nationality=profile.nationality,
         profile_image_url=profile.profile_image_url,
         notification_muted=profile.notification_muted,
+    )
+
+
+@router.get("/me/stats")
+@inject
+async def get_my_stats(
+    request: Request,
+    profile_service: ProfileService = Depends(Provide[Container.profile_service]),
+) -> ProfileStatsResponse:
+    """마이페이지 통계 — 본인 피드가 받은 좋아요 총 합 + ACCEPTED 친구 수.
+
+    응답은 단일 트랜잭션 두 SELECT COUNT 의 스냅샷이며 모두 인덱스 기반이라 sub-ms.
+    """
+    user_id: str = request.state.user_id
+
+    try:
+        stats = await profile_service.get_my_stats(user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return ProfileStatsResponse(
+        total_feed_likes=stats.total_feed_likes,
+        total_friends=stats.total_friends,
     )
 
 

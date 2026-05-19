@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.domain.auth.model.user import User
+from app.domain.feed.model.feed_post import FeedPost
 from app.domain.feed.model.feed_post_like import FeedPostLike
 
 
@@ -45,6 +46,28 @@ class FeedPostLikeRepository:
     async def count_by_post(self, post_id: str) -> int:
         """게시물의 좋아요 수 — `ix_feed_post_like_post_id` prefix-scan."""
         stmt = select(func.count()).where(FeedPostLike.post_id == post_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
+
+
+    async def count_total_for_owner(self, owner_id: str) -> int:
+        """`owner_id` 의 모든 게시물이 받은 좋아요 총 합 — 마이페이지 stats 용.
+
+        SQL: `SELECT COUNT(*) FROM feed_post_like l JOIN feed_post p ON l.post_id = p.post_id
+              WHERE p.user_id = :owner`
+        plan:
+            1) `feed_post.(user_id, ...)` 컴파운드 인덱스로 owner 의 post_id 추출
+            2) `ix_feed_post_like_post_id` 로 각 post_id 별 row 카운트 합산
+        owner 가 visibility=PRIVATE 인 게시물에 받은 좋아요도 합산에 포함 — 본인 stats
+        이므로 자기 데이터 전부 노출. 게시물 삭제 시 `feed_post_like` 가 FK CASCADE 로
+        함께 정리되므로 dangling like 없음.
+        """
+        stmt = (
+            select(func.count())
+            .select_from(FeedPostLike)
+            .join(FeedPost, FeedPostLike.post_id == FeedPost.post_id)
+            .where(FeedPost.user_id == owner_id)
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
