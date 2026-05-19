@@ -7,8 +7,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from dependency_injector.wiring import Provide, inject
 
-from app.domain.chat.schema.message import EditMessageBody, EditMessageResponse
 from app.domain.chat.service.message import MessageService
+from app.domain.chat.schema.message import EditMessageBody, EditMessageResponse
 from app.container import Container
 
 

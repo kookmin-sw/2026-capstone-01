@@ -12,7 +12,8 @@ import time
 
 from app.util.id_generator import generate_session_id
 from app.domain.chat.service.fanout import FanoutService
-from app.config.setting import settings
+from app.core.redis import get_redis_client
+from app.core.logger import get_logger
 from app.core.chat.redis_key import (
     sess_key,
     sessions_key,
@@ -20,8 +21,7 @@ from app.core.chat.redis_key import (
     SESSION_TTL,
     MAX_SESSIONS_PER_USER,
 )
-from app.core.logger import get_logger
-from app.core.redis import get_redis_client
+from app.config.setting import settings
 
 
 logger = get_logger("chat.session")
@@ -44,6 +44,7 @@ class SessionService:
     @staticmethod
     def _now_ms() -> int:
         return int(time.time() * 1000)
+
 
     @classmethod
     def _expires_ms(cls, now_ms: int | None = None) -> int:

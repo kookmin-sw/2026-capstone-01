@@ -15,13 +15,13 @@ service-to-service 의존을 만들지 않기 위해 free function 으로 노출
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.friend.repository.user_block import UserBlockRepository
+from app.domain.friend.repository.friendship import FriendshipRepository
+from app.domain.friend.model.friendship import FriendshipStatus
 from app.domain.feed.service.visibility import can_view
 from app.domain.feed.service.exception import FeedBlockedError, FeedNotFoundError
 from app.domain.feed.repository.feed_post import FeedPostRepository
 from app.domain.feed.model.feed_post import FeedPost, FeedVisibility
-from app.domain.friend.repository.friendship import FriendshipRepository
-from app.domain.friend.repository.user_block import UserBlockRepository
-from app.domain.friend.model.friendship import FriendshipStatus
 
 
 async def resolve_viewer_visibilities(

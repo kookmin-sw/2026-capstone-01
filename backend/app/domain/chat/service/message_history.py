@@ -11,7 +11,11 @@ REST 로 제공되는 읽기 경로 3개:
 from typing import Optional
 
 from app.domain.friend.repository.friendship import FriendshipRepository
-from app.domain.chat.dto.message import ChatMessageData, MessageListData
+from app.domain.chat.service.exception import ChatRoomNotFoundError
+from app.domain.chat.repository.chat_room import ChatRoomRepository
+from app.domain.chat.repository.chat_message import ChatMessageRepository
+from app.domain.chat.repository.chat_member import ChatRoomMemberRepository
+from app.domain.chat.model.chat_room import ChatRoom, ChatRoomType
 from app.domain.chat.dto.room import (
     ChatRoomData,
     ChatRoomListData,
@@ -20,17 +24,13 @@ from app.domain.chat.dto.room import (
     RoomMemberData,
     RoomMemberListData,
 )
-from app.domain.chat.model.chat_room import ChatRoom, ChatRoomType
-from app.domain.chat.repository.chat_member import ChatRoomMemberRepository
-from app.domain.chat.repository.chat_message import ChatMessageRepository
-from app.domain.chat.repository.chat_room import ChatRoomRepository
-from app.domain.chat.service.exception import ChatRoomNotFoundError
+from app.domain.chat.dto.message import ChatMessageData, MessageListData
 from app.domain.auth.repository.user import UserRepository
 from app.domain.auth.model.user import User
 from app.database.session import UnitOfWork, mongodb, transactional
-from app.core.chat.redis_key import unread_key
-from app.core.logger import get_logger
 from app.core.redis import get_redis_client
+from app.core.logger import get_logger
+from app.core.chat.redis_key import unread_key
 
 
 logger = get_logger("chat.history")

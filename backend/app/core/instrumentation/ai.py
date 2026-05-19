@@ -5,8 +5,8 @@ LLMManager 의 Gemini callbacks 와 도메인의 inference 컨텍스트 매니�
 """
 from typing import Any
 import time
-from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.outputs import LLMResult
+from langchain_core.callbacks import BaseCallbackHandler
 from contextlib import asynccontextmanager
 from collections import OrderedDict
 
@@ -140,6 +140,7 @@ class GeminiInstrumentationHandler(BaseCallbackHandler):
     def __init__(self) -> None:
         self._start_times: OrderedDict[str, float] = OrderedDict()
 
+
     def on_llm_start(
         self,
         serialized: dict[str, Any],
@@ -153,6 +154,7 @@ class GeminiInstrumentationHandler(BaseCallbackHandler):
             # 가장 오래된 insertion 제거 — orphan run_id 누수 차단.
             self._start_times.popitem(last=False)
 
+
     def on_llm_end(self, response: LLMResult, *, run_id, **kwargs: Any) -> None:
         elapsed = self._stop_timer(str(run_id))
         if elapsed is not None:
@@ -160,17 +162,20 @@ class GeminiInstrumentationHandler(BaseCallbackHandler):
         AI_EXTERNAL_CALL_TOTAL.labels(provider="gemini", result="ok").inc()
         self._record_token_usage(response)
 
+
     def on_llm_error(self, error: BaseException, *, run_id, **kwargs: Any) -> None:
         elapsed = self._stop_timer(str(run_id))
         if elapsed is not None:
             AI_EXTERNAL_CALL_DURATION.labels(provider="gemini").observe(elapsed)
         AI_EXTERNAL_CALL_TOTAL.labels(provider="gemini", result="error").inc()
 
+
     def _stop_timer(self, run_id: str) -> float | None:
         started = self._start_times.pop(run_id, None)
         if started is None:
             return None
         return time.perf_counter() - started
+
 
     @staticmethod
     def _record_token_usage(response: LLMResult) -> None:

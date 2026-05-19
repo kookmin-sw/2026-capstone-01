@@ -1,14 +1,14 @@
 from typing import Callable, Optional, Sequence, Tuple
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
+from starlette.middleware.base import BaseHTTPMiddleware
 import jwt
 import hmac
-from fastapi import Request, Response
 from fastapi.responses import JSONResponse
+from fastapi import Request, Response
 
 from app.core.redis import RedisClient
-from app.core.logger import get_logger
 from app.core.metric import AUTH_FAILURES
+from app.core.logger import get_logger
 from app.core.cache.redis_cache import get_redis_cache_manager
 from app.core.cache.key_category import KeyCategory
 from app.config.setting import settings

@@ -1,5 +1,4 @@
 from typing import List
-
 from google.api_core.exceptions import (
     GoogleAPICallError,
     PermissionDenied,
@@ -7,15 +6,15 @@ from google.api_core.exceptions import (
     Unauthenticated,
 )
 
-from app.core.ai.menu_ocr.load import MenuOcr
-from app.core.ai.menu_ocr.v1.model import MenuOcrResult
-from app.core.logger import get_logger
-from app.domain.menu_ai.dto.menu_ocr import MenuData, MenuOcrData, MenuOcrBatchData
 from app.domain.menu_ai.service.exception import (
     MenuOcrCredentialExpiredError,
     MenuOcrQuotaExceededError,
     MenuOcrVendorError,
 )
+from app.domain.menu_ai.dto.menu_ocr import MenuData, MenuOcrData, MenuOcrBatchData
+from app.core.logger import get_logger
+from app.core.ai.menu_ocr.v1.model import MenuOcrResult
+from app.core.ai.menu_ocr.load import MenuOcr
 
 
 logger = get_logger("menu_ai.ocr.service")

@@ -14,12 +14,12 @@
       단건 삭제만.
 """
 from typing import Optional
-from sqlalchemy import select, func, or_
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, or_
 
-from app.domain.auth.model.user import User
 from app.domain.feed.model.feed_post_comment import FeedPostComment
+from app.domain.auth.model.user import User
 
 
 # 댓글 페이지 크기 — 모바일 한 화면에 fit. 피드 list 와 다른 값 (댓글은 더 짧고 많이 쌓임).

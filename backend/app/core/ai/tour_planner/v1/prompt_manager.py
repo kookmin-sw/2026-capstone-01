@@ -1,6 +1,7 @@
 from typing import Dict
 from functools import lru_cache
 
+
 class TourPlannerPromptManager:
     """Tour Planner 여행 계획 추천 AI 프롬프트 템플릿을 관리하는 클래스"""
 
@@ -9,6 +10,7 @@ class TourPlannerPromptManager:
             'recommend_destinations': self._get_recommend_destinations_prompt(),
             'build_tour_plan': self._get_build_tour_plan_prompt(),
         }
+
 
     def _get_recommend_destinations_prompt(self) -> str:
         return """당신은 서울 여행 전문 플래너 AI입니다. 사용자의 여행 일수에 맞춰 최적의 여행 코스를 추천합니다.
@@ -225,17 +227,20 @@ class TourPlannerPromptManager:
 }}
 ```"""
 
+
     def get_prompt(self, prompt_key: str) -> str:
         """프롬프트 템플릿을 반환합니다."""
         if prompt_key not in self._prompts:
             raise ValueError(f"Unknown prompt key: {prompt_key}")
         return self._prompts[prompt_key]
 
+
     def update_prompt(self, prompt_key: str, new_prompt: str) -> None:
         """프롬프트 템플릿을 업데이트합니다."""
         if prompt_key not in self._prompts:
             raise ValueError(f"Unknown prompt key: {prompt_key}")
         self._prompts[prompt_key] = new_prompt
+
 
     def list_prompt_keys(self) -> list:
         """사용 가능한 프롬프트 키 목록을 반환합니다."""

@@ -13,9 +13,9 @@
     - storage prefix: `uploads/perm/{user_id}/feed/{post_id}/{variant}.{ext}` — 단건 삭제
       = `delete_by_prefix({user_id}/feed/{post_id})` 한 호출로 변형 3종 모두 정리.
 """
-from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, Index
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, Index
 import enum
 
 from app.util.id_generator import generate_feed_post_id

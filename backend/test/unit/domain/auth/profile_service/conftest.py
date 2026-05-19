@@ -1,9 +1,4 @@
 from unittest.mock import AsyncMock
-
-import pytest
-
-from app.domain.auth.service.profile import ProfileService
-
 from test.unit.domain.auth.mock_factory import (
     FakeUnitOfWork,
     make_mock_session,
@@ -11,6 +6,9 @@ from test.unit.domain.auth.mock_factory import (
     make_user_detail_repo_mock,
     make_user_repo_mock,
 )
+import pytest
+
+from app.domain.auth.service.profile import ProfileService
 
 
 @pytest.fixture

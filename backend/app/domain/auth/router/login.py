@@ -1,8 +1,8 @@
 from urllib.parse import urlencode
 from typing import Optional
 import jwt
-from fastapi import APIRouter, Query, HTTPException, Request, Depends
 from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Query, HTTPException, Request, Depends
 from dependency_injector.wiring import Provide, inject
 from datetime import datetime, timedelta, timezone
 

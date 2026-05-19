@@ -5,12 +5,12 @@ post.images / sorted(images, key=image_order)), `SimpleNamespace` 합성으로 �
 `find_by_id_with_detail` 는 동적으로 `like_count` / `is_liked` 를 post 객체에 부여하는
 패턴을 시뮬레이션 — factory 가 같은 형태로 빌드.
 """
-from datetime import date, datetime, timezone
-from types import SimpleNamespace
 from typing import List, Optional
+from types import SimpleNamespace
+from datetime import date, datetime, timezone
 
-from app.domain.auth.model.user_detail_inform import Gender
 from app.domain.tripmate.model.tripmate_post import CompanionType, PreferredGender
+from app.domain.auth.model.user_detail_inform import Gender
 
 
 class TripmatePostFactory:
@@ -80,6 +80,7 @@ class TripmatePostFactory:
             is_liked=is_liked,
             images=images if images is not None else [],
         )
+
 
     @classmethod
     def reset_counter(cls) -> None:

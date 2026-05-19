@@ -10,14 +10,13 @@
 이미지 CRUD 메서드(`add/update/delete_profile_image`) 는 본 모듈 범위 밖.
 """
 from types import SimpleNamespace
-
 import pytest
 
-from app.config.oauth import OAuthProvider
-from app.domain.auth.model.user import UserStatus
-from app.domain.auth.model.user_detail_inform import Gender
-from app.domain.auth.model.user_travel_style import TravelStyle
 from app.domain.auth.service.exception import ProfileNotRegisteredError
+from app.domain.auth.model.user_travel_style import TravelStyle
+from app.domain.auth.model.user_detail_inform import Gender
+from app.domain.auth.model.user import UserStatus
+from app.config.oauth import OAuthProvider
 
 
 def _mk_user(
@@ -77,6 +76,7 @@ class TestNotificationMutedExposure:
         result = await service.get_my_profile("USER_a")
         assert result.notification_muted is True
 
+
     async def test_mute_null_normalizes_to_false(self, service, user_repo_mock):
         """기본 unmuted (DB NULL) → 응답에선 False — 클라가 null 분기 안 해도 됨."""
         user_repo_mock.find_by_id_with_profile.return_value = _mk_user(
@@ -85,6 +85,7 @@ class TestNotificationMutedExposure:
 
         result = await service.get_my_profile("USER_a")
         assert result.notification_muted is False
+
 
     async def test_mute_false_treated_as_unmuted(self, service, user_repo_mock):
         """레거시/이상치 False 도 `is True` 비교라 False — FCM 가드 컨벤션과 일관."""
@@ -109,6 +110,7 @@ class TestGetMyProfileBranches:
 
         with pytest.raises(ValueError, match="존재하지 않는"):
             await service.get_my_profile("USER_x")
+
 
     async def test_user_without_detail_raises_profile_not_registered(
         self, service, user_repo_mock,
@@ -162,6 +164,7 @@ class TestProfileFieldMapping:
         assert result.travel_styles == [TravelStyle.ACTIVITY, TravelStyle.FOOD_TOUR]
         assert result.notification_muted is True
 
+
     async def test_empty_travel_styles_returns_empty_list(
         self, service, user_repo_mock,
     ):
@@ -172,6 +175,7 @@ class TestProfileFieldMapping:
 
         result = await service.get_my_profile("USER_a")
         assert result.travel_styles == []
+
 
     async def test_no_profile_image_returns_none(self, service, user_repo_mock):
         user_repo_mock.find_by_id_with_profile.return_value = _mk_user(
@@ -198,6 +202,7 @@ class TestGetMyStats:
         with pytest.raises(ValueError):
             await service.get_my_stats("USER_ghost")
 
+
     async def test_returns_zero_counts_when_no_activity(
         self, service, user_repo_mock, feed_post_like_repo_mock, friendship_repo_mock,
     ):
@@ -210,6 +215,7 @@ class TestGetMyStats:
 
         assert result.total_feed_likes == 0
         assert result.total_friends == 0
+
 
     async def test_propagates_counts_from_repos(
         self, service, user_repo_mock, feed_post_like_repo_mock, friendship_repo_mock,
@@ -224,6 +230,7 @@ class TestGetMyStats:
         assert result.total_feed_likes == 42
         assert result.total_friends == 7
 
+
     async def test_forwards_user_id_to_both_repos(
         self, service, user_repo_mock, feed_post_like_repo_mock, friendship_repo_mock,
     ):
@@ -234,6 +241,7 @@ class TestGetMyStats:
 
         assert feed_post_like_repo_mock.count_total_for_owner.await_args.args == ("USER_xyz",)
         assert friendship_repo_mock.count_accepted_for.await_args.args == ("USER_xyz",)
+
 
     async def test_does_not_require_detail_row(
         self, service, user_repo_mock, feed_post_like_repo_mock, friendship_repo_mock,

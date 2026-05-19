@@ -6,13 +6,13 @@ pool gauge 는 query 직후 + event_loop 의 1초 폴링 양쪽에서 fresh 유�
 import time
 from sqlalchemy import event
 
-from app.core.context import db_route_var
 from app.core.metric import (
     DB_POOL_CHECKED_OUT,
     DB_POOL_SIZE,
     DB_QUERY_DURATION,
     DB_TRANSACTION_TOTAL,
 )
+from app.core.context import db_route_var
 
 
 # route 라벨 enum (도메인 단위, /api/{domain}/... 매핑).

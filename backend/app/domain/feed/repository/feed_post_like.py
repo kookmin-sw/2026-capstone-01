@@ -11,13 +11,13 @@
 유저 탈퇴 / 게시물 삭제 시 자동 정리.
 """
 from typing import Optional
-from sqlalchemy import select, func, delete
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, delete
 
-from app.domain.auth.model.user import User
-from app.domain.feed.model.feed_post import FeedPost
 from app.domain.feed.model.feed_post_like import FeedPostLike
+from app.domain.feed.model.feed_post import FeedPost
+from app.domain.auth.model.user import User
 
 
 class FeedPostLikeRepository:

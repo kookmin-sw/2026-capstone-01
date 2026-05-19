@@ -8,25 +8,24 @@ cleanup + Redis 캐시 무효화를 단계별로 수행한다. 통합 테스트�
 
 `MONGODB_TEST_URL` 미설정 시 skip — 인박스 cascade 가 Mongo 의존이라 통합 테스트의 핵심.
 """
-import os
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 import pytest_asyncio
+import pytest
+import os
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from app.domain.auth.model.withdrawal_request import WithdrawalRequest
-from app.domain.auth.service.profile import ProfileService
-from app.domain.auth.service.register import RegisterService
-from app.domain.auth.service.signup import SignupService
-from app.domain.auth.service.withdraw import WithdrawService
-from app.domain.notification.model.inbox import InboxItem
-from app.domain.notification.service.inbox import InboxService
-from app.domain.tripmate.model.tripmate_image import TripmateImage
-from app.domain.tripmate.model.tripmate_post_draft import TripmatePostDraft
 from app.domain.tripmate.model.tripmate_search_history import TripmateSearchHistory
+from app.domain.tripmate.model.tripmate_post_draft import TripmatePostDraft
+from app.domain.tripmate.model.tripmate_image import TripmateImage
 from app.domain.tour.model.tour_search_history import TourSearchHistory
+from app.domain.notification.service.inbox import InboxService
+from app.domain.notification.model.inbox import InboxItem
 from app.domain.friend.model.search_history import FriendSearchHistory
+from app.domain.auth.service.withdraw import WithdrawService
+from app.domain.auth.service.signup import SignupService
+from app.domain.auth.service.register import RegisterService
+from app.domain.auth.service.profile import ProfileService
+from app.domain.auth.model.withdrawal_request import WithdrawalRequest
 
 
 def _require_mongo_url() -> str:

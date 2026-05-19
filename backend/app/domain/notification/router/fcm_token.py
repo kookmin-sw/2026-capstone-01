@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, Request
 from dependency_injector.wiring import Provide, inject
 
+from app.schema.common import MessageResponse
 from app.domain.notification.service.fcm import FcmService
 from app.domain.notification.schema.fcm_token import (
     RegisterFcmTokenBody,
     UnregisterFcmTokenBody,
     FcmTokenResponse,
 )
-from app.schema.common import MessageResponse
 from app.container import Container
 
 

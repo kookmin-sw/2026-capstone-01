@@ -1,12 +1,12 @@
 import time
 
+from app.core.instrumentation import ai_inference, ai_model_load_duration_set
 from app.core.ai.papago_translator.v1.model import (
     DetectResult,
     LangCode,
     PapagoTranslatorModel,
     TranslateResult,
 )
-from app.core.instrumentation import ai_inference, ai_model_load_duration_set
 
 
 class PapagoTranslator:

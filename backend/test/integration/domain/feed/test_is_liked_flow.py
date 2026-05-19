@@ -16,9 +16,9 @@ unit 의 mock 검증은 service↔repo 경계만 — SQL 정합성은 본 파일
 """
 import pytest
 
-from app.domain.feed.model.feed_post import FeedVisibility
-from app.domain.feed.model.feed_post_like import FeedPostLike
 from app.domain.feed.repository.feed_post import FeedPostRepository
+from app.domain.feed.model.feed_post_like import FeedPostLike
+from app.domain.feed.model.feed_post import FeedVisibility
 
 
 pytestmark = pytest.mark.integration
@@ -51,6 +51,7 @@ class TestFindByPostIdIsLiked:
         assert row is not None
         assert row.is_liked is True
 
+
     async def test_viewer_not_liked_returns_false(
         self, session_factory, seed_feed_post,
     ):
@@ -63,6 +64,7 @@ class TestFindByPostIdIsLiked:
 
         assert row is not None
         assert row.is_liked is False
+
 
     async def test_other_users_like_does_not_leak_to_viewer(
         self, session_factory, seed_feed_post, seed_users,
@@ -83,6 +85,7 @@ class TestFindByPostIdIsLiked:
         assert row is not None
         assert row.is_liked is False, "다른 사람의 좋아요가 viewer 응답에 누출됨"
 
+
     async def test_viewer_id_none_returns_false(
         self, session_factory, seed_feed_post,
     ):
@@ -97,6 +100,7 @@ class TestFindByPostIdIsLiked:
 
         assert row is not None
         assert row.is_liked is False
+
 
     async def test_self_like_on_own_post_is_visible(
         self, session_factory, seed_feed_post,
@@ -161,6 +165,7 @@ class TestFindByOwnerIsLiked:
         assert by_post_id[liked_id] is True
         assert by_post_id[unliked_id] is False
 
+
     async def test_viewer_id_none_yields_all_false(
         self, session_factory, seed_users,
     ):
@@ -208,6 +213,7 @@ class TestServiceLayerIsLiked:
         )
         assert result.is_liked is True
 
+
     async def test_get_my_post_no_like_is_false(
         self, feed_post_service, seed_feed_post,
     ):
@@ -217,6 +223,7 @@ class TestServiceLayerIsLiked:
             user_id=owner_id, post_id=post_id,
         )
         assert result.is_liked is False
+
 
     async def test_get_user_feed_shows_viewer_like_on_other_owner_post(
         self, feed_post_service, seed_feed_post, session_factory, seed_users,
@@ -232,6 +239,7 @@ class TestServiceLayerIsLiked:
         assert len(result.posts) == 1
         assert result.posts[0].post_id == post_id
         assert result.posts[0].is_liked is True
+
 
     async def test_get_user_feed_other_viewers_like_does_not_leak(
         self, feed_post_service, seed_feed_post, session_factory, seed_users,

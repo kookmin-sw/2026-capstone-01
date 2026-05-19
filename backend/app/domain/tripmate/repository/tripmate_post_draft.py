@@ -1,7 +1,6 @@
 from typing import Optional
-from datetime import date, datetime, timezone
-
 from pymongo import ReturnDocument
+from datetime import date, datetime, timezone
 
 from app.domain.tripmate.model.tripmate_post_draft import TripmatePostDraft
 from app.core.instrumentation import measure_mongo_op

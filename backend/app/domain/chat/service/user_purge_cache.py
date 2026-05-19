@@ -9,10 +9,10 @@ chat 이 자기 Redis 키 규약 (`unread:`, `sessions:` 등) 의 소유권을 �
 
 `BlockCacheService` 와 동일 패턴 — cross-domain hook 의 anti-corruption layer.
 """
+from app.domain.chat.service.session import SessionService
 from app.core.redis import get_redis_client
 from app.core.logger import get_logger
 from app.core.chat.redis_key import unread_key
-from app.domain.chat.service.session import SessionService
 
 
 logger = get_logger("chat.user_purge_cache")

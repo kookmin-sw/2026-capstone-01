@@ -57,6 +57,7 @@ class CreatePlanRequest(BaseModel):
     def _check_title(cls, v: Optional[str]) -> Optional[str]:
         return _validate_title(v)
 
+
     class Config:
         json_schema_extra = {
             "example": {

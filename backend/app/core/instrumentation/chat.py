@@ -7,7 +7,6 @@ WS 연결·op, fan-out publish/dispatch, reconcile drain, unread recover 등 채
 import time
 from contextlib import asynccontextmanager
 
-from app.config.setting import settings
 from app.core.metric import (
     CHAT_ACTIVE_NODES,
     CHAT_FANOUT_DISPATCH_DURATION,
@@ -25,6 +24,7 @@ from app.core.metric import (
     CHAT_WS_OP_TOTAL,
     WORKER_LAST_TICK_TIMESTAMP,
 )
+from app.config.setting import settings
 
 
 # ────────────────────────────────────────────────────────────────────

@@ -3,14 +3,13 @@
 beanie 대신 raw dict 을 쓰는 이유는 `app/domain/chat/model/chat_message.py` 의 모듈 주석
 참조. Service 계층은 이 리포지토리의 반환 dict 을 `ChatMessageData` dataclass 로 매핑한다.
 """
-from datetime import datetime
 from typing import Any, Optional
-
 from pymongo import ASCENDING, DESCENDING
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
+from datetime import datetime
 
-from app.core.instrumentation import measure_mongo_op
 from app.domain.chat.model.chat_message import COLLECTION_NAME
+from app.core.instrumentation import measure_mongo_op
 
 
 class ChatMessageRepository:

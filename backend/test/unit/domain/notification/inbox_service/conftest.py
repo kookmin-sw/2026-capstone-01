@@ -7,17 +7,15 @@ InboxRepository (motor 기반) 만 mock 으로 치환하면 모든 메서드 검
 `InboxItem(...)` 으로 직접 인스턴스화하는데, `init_beanie` 미호출 환경에서는
 `CollectionWasNotInitialized` 가 raise 됨. mongo 비접근 단위 테스트라 stub 으로 우회.
 """
-from datetime import datetime, timezone
-
-from beanie import PydanticObjectId
-import pytest
-
-from app.domain.notification.service.inbox import InboxService
-
 from test.unit.domain.notification.mock_factory import InboxRepositoryMockFactory
 from test.unit.domain.notification.inbox_service.model_factory import (
     InboxItemFactory,
 )
+import pytest
+from datetime import datetime, timezone
+from beanie import PydanticObjectId
+
+from app.domain.notification.service.inbox import InboxService
 
 
 # InboxItem Document 의 pydantic field default — stub 도 동일하게 모방하여

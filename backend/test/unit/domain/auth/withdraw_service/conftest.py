@@ -12,11 +12,7 @@ WithdrawService 의 의존성:
 + mock_session 으로 트랜잭션 인터페이스만 충족. 실제 DB 비접근.
 """
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
-
-from app.domain.auth.service.withdraw import WithdrawService
-
+from test.unit.domain.auth.withdraw_service.model_factory import UserFactory
 from test.unit.domain.auth.mock_factory import (
     FakeBeanieDocumentClass,
     FakeUnitOfWork,
@@ -26,7 +22,9 @@ from test.unit.domain.auth.mock_factory import (
     make_user_repo_mock,
     make_withdrawal_request_repo_mock,
 )
-from test.unit.domain.auth.withdraw_service.model_factory import UserFactory
+import pytest
+
+from app.domain.auth.service.withdraw import WithdrawService
 
 
 @pytest.fixture

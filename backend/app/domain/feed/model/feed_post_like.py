@@ -5,9 +5,9 @@ tripmate_post_like 패턴 그대로:
     - 양쪽 FK ON DELETE CASCADE — 유저 탈퇴 또는 게시물 삭제 시 자동 정리.
     - `ix_feed_post_like_post_id` 로 게시물별 좋아요 수 / 누른 유저 목록 조회 최적화.
 """
-from sqlalchemy import Column, String, DateTime, ForeignKey, Index
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, DateTime, ForeignKey, Index
 
 from app.database.session import Base
 

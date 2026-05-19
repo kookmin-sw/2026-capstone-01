@@ -15,10 +15,10 @@ from dependency_injector.wiring import Provide, inject
 
 from app.domain.feed.service.feed_popup import FeedPopupService
 from app.domain.feed.service.exception import PopupTargetNotFoundError
-from app.domain.feed.schema.feed_popup import FeedPopupResponse, PopupFeedSection
 from app.domain.feed.schema.feed_post import FeedPostResponse
-from app.domain.feed.dto.feed_popup import FeedPopupData
+from app.domain.feed.schema.feed_popup import FeedPopupResponse, PopupFeedSection
 from app.domain.feed.dto.feed_post import FeedPostData
+from app.domain.feed.dto.feed_popup import FeedPopupData
 from app.container import Container
 
 

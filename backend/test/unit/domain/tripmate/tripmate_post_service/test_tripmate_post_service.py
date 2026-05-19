@@ -8,17 +8,15 @@
     - `delete_post`: 권한 + 이미지 cleanup (best-effort) + 알림 cascade 안 함
     - `toggle_display`: 권한 + 토글
 """
-from datetime import date
-
-import pytest
-
-from app.domain.tripmate.model.tripmate_post import CompanionType, PreferredGender
-from app.domain.tripmate.repository.tripmate_post import PAGE_SIZE
-
 from test.unit.domain.tripmate.tripmate_post_service.model_factory import (
     TripmatePostFactory,
     make_post_image,
 )
+import pytest
+from datetime import date
+
+from app.domain.tripmate.repository.tripmate_post import PAGE_SIZE
+from app.domain.tripmate.model.tripmate_post import CompanionType, PreferredGender
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -58,6 +56,7 @@ class TestCreatePost:
         assert result.image_urls == []
         assert result.profile_image_url == "https://img/p.jpg"
 
+
     async def test_attaches_images_when_provided(
         self, service, image_repo_mock,
     ):
@@ -81,6 +80,7 @@ class TestCreatePost:
         assert [img.image_order for img in saved] == [0, 1]
         assert [img.image_url for img in saved] == ["https://img/1", "https://img/2"]
 
+
     async def test_draft_delete_failure_is_swallowed(
         self, service, draft_service_mock,
     ):
@@ -100,6 +100,7 @@ class TestCreatePost:
             travel_end_date=date(2026, 6, 5),
             companion_type=CompanionType.FRIEND,
         )
+
 
     async def test_profile_image_url_none_when_detail_missing(
         self, service, detail_repo_mock,
@@ -149,6 +150,7 @@ class TestGetPost:
         assert result.is_liked is True
         assert result.image_urls == ["https://img/1", "https://img/2"]
 
+
     async def test_orders_images_by_image_order(
         self, service, post_repo_mock,
     ):
@@ -165,6 +167,7 @@ class TestGetPost:
         result = await service.get_post(post_id=post.post_id)
 
         assert result.image_urls == ["https://img/1", "https://img/2", "https://img/3"]
+
 
     async def test_raises_when_not_found(self, service, post_repo_mock):
         post_repo_mock.find_by_id_with_detail.return_value = None
@@ -189,6 +192,7 @@ class TestGetPosts:
         assert result.posts == []
         assert result.next_cursor is None
 
+
     async def test_no_next_cursor_when_under_page_size(
         self, service, post_repo_mock,
     ):
@@ -200,6 +204,7 @@ class TestGetPosts:
 
         assert len(result.posts) == PAGE_SIZE - 1
         assert result.next_cursor is None
+
 
     async def test_next_cursor_is_last_post_id_when_exact_page_size(
         self, service, post_repo_mock,
@@ -255,11 +260,13 @@ class TestUpdatePost:
             image_urls=image_urls,
         )
 
+
     async def test_raises_when_not_found(self, service, post_repo_mock):
         post_repo_mock.find_by_id.return_value = None
 
         with pytest.raises(ValueError, match="존재하지 않는"):
             await self._do_update(service, "TMP_x", "USER_a")
+
 
     async def test_raises_when_not_author(self, service, post_repo_mock):
         post = TripmatePostFactory.create(user_id="USER_owner")
@@ -267,6 +274,7 @@ class TestUpdatePost:
 
         with pytest.raises(PermissionError, match="권한"):
             await self._do_update(service, post.post_id, "USER_other")
+
 
     async def test_cleans_only_removed_images(
         self, service, post_repo_mock, image_repo_mock,
@@ -291,6 +299,7 @@ class TestUpdatePost:
         removed = storage_mock.delete_many.await_args.args[0]
         assert removed == ["https://img/old1"]
         mongo_image_repo_mock.delete_by_urls.assert_awaited_once_with(["https://img/old1"])
+
 
     async def test_image_cleanup_failure_is_swallowed(
         self, service, post_repo_mock, image_repo_mock, storage_mock,
@@ -325,12 +334,14 @@ class TestDeletePost:
         with pytest.raises(ValueError, match="존재하지 않는"):
             await service.delete_post(post_id="TMP_x", user_id="USER_a")
 
+
     async def test_raises_when_not_author(self, service, post_repo_mock):
         post = TripmatePostFactory.create(user_id="USER_owner")
         post_repo_mock.find_by_id.return_value = post
 
         with pytest.raises(PermissionError, match="권한"):
             await service.delete_post(post_id=post.post_id, user_id="USER_other")
+
 
     async def test_deletes_post_and_cleans_images(
         self, service, post_repo_mock, image_repo_mock,
@@ -359,6 +370,7 @@ class TestDeletePost:
             target_id=post.post_id,
         )
 
+
     async def test_no_cascade_when_unauthorized(
         self, service, post_repo_mock, inbox_service_mock,
     ):
@@ -371,6 +383,7 @@ class TestDeletePost:
 
         inbox_service_mock.cascade_post_deleted.assert_not_awaited()
 
+
     async def test_no_image_cleanup_when_no_images(
         self, service, post_repo_mock, image_repo_mock, storage_mock,
     ):
@@ -381,6 +394,7 @@ class TestDeletePost:
         await service.delete_post(post_id=post.post_id, user_id="USER_a")
 
         storage_mock.delete_many.assert_not_awaited()
+
 
     async def test_image_cleanup_failure_is_swallowed(
         self, service, post_repo_mock, image_repo_mock, storage_mock,
@@ -413,6 +427,7 @@ class TestToggleDisplay:
         assert result is False
         assert post.is_displayed is False
 
+
     async def test_toggles_false_to_true(self, service, post_repo_mock):
         post = TripmatePostFactory.create(user_id="USER_a", is_displayed=False)
         post_repo_mock.find_by_id.return_value = post
@@ -422,11 +437,13 @@ class TestToggleDisplay:
         assert result is True
         assert post.is_displayed is True
 
+
     async def test_raises_when_not_found(self, service, post_repo_mock):
         post_repo_mock.find_by_id.return_value = None
 
         with pytest.raises(ValueError, match="존재하지 않는"):
             await service.toggle_display(post_id="TMP_x", user_id="USER_a")
+
 
     async def test_raises_when_not_author(self, service, post_repo_mock):
         post = TripmatePostFactory.create(user_id="USER_owner")

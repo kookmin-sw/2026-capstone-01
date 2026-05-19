@@ -82,9 +82,11 @@ class _InstrumentedScript:
         self._script = script
         self._name = name
 
+
     async def __call__(self, *args, **kwargs):
         REDIS_LUA_SCRIPT_RUN_TOTAL.labels(script=self._name).inc()
         return await self._script(*args, **kwargs)
+
 
     def __getattr__(self, item):
         return getattr(self._script, item)

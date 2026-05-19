@@ -37,11 +37,11 @@
 """
 import warnings
 from typing import Final
-from PIL import Image, ImageOps, UnidentifiedImageError
 import io
+from PIL import Image, ImageOps, UnidentifiedImageError
 
-from app.core.logger import get_logger
 from app.domain.feed.dto.image import ProcessedFeedImage, ProcessedVariant
+from app.core.logger import get_logger
 
 
 logger = get_logger("feed.thumbnail")

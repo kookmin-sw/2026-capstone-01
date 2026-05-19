@@ -21,16 +21,17 @@ startup 순서 race 차단:
 shutdown 시 `stop_fanout_dispatcher()` 호출. 패턴은 `chat.worker.reconcile` 과 동일.
 """
 from __future__ import annotations
+
 from typing import Optional
 import json
 import asyncio
 
 from app.domain.chat.service.fanout import FanoutService
-from app.config.setting import settings
-from app.core.chat.redis_key import node_channel_key
-from app.core.instrumentation import chat_fanout_dispatch_alive, worker_tick
-from app.core.logger import get_logger
 from app.core.redis import get_redis_client
+from app.core.logger import get_logger
+from app.core.instrumentation import chat_fanout_dispatch_alive, worker_tick
+from app.core.chat.redis_key import node_channel_key
+from app.config.setting import settings
 
 
 logger = get_logger("chat.fanout_dispatcher")

@@ -3,14 +3,13 @@
 Redis / Fanout 는 Mock 으로 주입 (§통합 테스트 범위 — Phase 1 은 RDB 중심).
 """
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 from sqlalchemy import select
+import pytest
 
-from app.domain.chat.model.chat_room import ChatRoom, ChatRoomType
-from app.domain.chat.model.chat_room_member import ChatRoomMember
-from app.domain.chat.service.room import RoomService
 from app.domain.friend.model.user_block import UserBlock
+from app.domain.chat.service.room import RoomService
+from app.domain.chat.model.chat_room_member import ChatRoomMember
+from app.domain.chat.model.chat_room import ChatRoom, ChatRoomType
 
 
 pytestmark = pytest.mark.integration
@@ -90,6 +89,7 @@ class TestCreateDirectRoomFlow:
         # fan_out_to_user 가 양쪽에 1회씩 호출 (본인 포함)
         assert fanout_stub.fan_out_to_user.await_count == 2
 
+
     async def test_canonical_order_persisted(
         self, uow, seed_users, session_factory, fanout_stub, message_service_stub,
     ):
@@ -105,6 +105,7 @@ class TestCreateDirectRoomFlow:
             assert row.direct_user_a_id == low
             assert row.direct_user_b_id == high
             assert row.direct_user_a_id < row.direct_user_b_id
+
 
     async def test_idempotent_returns_same_room_id(
         self, uow, seed_users, session_factory, fanout_stub, message_service_stub,
@@ -126,6 +127,7 @@ class TestCreateDirectRoomFlow:
         # 두 번째 호출에선 fan-out 스킵 (기존 방 반환)
         assert fanout_stub.fan_out_to_user.await_count == 2  # 첫 호출만
 
+
     async def test_reverse_direction_returns_same_room(
         self, uow, seed_users, fanout_stub, message_service_stub, session_factory,
     ):
@@ -142,6 +144,7 @@ class TestCreateDirectRoomFlow:
             rooms = (await s.execute(select(ChatRoom))).scalars().all()
             assert len(rooms) == 1
 
+
     async def test_self_raises(self, uow, seed_users, fanout_stub, message_service_stub):
         (a,) = await seed_users(1)
         service = RoomService(uow=uow, fanout_service=fanout_stub, message_service=message_service_stub)
@@ -149,12 +152,14 @@ class TestCreateDirectRoomFlow:
         with pytest.raises(ValueError, match="자기 자신"):
             await service.create_direct_room(me_id=a, peer_user_id=a)
 
+
     async def test_unknown_peer_raises(self, uow, seed_users, fanout_stub, message_service_stub):
         (a,) = await seed_users(1)
         service = RoomService(uow=uow, fanout_service=fanout_stub, message_service=message_service_stub)
 
         with pytest.raises(ValueError, match="존재하지 않는"):
             await service.create_direct_room(me_id=a, peer_user_id="USER_ghost")
+
 
     async def test_blocked_raises(self, uow, seed_users, session_factory, fanout_stub, message_service_stub):
         a, b, _ = await seed_users(3)

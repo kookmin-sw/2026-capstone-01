@@ -11,6 +11,7 @@ from pathlib import Path
 
 from app.core.instrumentation import instrument_lua_script
 
+
 _LUA_DIR = Path(__file__).parent / "lua"
 
 
@@ -26,6 +27,7 @@ class LuaScripts:
         self.recover_and_incr: Optional[AsyncScript] = None
         self.force_jump: Optional[AsyncScript] = None
         self.incr_with_ttl: Optional[AsyncScript] = None
+
 
     def load(self, hot_client: Redis) -> None:
         """startup 에서 1회 호출. 파일 I/O 동기로 끝내고 Script 객체만 보유.

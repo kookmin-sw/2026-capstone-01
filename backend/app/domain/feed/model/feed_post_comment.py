@@ -7,9 +7,9 @@
       시간순 페이지네이션을 단일 인덱스로 커버.
     - `ck_feed_post_comment_min_length` — 빈 문자열 댓글 차단 (DB-level 방어선).
 """
-from sqlalchemy import Column, String, DateTime, ForeignKey, Index, CheckConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, DateTime, ForeignKey, Index, CheckConstraint
 
 from app.util.id_generator import generate_feed_post_comment_id
 from app.database.session import Base

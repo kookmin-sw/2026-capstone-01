@@ -5,16 +5,16 @@ FeedPostRepository / ObjectStorage 의 AsyncMock + 도메인 모델의 spec'd Ma
 에서 만든다. 테스트 파일이 직접 conftest 에서 helper 를 import 하지 않도록 cross-test
 재사용 가능한 helper 는 모두 본 모듈에 모은다.
 """
+from unittest.mock import AsyncMock, MagicMock
 from typing import Optional
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
 
-from app.domain.auth.model.user import User
-from app.domain.auth.model.user_detail_inform import UserDetailInform
-from app.domain.auth.model.user_travel_style import TravelStyle, UserTravelStyle
-from app.domain.feed.model.feed_post_comment import FeedPostComment
 from app.domain.feed.model.feed_post_like import FeedPostLike
+from app.domain.feed.model.feed_post_comment import FeedPostComment
 from app.domain.feed.dto.feed_post import FeedPostWithCounts
+from app.domain.auth.model.user_travel_style import TravelStyle, UserTravelStyle
+from app.domain.auth.model.user_detail_inform import UserDetailInform
+from app.domain.auth.model.user import User
 
 
 class FakeUnitOfWork:
@@ -23,8 +23,10 @@ class FakeUnitOfWork:
     def __init__(self, session):
         self._session = session
 
+
     async def __aenter__(self):
         return self._session
+
 
     async def __aexit__(self, exc_type, exc, tb):
         return False

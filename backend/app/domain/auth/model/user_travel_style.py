@@ -1,5 +1,5 @@
-from sqlalchemy import Column, String, Enum, ForeignKey, Index
 from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, Enum, ForeignKey, Index
 import enum
 
 from app.util.id_generator import generate_travel_style_id

@@ -41,15 +41,15 @@ from collections import defaultdict
 import asyncio
 
 from app.domain.chat.worker.node_registry import list_active_nodes
-from app.config.setting import settings
-from app.core.chat.redis_key import node_channel_key, ws_route_key
-from app.core.context import request_id_var, traceparent_var
+from app.core.redis import get_redis_client
+from app.core.logger import get_logger
 from app.core.instrumentation import (
     chat_fanout_dispatch,
     chat_fanout_publish_inc,
 )
-from app.core.logger import get_logger
-from app.core.redis import get_redis_client
+from app.core.context import request_id_var, traceparent_var
+from app.core.chat.redis_key import node_channel_key, ws_route_key
+from app.config.setting import settings
 
 
 logger = get_logger("chat.fanout")

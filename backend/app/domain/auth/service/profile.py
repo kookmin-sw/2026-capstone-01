@@ -1,9 +1,16 @@
 from typing import Any, BinaryIO
 
 from app.util.storage_prefix import profile_prefix
-from app.domain.auth.repository.user import UserRepository
-from app.domain.auth.repository.user_detail_inform import UserDetailInformRepository
+from app.domain.friend.repository.friendship import FriendshipRepository
+from app.domain.feed.repository.feed_post_like import FeedPostLikeRepository
+from app.domain.auth.service.exception import (
+    ProfileNotRegisteredError,
+    ProfileImageAlreadyExistsError,
+    ProfileImageNotFoundError,
+)
 from app.domain.auth.repository.user_travel_style import UserTravelStyleRepository
+from app.domain.auth.repository.user_detail_inform import UserDetailInformRepository
+from app.domain.auth.repository.user import UserRepository
 from app.domain.auth.model.user_travel_style import UserTravelStyle
 from app.domain.auth.dto.profile import (
     ProfileData,
@@ -11,13 +18,6 @@ from app.domain.auth.dto.profile import (
     OtherUserProfileData,
     ProfileStatsData,
 )
-from app.domain.auth.service.exception import (
-    ProfileNotRegisteredError,
-    ProfileImageAlreadyExistsError,
-    ProfileImageNotFoundError,
-)
-from app.domain.feed.repository.feed_post_like import FeedPostLikeRepository
-from app.domain.friend.repository.friendship import FriendshipRepository
 from app.database.session import UnitOfWork, transactional
 from app.core.object_storage import get_object_storage
 from app.core.logger import get_logger

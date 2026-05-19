@@ -4,7 +4,6 @@ repo thin wrapper — repo 호출 인자 정확성 검증. tour_search_history_s
 시그니처지만 도메인 별도 (향후 진화 여지).
 """
 from types import SimpleNamespace
-
 import pytest
 
 

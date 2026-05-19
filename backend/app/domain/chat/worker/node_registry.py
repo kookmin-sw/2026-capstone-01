@@ -15,19 +15,20 @@
 패턴은 `chat.worker.reconcile` 과 동일.
 """
 from __future__ import annotations
+
 from typing import Optional
 import time
 import asyncio
 
-from app.config.setting import settings
-from app.core.chat.redis_key import NODE_TTL, NODES_ZSET_KEY
+from app.core.redis import get_redis_client
+from app.core.logger import get_logger
 from app.core.instrumentation import (
     chat_active_nodes_set,
     chat_node_heartbeat_failure,
     worker_tick,
 )
-from app.core.logger import get_logger
-from app.core.redis import get_redis_client
+from app.core.chat.redis_key import NODE_TTL, NODES_ZSET_KEY
+from app.config.setting import settings
 
 
 logger = get_logger("chat.node_registry")

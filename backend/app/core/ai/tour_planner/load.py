@@ -1,6 +1,7 @@
-import time
 from typing import List
+import time
 
+from app.core.instrumentation import ai_inference, ai_model_load_duration_set
 from app.core.ai.tour_planner.v2.graph_orchestrator import (
     TourPlannerGraphOrchestrator,
     get_tour_planner_graph,
@@ -10,7 +11,6 @@ from app.core.ai.tour_planner.v2.data_state import (
     TourDayInput,
     TourPlanResult,
 )
-from app.core.instrumentation import ai_inference, ai_model_load_duration_set
 
 
 class TourPlanner:

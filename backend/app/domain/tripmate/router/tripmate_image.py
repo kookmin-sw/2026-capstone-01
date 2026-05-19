@@ -2,11 +2,11 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Request, Depends, UploadFile, File
 from dependency_injector.wiring import Provide, inject
 
+from app.schema.common import MessageResponse
 from app.domain.tripmate.service.tripmate_image import TripmateImageService
 from app.domain.tripmate.schema.tripmate_image import (
     ImageUploadResponse, ImageUploadListResponse, CleanupResponse,
 )
-from app.schema.common import MessageResponse
 from app.core.logger import get_logger
 from app.container import Container
 

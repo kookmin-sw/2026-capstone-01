@@ -17,9 +17,9 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func, literal, exists
 
-from app.domain.feed.model.feed_post import FeedPost, FeedVisibility
 from app.domain.feed.model.feed_post_like import FeedPostLike
 from app.domain.feed.model.feed_post_comment import FeedPostComment
+from app.domain.feed.model.feed_post import FeedPost, FeedVisibility
 from app.domain.feed.dto.feed_post import FeedPostWithCounts
 
 

@@ -12,8 +12,8 @@
 from typing import List, Optional
 from dataclasses import dataclass
 
-from app.domain.auth.model.user_travel_style import TravelStyle
 from app.domain.feed.dto.feed_post import FeedPostData
+from app.domain.auth.model.user_travel_style import TravelStyle
 
 
 # popup 의 feed item 개수 — 인스타 popup 의 그리드 (3×3) 와 동일.

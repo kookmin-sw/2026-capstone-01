@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 from bson.errors import InvalidId
 from beanie import PydanticObjectId
 
+from app.domain.notification.service.exception import InboxItemNotFoundError
 from app.domain.notification.repository.inbox import (
     InboxRepository,
     PAGE_SIZE,
@@ -44,7 +45,6 @@ from app.domain.notification.model.inbox import (
     TargetType,
     COMMENT_PREVIEW_MAX_LENGTH,
 )
-from app.domain.notification.service.exception import InboxItemNotFoundError
 from app.domain.notification.dto.inbox import (
     InboxItemData,
     InboxListData,

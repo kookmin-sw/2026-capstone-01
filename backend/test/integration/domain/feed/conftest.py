@@ -6,16 +6,15 @@
 `feed_post_like_service` / `feed_post_comment_service` 는 InboxService 의존성을 받기
 때문에 fan-out 통합 시 실 mongo 컬렉션에 인박스 항목이 적재되는 흐름까지 e2e 로 검증 가능.
 """
-import os
-
-import pytest
 import pytest_asyncio
+import pytest
+import os
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from app.domain.feed.service.feed_post_comment import FeedPostCommentService
-from app.domain.feed.service.feed_post_like import FeedPostLikeService
-from app.domain.notification.model.inbox import InboxItem
 from app.domain.notification.service.inbox import InboxService
+from app.domain.notification.model.inbox import InboxItem
+from app.domain.feed.service.feed_post_like import FeedPostLikeService
+from app.domain.feed.service.feed_post_comment import FeedPostCommentService
 
 
 def _require_mongo_url() -> str:

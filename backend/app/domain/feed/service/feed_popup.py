@@ -22,8 +22,8 @@
 from app.domain.feed.service.exception import PopupTargetNotFoundError
 from app.domain.feed.service.access import resolve_viewer_visibilities
 from app.domain.feed.repository.feed_post import FeedPostRepository
-from app.domain.feed.dto.feed_popup import POPUP_FEED_LIMIT, FeedPopupData
 from app.domain.feed.dto.feed_post import FeedPostData
+from app.domain.feed.dto.feed_popup import POPUP_FEED_LIMIT, FeedPopupData
 from app.domain.auth.repository.user import UserRepository
 from app.database.session import UnitOfWork, transactional
 from app.core.logger import get_logger

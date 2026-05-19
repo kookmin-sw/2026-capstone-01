@@ -8,8 +8,8 @@ JOIN 쿼리에 함께 로드되어 DTO 에 포함 — 클라이언트가 별도 
 응답 dto + fan-out 정보를 함께 합성하고 outer (`create_comment`) 가 분리해서 사용.
 """
 from typing import List, Optional
-from dataclasses import dataclass
 from datetime import datetime
+from dataclasses import dataclass
 
 
 @dataclass

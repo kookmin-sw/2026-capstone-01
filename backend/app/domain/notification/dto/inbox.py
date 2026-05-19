@@ -4,8 +4,8 @@ Mongo `InboxItem` document 의 필드 중 `read_at` 은 boolean `is_read` 로 �
 클라이언트는 정확한 읽은 시각이 거의 필요 없고, 미읽음 강조 UI 만 결정. 응답 면적 축소.
 """
 from typing import List, Optional
-from dataclasses import dataclass
 from datetime import datetime
+from dataclasses import dataclass
 
 from app.domain.notification.model.inbox import InboxItemType, TargetType
 

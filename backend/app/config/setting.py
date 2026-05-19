@@ -117,29 +117,35 @@ class Settings(BaseSettings):
     @property
     def POSTGRES_URL(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_NAME}"
-    
+
+
     @property
     def SYNC_POSTGRES_URL(self) -> str:
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_NAME}"
-    
+
+
     @property
     def MONGODB_URL(self) -> str:
         return f"mongodb://{self.MONGODB_USER}:{self.MONGODB_PASSWORD}@{self.MONGODB_HOST}:{self.MONGODB_PORT}/{self.MONGODB_NAME}?authSource=admin"
-    
+
+
     @property
     def REDIS_URL(self) -> str:
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
 
     @property
     def REDIS_URL_DEDUPE(self) -> str:
         """dedupe 키 전용 Redis URL. DB 번호만 분리하여 운영자의 `KEYS dedupe:*` 실수가
         세션/시퀀스 등 핫 데이터에 영향을 주지 않도록 격리한다."""
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB_DEDUPE}"
-    
+
+
     @property
     def app_allowed_origins(self) -> set[str]:
         """APP_ALLOWED_ORIGINS 쉼표 구분 문자열을 set 으로 파싱."""
         return {s.strip() for s in self.APP_ALLOWED_ORIGINS.split(",") if s.strip()}
+
 
     @property
     def is_production(self) -> bool:

@@ -3,8 +3,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from functools import wraps
 from contextvars import ContextVar
 
-from app.core.context import db_route_var
 from app.core.instrumentation import db_transaction_inc
+from app.core.context import db_route_var
+
 
 """
 RDB
@@ -16,9 +17,11 @@ class UnitOfWork:
     def __init__(self, session: async_sessionmaker):
         self.session_factory = session
 
+
     async def __aenter__(self):
         self.session = self.session_factory()
         return self.session
+
 
     async def __aexit__(self, exc_type, exc, tb):
         # 트랜잭션 결과 카운트 — route 라벨은 contextvar 에서 회수.
@@ -109,6 +112,7 @@ class MongoDB:
         self.client: Optional[AsyncIOMotorClient] = None # type: ignore
         self.database: Optional[AsyncIOMotorDatabase] = None # type: ignore
 
+
     async def connect(self):
         """MongoDB 연결 및 초기화"""
         self.client = AsyncIOMotorClient(
@@ -138,7 +142,8 @@ class MongoDB:
 
         # 채팅 메시지는 motor 네이티브로 다루므로 beanie document 대신 인덱스만 초기화
         await create_chat_message_indexes(self.database)
-        
+
+
     async def disconnect(self):
         """MongoDB 연결 종료"""
         if self.client:

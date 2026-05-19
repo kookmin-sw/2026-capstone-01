@@ -2,9 +2,9 @@ from typing import Any, Dict, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from functools import lru_cache
 
-from app.core.ai.tour_planner.v2.data_state import TourDayPlan
-from app.core.ai.tour_planner.v2.prompt_manager import get_tour_planner_prompt_manager
 from app.core.llm_manager import ModelName, get_llm_manager
+from app.core.ai.tour_planner.v2.prompt_manager import get_tour_planner_prompt_manager
+from app.core.ai.tour_planner.v2.data_state import TourDayPlan
 
 
 class TourPlannerChainManager:

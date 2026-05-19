@@ -1,6 +1,6 @@
 from typing import Optional
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
 from app.domain.auth.model.user import User, UserStatus

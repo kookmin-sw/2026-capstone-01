@@ -3,8 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, case, or_
 from datetime import datetime
 
-from app.domain.chat.model.chat_room import ChatRoom, ChatRoomType
 from app.domain.chat.model.chat_room_member import ChatRoomMember
+from app.domain.chat.model.chat_room import ChatRoom, ChatRoomType
 
 
 # 방 리스트 페이지 크기 (폭주 방어용 상한, 정식 페이지네이션 도입 전)

@@ -18,9 +18,10 @@ beanie 가 아닌 **motor 네이티브** 로 다루는 이유:
         "deleted_at":     datetime | None,
     }
 """
-from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING
+from motor.motor_asyncio import AsyncIOMotorDatabase
 import enum
+
 
 COLLECTION_NAME = "chat_message"
 

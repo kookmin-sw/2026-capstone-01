@@ -12,11 +12,11 @@ friend 도메인이 block/unblock 을 처리할 때 이 서비스를 호출해 c
 
 두 유저 사이에 1:1 방이 없으면 할 일 없음 — 그룹 방은 차단과 무관하므로 대상에서 제외.
 """
+from app.domain.chat.repository.chat_room import ChatRoomRepository
+from app.database.session import UnitOfWork, transactional
 from app.core.redis import get_redis_client
 from app.core.logger import get_logger
 from app.core.chat.redis_key import room_blocks_key
-from app.domain.chat.repository.chat_room import ChatRoomRepository
-from app.database.session import UnitOfWork, transactional
 
 
 logger = get_logger("chat.block_cache")

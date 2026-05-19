@@ -1,8 +1,8 @@
-from app.database.session import UnitOfWork, transactional
-from app.domain.friend.repository.friendship import FriendshipRepository
 from app.domain.friend.repository.user_block import UserBlockRepository
+from app.domain.friend.repository.friendship import FriendshipRepository
 from app.domain.friend.dto.friend_detail import FriendDetailData
 from app.domain.auth.repository.user import UserRepository
+from app.database.session import UnitOfWork, transactional
 
 
 class UserNotFoundError(ValueError):

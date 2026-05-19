@@ -1,6 +1,6 @@
 from typing import Optional
-from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, delete
 
 from app.domain.tripmate.model.tripmate_post_like import TripmatePostLike
 

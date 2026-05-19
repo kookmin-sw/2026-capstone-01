@@ -6,15 +6,14 @@
 EXCLUDE_PATHS / EXCLUDE_PREFIXES 도 1 case 만 확인 — 클래스 상수라 회귀 시 즉시 표면화.
 """
 
+import pytest
+import jwt
+from fastapi.testclient import TestClient
+from fastapi import FastAPI, Request
 from datetime import datetime, timedelta, timezone
 
-import jwt
-import pytest
-from fastapi import FastAPI, Request
-from fastapi.testclient import TestClient
-
-from app.config.setting import settings
 from app.middleware.auth import LoginAuthMiddleware
+from app.config.setting import settings
 
 
 pytestmark = pytest.mark.unit
@@ -82,6 +81,7 @@ class TestTokenSources:
         assert resp.status_code == 200
         assert resp.json() == {"user_id": "USER_app"}
 
+
     def test_accepts_cookie(self, client):
         token = _make_token("USER_web")
         client.cookies.set(settings.USER_LOGIN_COOKIE_NAME, token)
@@ -90,6 +90,7 @@ class TestTokenSources:
 
         assert resp.status_code == 200
         assert resp.json() == {"user_id": "USER_web"}
+
 
     def test_header_wins_when_both_present(self, client):
         """헤더 → 쿠키 우선순위 — stale 쿠키가 살아 있어도 앱은 헤더로 정확한 user 를 본다."""
@@ -114,6 +115,7 @@ class TestFailureBranches:
         assert resp.status_code == 401
         assert resp.json()["detail"] == "로그인이 필요합니다."
 
+
     def test_returns_401_when_token_has_no_user_id(self, client):
         token = _make_token(user_id=None)  # payload 에 user_id 누락
 
@@ -121,6 +123,7 @@ class TestFailureBranches:
 
         assert resp.status_code == 401
         assert "유효하지 않은" in resp.json()["detail"]
+
 
     def test_returns_401_when_token_expired(self, client):
         expired = _make_token("USER_x", expires_in=timedelta(seconds=-10))
@@ -130,6 +133,7 @@ class TestFailureBranches:
         assert resp.status_code == 401
         assert "만료" in resp.json()["detail"]
 
+
     def test_returns_401_when_signature_invalid(self, client):
         token = _make_token("USER_x", secret="not-the-real-secret")
 
@@ -137,6 +141,7 @@ class TestFailureBranches:
 
         assert resp.status_code == 401
         assert "유효하지 않은" in resp.json()["detail"]
+
 
     def test_returns_401_on_garbage_token(self, client):
         resp = client.get("/protected", headers={"X-Auth-Token": "not-a-jwt"})
@@ -154,6 +159,7 @@ class TestExcludedPaths:
         """EXCLUDE_PATHS 정확 매칭 — 토큰 없이도 200."""
         resp = client.get("/health")
         assert resp.status_code == 200
+
 
     def test_login_prefix_bypasses_auth(self, client):
         """EXCLUDE_PREFIXES `/api/auth/login` 이 `/app`, `/app/callback` 까지 자동 커버."""

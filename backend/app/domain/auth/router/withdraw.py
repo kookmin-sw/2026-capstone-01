@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Request, Depends
 from dependency_injector.wiring import Provide, inject
 
 from app.domain.auth.service.withdraw import WithdrawService, invalidate_registered_cache
@@ -8,8 +8,8 @@ from app.domain.auth.service.exception import (
     WithdrawalNotPendingError,
 )
 from app.core.logger import get_logger
-from app.config.setting import settings
 from app.container import Container
+from app.config.setting import settings
 
 
 router = APIRouter(prefix="/withdraw", tags=["회원 탈퇴"])

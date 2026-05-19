@@ -6,7 +6,6 @@ TripmatePostDraftRepository 는 `__init__` 에서 인스턴스화 → service �
 attribute 직접 치환 (notification 패턴 동일).
 """
 from unittest.mock import AsyncMock
-
 import pytest
 
 from app.domain.tripmate.service.tripmate_post_draft import TripmatePostDraftService

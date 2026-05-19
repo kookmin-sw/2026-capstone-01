@@ -1,8 +1,6 @@
 from typing import Optional
-
 from sqlalchemy.exc import IntegrityError
 
-from app.database.session import UnitOfWork, transactional
 from app.domain.friend.repository.user_block import UserBlockRepository, PAGE_SIZE
 from app.domain.friend.repository.friendship import FriendshipRepository
 from app.domain.friend.model.user_block import UserBlock
@@ -10,6 +8,7 @@ from app.domain.friend.dto.user_block import UserBlockData, UserBlockListData
 from app.domain.friend.dto.friendship import FriendPeerData
 from app.domain.auth.repository.user import UserRepository
 from app.domain.auth.model.user import User
+from app.database.session import UnitOfWork, transactional
 
 
 class UserBlockService:
@@ -116,6 +115,7 @@ class UserBlockService:
             profile_image_url=detail.profile_image_url,
         )
 
+
     @classmethod
     def _to_dto(cls, block: UserBlock, blocked_user: User) -> UserBlockData:
         return UserBlockData(
@@ -123,6 +123,7 @@ class UserBlockService:
             blocked=cls._to_peer_dto(blocked_user),
             created_at=block.created_at,
         )
+
 
     def _to_list_dto(self, items: list[UserBlock]) -> UserBlockListData:
         dtos = [self._to_dto(b, b.blocked) for b in items]

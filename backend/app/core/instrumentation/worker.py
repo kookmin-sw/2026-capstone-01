@@ -7,14 +7,14 @@ import time
 from contextlib import asynccontextmanager
 import asyncio
 
-from app.config.setting import settings
-from app.core.context import db_route_var
 from app.core.metric import (
     WITHDRAW_PURGE_LAST_RUN_DURATION,
     WORKER_LAST_TICK_TIMESTAMP,
     WORKER_TICK_DURATION,
     WORKER_TICK_TOTAL,
 )
+from app.core.context import db_route_var
+from app.config.setting import settings
 
 
 WORKER_NAMES = ("reconcile", "node_heartbeat", "fanout_dispatch", "withdraw_purge")
