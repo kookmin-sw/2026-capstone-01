@@ -24,7 +24,7 @@ def _mk_feed_item(post_id="FDP_x"):
         original_url="https://x/o.jpg",
         thumbnail_small_url="https://x/s.jpg",
         thumbnail_medium_url="https://x/m.jpg",
-        like_count=0, comment_count=0,
+        like_count=0, comment_count=0, is_liked=False,
         created_at=now, updated_at=now,
     )
 

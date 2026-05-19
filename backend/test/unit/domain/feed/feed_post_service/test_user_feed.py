@@ -163,3 +163,68 @@ class TestPagination:
 
         await service.get_user_feed(viewer_id="USER_a", owner_id="USER_b", cursor="FDP_seed")
         assert repo_mock.find_by_owner.await_args.kwargs["cursor"] == "FDP_seed"
+
+
+# ──────────────────── viewer_id 전파 + is_liked 매핑 ────────────────────
+
+@pytest.mark.unit
+class TestViewerIdPropagation:
+    """get_user_feed 호출이 repo 에 viewer_id 를 정확히 전달하는지 — 이 값이 빠지면
+    `find_by_owner` 의 is_liked subquery 가 단락되어 응답이 항상 False 가 되는 silent 회귀가
+    발생함. 따라서 service↔repo 경계에서 명시적으로 검증한다.
+    """
+    async def test_viewer_id_is_forwarded_to_repo(
+        self, service, repo_mock, friendship_repo_mock, block_repo_mock,
+    ):
+        block_repo_mock.find_blocks_between.return_value = []
+        friendship_repo_mock.find_between.return_value = None
+        repo_mock.find_by_owner.return_value = []
+
+        await service.get_user_feed(viewer_id="USER_v", owner_id="USER_b")
+
+        assert repo_mock.find_by_owner.await_args.kwargs["viewer_id"] == "USER_v"
+
+    async def test_self_view_passes_self_as_viewer_id(
+        self, service, repo_mock, friendship_repo_mock, block_repo_mock,
+    ):
+        """viewer==owner 본인 케이스도 viewer_id 가 owner 와 동일하게 전달돼야
+        본인이 본인 글에 누른 좋아요(인스타 동치)가 응답에 반영된다.
+        """
+        repo_mock.find_by_owner.return_value = []
+
+        await service.get_user_feed(viewer_id="USER_a", owner_id="USER_a")
+
+        assert repo_mock.find_by_owner.await_args.kwargs["viewer_id"] == "USER_a"
+
+
+@pytest.mark.unit
+class TestIsLikedMappedFromRow:
+    """repo 가 반환한 row.is_liked 가 응답 DTO 까지 정확히 흘러가는지 — _to_dto 누락 회귀 가드.
+    """
+    async def test_row_is_liked_true_propagates_to_dto(
+        self, service, repo_mock, friendship_repo_mock, block_repo_mock,
+    ):
+        block_repo_mock.find_blocks_between.return_value = []
+        friendship_repo_mock.find_between.return_value = None
+        row = make_feed_post_with_counts(
+            _mk_row(post_id="FDP_liked").post, is_liked=True,
+        )
+        repo_mock.find_by_owner.return_value = [row]
+
+        result = await service.get_user_feed(viewer_id="USER_v", owner_id="USER_b")
+
+        assert result.posts[0].is_liked is True
+
+    async def test_row_is_liked_false_propagates_to_dto(
+        self, service, repo_mock, friendship_repo_mock, block_repo_mock,
+    ):
+        block_repo_mock.find_blocks_between.return_value = []
+        friendship_repo_mock.find_between.return_value = None
+        row = make_feed_post_with_counts(
+            _mk_row(post_id="FDP_unliked").post, is_liked=False,
+        )
+        repo_mock.find_by_owner.return_value = [row]
+
+        result = await service.get_user_feed(viewer_id="USER_v", owner_id="USER_b")
+
+        assert result.posts[0].is_liked is False

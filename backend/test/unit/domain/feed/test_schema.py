@@ -65,6 +65,7 @@ class TestFeedPostResponse:
             "thumbnail_medium_url": "https://x/m.jpg",
             "like_count": 0,
             "comment_count": 0,
+            "is_liked": False,
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }
@@ -80,11 +81,16 @@ class TestFeedPostResponse:
         assert resp.like_count == 42
         assert resp.comment_count == 7
 
+    def test_is_liked_is_serialized(self):
+        """viewer 좋아요 여부가 응답에 정확히 노출되는지 — 새 필드 회귀 가드."""
+        resp = FeedPostResponse(**self._payload(is_liked=True))
+        assert resp.is_liked is True
+
     @pytest.mark.parametrize(
         "missing_field",
         ["post_id", "user_id", "visibility",
          "original_url", "thumbnail_small_url", "thumbnail_medium_url",
-         "like_count", "comment_count",
+         "like_count", "comment_count", "is_liked",
          "created_at", "updated_at"],
     )
     def test_missing_required_field_raises(self, missing_field):

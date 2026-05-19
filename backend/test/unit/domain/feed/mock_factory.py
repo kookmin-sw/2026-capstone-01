@@ -77,14 +77,18 @@ def make_feed_post_with_counts(
     *,
     like_count: int = 0,
     comment_count: int = 0,
+    is_liked: bool = False,
 ) -> FeedPostWithCounts:
-    """`FeedPostWithCounts(post, like_count, comment_count)` 합성 helper.
+    """`FeedPostWithCounts(post, like_count, comment_count, is_liked)` 합성 helper.
 
     repo (`find_by_post_id` / `find_by_owner`) 가 반환하는 row 형태를 테스트에서 합성할 때
-    사용. spec=FeedPost 같은 mock post 를 넣고 카운트만 지정.
+    사용. spec=FeedPost 같은 mock post 를 넣고 카운트/좋아요 여부만 지정.
     """
     return FeedPostWithCounts(
-        post=post, like_count=like_count, comment_count=comment_count,
+        post=post,
+        like_count=like_count,
+        comment_count=comment_count,
+        is_liked=is_liked,
     )
 
 

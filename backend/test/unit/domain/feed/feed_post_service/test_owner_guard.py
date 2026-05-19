@@ -199,6 +199,15 @@ class TestGetMyFeed:
         assert set(call_kwargs["visibilities"]) == set(FeedVisibility)
         assert call_kwargs["cursor"] is None
 
+    async def test_passes_self_as_viewer_id(self, service, repo_mock):
+        """get_my_feed 는 본인이 viewer 라 viewer_id=user_id 전달 — 본인이 자기 글에
+        누른 좋아요(인스타 동치)가 is_liked=True 로 합성되도록 보장.
+        """
+        repo_mock.find_by_owner.return_value = []
+        await service.get_my_feed(user_id="USER_a", cursor=None)
+
+        assert repo_mock.find_by_owner.await_args.kwargs["viewer_id"] == "USER_a"
+
     async def test_next_cursor_is_last_post_id_when_full_page(
         self, service, repo_mock, monkeypatch,
     ):
@@ -232,3 +241,60 @@ class TestGetMyFeed:
         assert result.posts[0].comment_count == 2
         assert result.posts[1].like_count == 0
         assert result.posts[1].comment_count == 5
+
+    async def test_response_propagates_is_liked_from_row(self, service, repo_mock):
+        """row.is_liked 가 응답 DTO 까지 정확히 흘러가는지 — _to_dto 누락 회귀 가드."""
+        repo_mock.find_by_owner.return_value = [
+            make_feed_post_with_counts(
+                _mk_row(post_id="FDP_a", user_id="USER_a").post, is_liked=True,
+            ),
+            make_feed_post_with_counts(
+                _mk_row(post_id="FDP_b", user_id="USER_a").post, is_liked=False,
+            ),
+        ]
+        result = await service.get_my_feed(user_id="USER_a")
+        assert result.posts[0].is_liked is True
+        assert result.posts[1].is_liked is False
+
+
+# ──────────────────── _load_owned_post 가 viewer_id=user_id 전달 ────────────────────
+
+@pytest.mark.unit
+class TestLoadOwnedPostViewerForwarding:
+    """`_load_owned_post` 가 `find_by_post_id` 호출 시 viewer_id 를 본인으로 박아 보내야
+    본인의 좋아요 여부가 응답에 정확히 반영된다 (get_my_post / update_visibility /
+    update_caption 응답 모두 이 경로 통과).
+    """
+    async def test_get_my_post_forwards_viewer_id(self, service, repo_mock):
+        repo_mock.find_by_post_id.return_value = _mk_row(user_id="USER_owner")
+        await service.get_my_post(user_id="USER_owner", post_id="FDP_x")
+        assert repo_mock.find_by_post_id.await_args.kwargs["viewer_id"] == "USER_owner"
+
+    async def test_update_visibility_forwards_viewer_id(self, service, repo_mock):
+        repo_mock.find_by_post_id.return_value = _mk_row(user_id="USER_owner")
+        await service.update_visibility(
+            user_id="USER_owner", post_id="FDP_x", visibility=FeedVisibility.FRIENDS,
+        )
+        assert repo_mock.find_by_post_id.await_args.kwargs["viewer_id"] == "USER_owner"
+
+    async def test_update_caption_forwards_viewer_id(self, service, repo_mock):
+        repo_mock.find_by_post_id.return_value = _mk_row(user_id="USER_owner")
+        await service.update_caption(
+            user_id="USER_owner", post_id="FDP_x", caption="새 캡션",
+        )
+        assert repo_mock.find_by_post_id.await_args.kwargs["viewer_id"] == "USER_owner"
+
+    async def test_response_includes_is_liked_for_mutation_endpoints(
+        self, service, repo_mock,
+    ):
+        """mutate 응답 (update_visibility/caption) 에도 is_liked 가 row 기준으로 정확 노출."""
+        row = make_feed_post_with_counts(
+            _mk_row(user_id="USER_owner", visibility=FeedVisibility.PUBLIC).post,
+            is_liked=True,
+        )
+        repo_mock.find_by_post_id.return_value = row
+
+        result = await service.update_caption(
+            user_id="USER_owner", post_id="FDP_x", caption="hi",
+        )
+        assert result.is_liked is True
