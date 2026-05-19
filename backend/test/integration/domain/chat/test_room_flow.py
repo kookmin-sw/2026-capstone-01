@@ -22,11 +22,18 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture
 def fanout_stub() -> MagicMock:
-    """Redis / fan-out 경로는 통합 테스트 범위 밖 — Mock 으로 격리."""
+    """Redis / fan-out 경로는 통합 테스트 범위 밖 — Mock 으로 격리.
+
+    `FanoutService` 의 모든 비동기 메서드를 AsyncMock 으로 셋업해야 `await` 가 안전.
+    subscribe/unsubscribe 는 RoomService 의 방 멤버 변경 경로 (`create_*_room` /
+    `invite_users` / `leave_room` / `kick_user`) 전부에서 await 된다.
+    """
     mock = MagicMock(name="fanout")
     mock.fan_out_to_user = AsyncMock()
     mock.fan_out_to_session = AsyncMock()
     mock.fan_out_to_room = AsyncMock()
+    mock.subscribe_user_to_room = AsyncMock()
+    mock.unsubscribe_user_from_room = AsyncMock()
     return mock
 
 

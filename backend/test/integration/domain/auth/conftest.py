@@ -120,10 +120,31 @@ def inbox_service(mongo_db) -> InboxService:
 
 
 @pytest.fixture
+def chat_purge_service_mock() -> AsyncMock:
+    """`UserPurgeCacheService` mock — chat 도메인 cleanup 훅.
+
+    `WithdrawService` 가 두 시점에 호출:
+      - request_withdraw commit 후: `revoke_all_sessions(user_id)`
+      - purge worker: `cleanup_user_data(user_id)`
+
+    실제 chat Redis / WS 세션 정리는 chat 도메인 단의 검증 영역이라 본 fixture 는
+    호출 여부 추적만 가능한 AsyncMock 으로 충분.
+    """
+    mock = AsyncMock()
+    mock.revoke_all_sessions = AsyncMock(return_value=None)
+    mock.cleanup_user_data = AsyncMock(return_value=None)
+    return mock
+
+
+@pytest.fixture
 def withdraw_service(
-    uow, inbox_service, storage_mock, redis_cache_mock,
+    uow, inbox_service, storage_mock, redis_cache_mock, chat_purge_service_mock,
 ) -> WithdrawService:
-    return WithdrawService(uow=uow, inbox_service=inbox_service)
+    return WithdrawService(
+        uow=uow,
+        inbox_service=inbox_service,
+        user_purge_cache_service=chat_purge_service_mock,
+    )
 
 
 # ──────────────────── RDB 전용 service (mongo 의존 X) ────────────────────
