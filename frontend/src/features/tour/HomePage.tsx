@@ -1064,21 +1064,25 @@ export default function HomePage() {
   }
 
   function openPlaceDetail(place: PlaceWithMeta): void {
-    setSelectedPlace(place);
-    setModalTab("home");
-    setPlaceDetailSheetState("collapsed");
-    setFailedDetailPhotoUrls(new Set());
-    // Apply collapsed position immediately (no transition) after mount
+  setSelectedPlace(place);
+  setModalTab("home");
+  setPlaceDetailSheetState("collapsed");
+  setFailedDetailPhotoUrls(new Set());
+
+  requestAnimationFrame(() => {
+    const el = sheetRef.current;
+    if (!el) return;
+
+    // 시작 위치: 화면 아래
+    el.style.transition = "none";
+    el.style.transform = "translate3d(0, 100vh, 0)";
+
+    // 다음 frame에서 collapsed까지 자연스럽게 올라오기
     requestAnimationFrame(() => {
-      const el = sheetRef.current;
-      if (!el) return;
-      el.style.transition = "none";
-      el.style.transform = `translate3d(0, ${getCollapsedY()}px, 0)`;
-      requestAnimationFrame(() => {
-        if (sheetRef.current) sheetRef.current.style.transition = "transform 300ms cubic-bezier(0.22, 1, 0.36, 1)";
-      });
+      applySheetTransform("collapsed", true);
     });
-  }
+  });
+}
 
   function closePlaceDetail(): void {
     dragPointerIdRef.current = null;
@@ -1107,7 +1111,21 @@ export default function HomePage() {
       dragRafRef.current = null;
     });
   }
+function animateClosePlaceDetail(): void {
+  const el = sheetRef.current;
 
+  if (!el) {
+    closePlaceDetail();
+    return;
+  }
+
+  el.style.transition = "transform 360ms cubic-bezier(0.22, 1, 0.36, 1)";
+  el.style.transform = "translate3d(0, 100vh, 0)";
+
+  window.setTimeout(() => {
+    closePlaceDetail();
+  }, 360);
+}
   function handleModalHandlePointerEnd(event: ReactPointerEvent<HTMLButtonElement>): void {
     if (dragPointerIdRef.current !== event.pointerId) return;
     dragPointerIdRef.current = null;
@@ -1126,7 +1144,7 @@ export default function HomePage() {
       setPlaceDetailSheetState("collapsed");
       applySheetTransform("collapsed");
     } else if (deltaY > closeThreshold) {
-      closePlaceDetail();
+      animateClosePlaceDetail();
     } else {
       applySheetTransform(placeDetailSheetState);
     }
@@ -1701,13 +1719,22 @@ export default function HomePage() {
 
       {showScrollTop ? (
         <button
-          type="button"
-          style={styles.scrollTopButton}
-          onClick={scrollToTop}
-          aria-label="Scroll to top"
-        >
-          ↑
-        </button>
+  type="button"
+  style={{
+    ...styles.scrollTopButton,
+    opacity: showScrollTop ? 1 : 0,
+    transform: showScrollTop
+      ? "translate3d(0, 0, 0) scale(1)"
+      : "translate3d(0, 12px, 0) scale(0.92)",
+    pointerEvents: showScrollTop ? "auto" : "none",
+  }}
+  onClick={scrollToTop}
+  aria-label="Scroll to top"
+  aria-hidden={!showScrollTop}
+  tabIndex={showScrollTop ? 0 : -1}
+>
+  ↑
+</button>
       ) : null}
 
     </div>
@@ -2425,7 +2452,7 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 50,
     background: "#fff",
     height: "100dvh",
-
+    boxShadow: "0 -12px 40px rgba(15, 23, 42, 0.10)",
     overflow: "hidden",
 
     willChange: "transform",
@@ -3005,22 +3032,35 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.5,
   },
   scrollTopButton: {
-    position: "fixed",
-    bottom: "calc(24px + var(--app-bottom-nav-reserved, 0px))",
-    right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: "50%",
-    border: "none",
-    background: "var(--brand-primary)",
-    color: "#fff",
-    fontSize: "1.2rem",
-    fontWeight: 900,
-    display: "grid",
-    placeItems: "center",
-    boxShadow: "0 4px 16px rgba(1,192,192,0.35)",
-    cursor: "pointer",
-    zIndex: 30,
-    animation: "fadeInOverlay 200ms ease-out",
-  },
+  position: "fixed",
+  bottom: "calc(24px + var(--app-bottom-nav-reserved, 0px))",
+  right: 20,
+  width: 44,
+  height: 44,
+  borderRadius: "50%",
+  border: "none",
+  background: "var(--brand-primary)",
+  color: "#fff",
+  fontSize: "1.2rem",
+  fontWeight: 900,
+  display: "grid",
+  placeItems: "center",
+  boxShadow: "0 4px 16px rgba(1,192,192,0.35)",
+  cursor: "pointer",
+  zIndex: 30,
+  transition: "opacity 180ms ease, transform 220ms ease",
+  willChange: "opacity, transform",
+},
+
+scrollTopButtonVisible: {
+  opacity: 1,
+  transform: "translate3d(0, 0, 0) scale(1)",
+  pointerEvents: "auto",
+},
+
+scrollTopButtonHidden: {
+  opacity: 0,
+  transform: "translate3d(0, 12px, 0) scale(0.92)",
+  pointerEvents: "none",
+},
 };
