@@ -2256,7 +2256,7 @@ const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
     padding: "calc(42px + var(--app-safe-top)) 12px calc(110px + var(--app-safe-bottom))",
-    background: "#ffffff",
+    background: "#f5f5f5",
     fontFamily: "'Apple SD Gothic Neo', 'Pretendard Variable', 'Nunito', sans-serif",
   },
   socialProfile: {
@@ -2850,29 +2850,30 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
   },
   settingsSwitch: {
-    width: 48,
-    height: 28,
+    width: 54,
+    height: 30,
     border: "none",
-    borderRadius: 999,
+    borderRadius: 9999,
     padding: 3,
     background: "#d7dce0",
     cursor: "pointer",
     flexShrink: 0,
+    transition: "background-color 180ms ease",
   },
   settingsSwitchOn: {
-    background: "#01C0C0",
+    background: "#7ee3e7",
   },
   settingsSwitchThumb: {
     display: "block",
-    width: 22,
-    height: 22,
-    borderRadius: "50%",
+    width: 24,
+    height: 24,
+    borderRadius: 9999,
     background: "#ffffff",
     transform: "translateX(0)",
-    transition: "transform 160ms ease",
+    transition: "transform 180ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
   settingsSwitchThumbOn: {
-    transform: "translateX(20px)",
+    transform: "translateX(24px)",
   },
   statusEditor: {
     display: "flex",

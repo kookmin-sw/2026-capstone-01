@@ -41,7 +41,6 @@ const GEOLOCATION_WATCH_OPTIONS: PositionOptions = {
   maximumAge: 60000,
   timeout: 10000,
 };
-const SEARCH_SUGGESTION_LIMIT = 8;
 const ALL_CATEGORY = "All";
 const CATEGORY_GROUPS = {
   FOOD_AND_DRINK: "Food & Drink",
@@ -575,8 +574,11 @@ export default function HomePage() {
     () => new Set()
   );
   const sheetRef = useRef<HTMLDivElement>(null);
+  const searchSheetRef = useRef<HTMLDivElement>(null);
   const dragStartYRef = useRef(0);
   const dragPointerIdRef = useRef<number | null>(null);
+  const searchDragStartYRef = useRef(0);
+  const searchDragPointerIdRef = useRef<number | null>(null);
   const dragRafRef = useRef<number | null>(null);
   const dragBaseTranslateRef = useRef(0);
   const [placesError, setPlacesError] = useState("");
@@ -957,27 +959,6 @@ export default function HomePage() {
   const hasMore = activeSort !== "Favorites" && Boolean(nextCursor);
   const sentinelText = isFetchingMore ? "Loading..." : "";
 
-  const suggestionPool = useMemo(() => {
-    return Array.from(
-      new Set(
-        placesSource.flatMap((place) => [
-          place.name,
-          place.category,
-          place.groupCategory,
-          ...place.tags,
-        ])
-      )
-    );
-  }, [placesSource]);
-
-  const relatedSuggestions = useMemo(() => {
-    const keyword = searchDraft.trim().toLowerCase();
-    const matched = suggestionPool.filter((item) =>
-      !keyword ? true : item.toLowerCase().includes(keyword)
-    );
-    return matched.slice(0, SEARCH_SUGGESTION_LIMIT);
-  }, [searchDraft, suggestionPool]);
-
   const recentSearchKeywords = useMemo(
     () => recentSearches.map((item) => item.search_name),
     [recentSearches]
@@ -1160,11 +1141,48 @@ function animateClosePlaceDetail(): void {
 
   function openSearchSheet(): void {
     setSearchDraft(searchInput);
+    setSelectedPlace(null);
+    setPlaceDetailSheetState("closed");
     setIsSearchOpen(true);
   }
 
   function closeSearchSheet(): void {
+    if (searchSheetRef.current) {
+      searchSheetRef.current.style.transform = "";
+      searchSheetRef.current.style.transition = "";
+    }
     setIsSearchOpen(false);
+  }
+
+  function handleSearchHandlePointerDown(event: ReactPointerEvent<HTMLButtonElement>): void {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    searchDragPointerIdRef.current = event.pointerId;
+    searchDragStartYRef.current = event.clientY;
+    if (searchSheetRef.current) {
+      searchSheetRef.current.style.transition = "none";
+    }
+  }
+
+  function handleSearchHandlePointerMove(event: ReactPointerEvent<HTMLButtonElement>): void {
+    if (searchDragPointerIdRef.current !== event.pointerId) return;
+    const deltaY = Math.max(0, event.clientY - searchDragStartYRef.current);
+    if (searchSheetRef.current) {
+      searchSheetRef.current.style.transform = `translate3d(0, ${deltaY}px, 0)`;
+    }
+  }
+
+  function handleSearchHandlePointerEnd(event: ReactPointerEvent<HTMLButtonElement>): void {
+    if (searchDragPointerIdRef.current !== event.pointerId) return;
+    searchDragPointerIdRef.current = null;
+    const deltaY = Math.max(0, event.clientY - searchDragStartYRef.current);
+    if (deltaY > 90) {
+      closeSearchSheet();
+      return;
+    }
+    if (searchSheetRef.current) {
+      searchSheetRef.current.style.transition = "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)";
+      searchSheetRef.current.style.transform = "translate3d(0, 0, 0)";
+    }
   }
 
   function submitSearch(nextValue: string = searchDraft): void {
@@ -1551,7 +1569,7 @@ function animateClosePlaceDetail(): void {
                     {selectedPlace.openingHours[0]}
                   </PlaceInfoRow>
                 ) : null}
-                {selectedPlace.description ? (
+                {selectedPlace.description && !isDuplicatePlaceDescription(selectedPlace) ? (
                   <p style={styles.modalDescription}>{selectedPlace.description}</p>
                 ) : null}
               </div>
@@ -1628,8 +1646,22 @@ function animateClosePlaceDetail(): void {
 
       {isSearchOpen ? (
         <div style={styles.modalOverlay} onClick={closeSearchSheet}>
-          <div style={styles.searchSheet} onClick={(event) => event.stopPropagation()}>
-            <div style={styles.searchSheetHandle} />
+          <div
+            ref={searchSheetRef}
+            style={styles.searchSheet}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              style={styles.searchSheetHandleButton}
+              onPointerDown={handleSearchHandlePointerDown}
+              onPointerMove={handleSearchHandlePointerMove}
+              onPointerUp={handleSearchHandlePointerEnd}
+              onPointerCancel={handleSearchHandlePointerEnd}
+              aria-label="Close search"
+            >
+              <span style={styles.searchSheetHandle} />
+            </button>
             <div style={styles.searchSheetHeader}>
               <label style={styles.searchSheetInputWrap}>
                 <SearchIcon />
@@ -1646,41 +1678,6 @@ function animateClosePlaceDetail(): void {
                   style={styles.searchSheetInput}
                 />
               </label>
-              <button
-                type="button"
-                style={styles.searchSheetClose}
-                onClick={closeSearchSheet}
-              >
-                Cancel
-              </button>
-            </div>
-
-            <div style={styles.searchSheetSection}>
-              <div style={styles.searchSheetLabelRow}>
-                <button
-                  type="button"
-                  style={styles.linkButton}
-                  onClick={() => submitSearch()}
-                >
-                  Search
-                </button>
-              </div>
-              <div style={styles.searchSuggestionGrid}>
-                {relatedSuggestions.length > 0 ? (
-                  relatedSuggestions.map((keyword) => (
-                    <button
-                      key={keyword}
-                      type="button"
-                      style={styles.searchKeywordChip}
-                      onClick={() => submitSearch(keyword)}
-                    >
-                      {keyword}
-                    </button>
-                  ))
-                ) : (
-                  <p style={styles.searchEmpty}>No suggestions yet.</p>
-                )}
-              </div>
             </div>
 
             <div style={styles.searchSheetSection}>
@@ -1704,7 +1701,7 @@ function animateClosePlaceDetail(): void {
                         onClick={() => void removeRecentSearch(keyword)}
                         aria-label={`Delete ${keyword}`}
                       >
-                        Delete
+                        <img src="/icon-close.svg" alt="" style={styles.recentDeleteIcon} />
                       </button>
                     </div>
                   ))}
@@ -1717,27 +1714,32 @@ function animateClosePlaceDetail(): void {
         </div>
       ) : null}
 
-      {showScrollTop ? (
-        <button
-  type="button"
-  style={{
-    ...styles.scrollTopButton,
-    opacity: showScrollTop ? 1 : 0,
-    transform: showScrollTop
-      ? "translate3d(0, 0, 0) scale(1)"
-      : "translate3d(0, 12px, 0) scale(0.92)",
-    pointerEvents: showScrollTop ? "auto" : "none",
-  }}
-  onClick={scrollToTop}
-  aria-label="Scroll to top"
-  aria-hidden={!showScrollTop}
-  tabIndex={showScrollTop ? 0 : -1}
->
-  ↑
-</button>
-      ) : null}
+      <button
+        type="button"
+        style={{
+          ...styles.scrollTopButton,
+          ...(showScrollTop && !isSearchOpen
+            ? styles.scrollTopButtonVisible
+            : styles.scrollTopButtonHidden),
+        }}
+        onClick={scrollToTop}
+        aria-label="Scroll to top"
+        aria-hidden={!showScrollTop || isSearchOpen}
+        tabIndex={showScrollTop && !isSearchOpen ? 0 : -1}
+      >
+        ↑
+      </button>
 
     </div>
+  );
+}
+
+function isDuplicatePlaceDescription(place: Place): boolean {
+  const description = place.description.trim();
+  return (
+    description === "" ||
+    description === place.shortAddress?.trim() ||
+    description === place.address?.trim()
   );
 }
 
@@ -1995,7 +1997,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "transparent",
+    background: "#f5f5f5",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   loadingShell: {
@@ -2911,15 +2913,27 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: "30px 30px 0 0",
     background: "var(--surface-panel)",
     boxShadow: "0 28px 72px rgba(24, 26, 32, 0.18)",
-    padding: "10px 18px 26px",
+    padding: "22px 18px 26px",
     animation: "slideUpModal 280ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
+  searchSheetHandleButton: {
+    width: "100%",
+    height: 24,
+    border: "none",
+    background: "transparent",
+    display: "grid",
+    placeItems: "center",
+    padding: 0,
+    margin: "-8px 0 10px",
+    cursor: "grab",
+    touchAction: "none",
+  },
   searchSheetHandle: {
-    width: 56,
-    height: 6,
+    width: 58,
+    height: 5,
     borderRadius: 999,
-    background: "rgba(5,181,187,0.24)",
-    margin: "4px auto 16px",
+    background: "rgba(24,26,32,0.18)",
+    display: "block",
   },
   searchSheetHeader: {
     display: "flex",
@@ -2945,16 +2959,8 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--text-primary)",
     fontSize: "1rem",
   },
-  searchSheetClose: {
-    border: "none",
-    background: "transparent",
-    color: "var(--neutral-700)",
-    fontWeight: 700,
-    cursor: "pointer",
-    padding: "10px 4px",
-  },
   searchSheetSection: {
-    marginTop: 24,
+    marginTop: 26,
     display: "flex",
     flexDirection: "column",
     gap: 14,
@@ -2971,32 +2977,14 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     fontSize: "0.96rem",
   },
-  linkButton: {
-    border: "none",
-    background: "transparent",
-    color: "var(--brand-primary-deep)",
-    fontWeight: 800,
-    cursor: "pointer",
-    padding: 0,
-  },
-  searchSuggestionGrid: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  searchKeywordChip: {
-    border: "1px solid #dfdfdf",
-    borderRadius: 999,
-    padding: "11px 14px",
-    background: "rgba(248,180,0,0.12)",
-    color: "var(--text-secondary)",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
   recentList: {
     display: "flex",
     flexDirection: "column",
     gap: 10,
+    maxHeight: 290,
+    overflowY: "auto",
+    WebkitOverflowScrolling: "touch",
+    overscrollBehavior: "contain",
   },
   recentItem: {
     display: "flex",
@@ -3018,13 +3006,21 @@ const styles: Record<string, CSSProperties> = {
   },
   recentDeleteButton: {
     border: "none",
-    borderRadius: "25rem",
-    background: "rgba(248,180,0,0.5)",
-    color: "var(--text-secondary)",
-    fontSize: "1rem",
+    borderRadius: "50%",
+    background: "transparent",
     lineHeight: 1,
     cursor: "pointer",
-    padding: "0.4rem 1rem",
+    padding: 0,
+    width: 34,
+    height: 34,
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+  },
+  recentDeleteIcon: {
+    width: 16,
+    height: 16,
+    display: "block",
   },
   searchEmpty: {
     margin: 0,
@@ -3032,35 +3028,33 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.5,
   },
   scrollTopButton: {
-  position: "fixed",
-  bottom: "calc(24px + var(--app-bottom-nav-reserved, 0px))",
-  right: 20,
-  width: 44,
-  height: 44,
-  borderRadius: "50%",
-  border: "none",
-  background: "var(--brand-primary)",
-  color: "#fff",
-  fontSize: "1.2rem",
-  fontWeight: 900,
-  display: "grid",
-  placeItems: "center",
-  boxShadow: "0 4px 16px rgba(1,192,192,0.35)",
-  cursor: "pointer",
-  zIndex: 30,
-  transition: "opacity 180ms ease, transform 220ms ease",
-  willChange: "opacity, transform",
-},
-
-scrollTopButtonVisible: {
-  opacity: 1,
-  transform: "translate3d(0, 0, 0) scale(1)",
-  pointerEvents: "auto",
-},
-
-scrollTopButtonHidden: {
-  opacity: 0,
-  transform: "translate3d(0, 12px, 0) scale(0.92)",
-  pointerEvents: "none",
-},
+    position: "fixed",
+    bottom: "calc(24px + var(--app-bottom-nav-reserved, 0px))",
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: "50%",
+    border: "none",
+    background: "rgba(24,26,32,0.72)",
+    color: "#ffffff",
+    fontSize: "1.4rem",
+    fontWeight: 900,
+    lineHeight: 1,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "opacity 220ms ease, transform 220ms ease",
+    zIndex: 30,
+  },
+  scrollTopButtonVisible: {
+    opacity: 1,
+    transform: "translate3d(0, 0, 0)",
+    pointerEvents: "auto",
+  },
+  scrollTopButtonHidden: {
+    opacity: 0,
+    transform: "translate3d(0, 12px, 0)",
+    pointerEvents: "none",
+  },
 };

@@ -42,7 +42,6 @@ import {
   type RecommendedTraveler,
 } from "../../utils/mateRecommendation";
 import { showAppToast } from "../../utils/appToast";
-import FeedPopup from "../../components/FeedPopup";
 import ChatPage from "../friend-chat/ChatPage";
 
 const COMPANION_FILTERS = ["all", "sole", "friend", "couple", "family"] as const;
@@ -143,7 +142,6 @@ export default function MatePage() {
   const [friendStates, setFriendStates] = useState<Record<string, MateFriendState>>({});
   const [friendRequestingUserId, setFriendRequestingUserId] = useState<string | null>(null);
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
-  const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
   const [chatOpeningPostId, setChatOpeningPostId] = useState<string | null>(null);
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -1022,8 +1020,7 @@ export default function MatePage() {
     <>
       <header style={styles.header}>
         <div style={styles.headerLogoRow}>
-          <img src="/krip_register_logo.png" alt="KRIP" style={styles.headerLogo} />
-          <h1 style={styles.headerTitle}>{mainTab === "mate" ? "Mate" : "Chat"}</h1>
+          <img src="/kripInAppLogo.svg" alt="KRIP" style={styles.headerLogo} />
         </div>
         <div style={styles.headerActions}>
           {mainTab === "mate" ? (
@@ -1033,7 +1030,7 @@ export default function MatePage() {
               onClick={() => handleTabChange(tab === "list" ? "write" : "list")}
             >
               {tab === "list" ? (
-                <img src="/postIcon.png" alt="Post" style={{ width: 28, height: 28, objectFit: "contain", display: "block" }} />
+                <img src="/PostIcon.svg" alt="Post" style={{ width: 28, height: 28, objectFit: "contain", display: "block" }} />
               ) : "Cancel"}
             </button>
           ) : (
@@ -1150,7 +1147,7 @@ export default function MatePage() {
                         }
                         onSendRequest={() => void handleSendSearchUserFriendRequest(user)}
                         onChat={() => void handleStartSearchUserChat(user)}
-                        onViewFeed={() => setFeedPopupUserId(user.user_id)}
+                        onViewFeed={() => navigate(`/profile/${user.user_id}`)}
                       />
                     ))}
                   </div>
@@ -1213,24 +1210,6 @@ export default function MatePage() {
               </div>
             </section>
 
-            <section style={styles.filtersSection}>
-              <div style={styles.filterGroup}>
-                {COMPANION_FILTERS.map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    style={{
-                      ...styles.filterChip,
-                      ...(filter === item ? styles.filterChipActive : {}),
-                    }}
-                    onClick={() => setFilter(item)}
-                  >
-                    {COMPANION_LABELS[item]}
-                  </button>
-                ))}
-              </div>
-            </section>
-
             <section style={styles.listSection}>
               {errorMessage ? (
                 <div style={styles.emptyState}>
@@ -1279,17 +1258,19 @@ export default function MatePage() {
                       <div style={styles.authorBlock}>
                         <AuthorAvatar post={post} />
                         <div>
-                          <p style={styles.authorName}>{post.author.user_name}</p>
+                          <p style={styles.authorNameRow}>
+                            <span style={styles.authorName}>{post.author.user_name}</span>
+                            <span style={styles.authorDate}>
+                              · {post.travel_start_date} ~ {post.travel_end_date}
+                            </span>
+                          </p>
                           <p style={styles.authorMeta}>
-                            {[post.author.nationality, post.author.age, GENDER_LABELS[post.author.gender]]
-                              .filter(Boolean)
-                              .join(" / ")}
+                            {formatMatePostHeaderMeta(post)}
                           </p>
                         </div>
                       </div>
 
                       <div style={styles.cardActions}>
-                        <span style={styles.typeBadge}>{COMPANION_LABELS[post.companion_type]}</span>
                         {currentUserId && post.user_id === currentUserId ? (
                           <button
                             type="button"
@@ -1351,9 +1332,6 @@ export default function MatePage() {
                     ) : null}
 
                     <div style={styles.cardBody}>
-                      <span style={styles.dateTag}>
-                        {post.travel_start_date} - {post.travel_end_date}
-                      </span>
                       <h2 style={styles.cardTitle}>{post.title}</h2>
                       <p style={styles.cardDescription}>{post.content}</p>
                     </div>
@@ -1378,13 +1356,6 @@ export default function MatePage() {
                         ))}
                       </div>
                     ) : null}
-
-                    <div style={styles.metaGrid}>
-                      <span style={styles.metaChip}>
-                        Ages {post.preferred_age_min}-{post.preferred_age_max}
-                      </span>
-                      <span style={styles.metaChip}>{GENDER_LABELS[post.preferred_gender]}</span>
-                    </div>
 
                     <div style={styles.cardFooter}>
                       <span style={styles.regionText}>
@@ -1677,7 +1648,7 @@ export default function MatePage() {
           }}
           onDelete={() => void handleDeletePost(selectedPost)}
           onViewProfile={() => {
-            setFeedPopupUserId(selectedPost.user_id);
+            navigate(`/profile/${selectedPost.user_id}`);
             setSelectedPost(null);
           }}
           onChat={() => {
@@ -1715,17 +1686,10 @@ export default function MatePage() {
             void handleSendRecommendedFriendRequest(selectedRecommendedTraveler)
           }
           onChat={() => void handleStartRecommendedChat(selectedRecommendedTraveler)}
-          onViewFeed={() => setFeedPopupUserId(selectedRecommendedTraveler.user_id)}
+          onViewFeed={() => navigate(`/profile/${selectedRecommendedTraveler.user_id}`)}
         />
       ) : null}
 
-      {feedPopupUserId ? (
-        <FeedPopup
-          key={feedPopupUserId}
-          userId={feedPopupUserId}
-          onClose={() => setFeedPopupUserId(null)}
-        />
-      ) : null}
 
       {expandedImage ? (
         <ImageLightbox src={expandedImage} onClose={() => setExpandedImage(null)} />
@@ -2222,6 +2186,18 @@ function formatRecommendedFriendName(name: string): string {
   return `${characters.slice(0, maxLength).join("")}...`;
 }
 
+function formatMatePostHeaderMeta(post: TripMatePost): string {
+  const companionLabel = COMPANION_LABELS[post.companion_type].toLowerCase();
+  return [
+    post.author.nationality,
+    post.author.age,
+    GENDER_LABELS[post.author.gender],
+    `with ${companionLabel}`,
+  ]
+    .filter((value) => value !== undefined && value !== null && String(value).trim())
+    .join(" / ");
+}
+
 function formatPreferenceLabel(value: string): string {
   const key = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
   const labelMap: Record<string, string> = {
@@ -2543,7 +2519,7 @@ const styles: Record<string, CSSProperties> = {
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
-    gap: 18,
+    gap: "4.5px",
   },
   fixedHeader: {
     position: "fixed",
@@ -2554,8 +2530,8 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 14,
-    padding: "calc(24px + var(--app-safe-top)) 16px 12px",
-    background: "#f1f8f6",
+    padding: "calc(12px + var(--app-safe-top)) 0 12px",
+    background: "#f5f5f5",
     opacity: 0,
     pointerEvents: "none",
     transform: "translateY(calc(-100% - 16px))",
@@ -2574,24 +2550,20 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     justifyContent: "space-between",
     gap: 16,
+    padding: "16px 16px 0",
   },
   headerLogoRow: {
     display: "flex",
     alignItems: "center",
     gap: 8,
+    alignSelf: "flex-start",
+    marginLeft: 4,
   },
   headerLogo: {
-    height: 28,
+    height: "clamp(22px, 4.8vw, 32px)",
     width: "auto",
     objectFit: "contain",
     display: "block",
-  },
-  headerTitle: {
-    margin: 0,
-    fontSize: "1.2rem",
-    fontWeight: 800,
-    lineHeight: 1.2,
-    color: "var(--text-primary)",
   },
   headerCopy: {
     maxWidth: 460,
@@ -2605,26 +2577,32 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     gap: 10,
     flexShrink: 0,
+    alignSelf: "flex-start",
+    marginRight: 8,
   },
   headerButton: {
+    width: 42,
+    height: 42,
     border: "none",
     borderRadius: 999,
-    padding: "6px 8px",
+    padding: 0,
     background: "transparent",
     color: "var(--brand-primary)",
     fontWeight: 800,
     cursor: "pointer",
     flexShrink: 0,
+    display: "grid",
+    placeItems: "center",
   },
   headerIconButton: {
     position: "relative",
     width: 42,
     height: 42,
-    border: "1px solid rgba(5,181,187,0.18)",
-    borderRadius: "50%",
+    border: "none",
+    borderRadius: 0,
     display: "grid",
     placeItems: "center",
-    background: "rgba(255,255,255,0.92)",
+    background: "transparent",
     cursor: "pointer",
     flexShrink: 0,
   },
@@ -3052,16 +3030,21 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
   },
   listSection: {
+    width: "100vw",
+    marginLeft: "calc(50% - 50vw)",
+    marginRight: "calc(50% - 50vw)",
     display: "flex",
     flexDirection: "column",
-    gap: 14,
+    gap: 0,
+    background: "#ffffff",
   },
   card: {
     position: "relative",
-    padding: 18,
-    borderRadius: 28,
-    background: "rgba(255,255,255,0.92)",
-    boxShadow: "var(--shadow-soft)",
+    padding: "18px 16px",
+    borderRadius: 0,
+    background: "#ffffff",
+    boxShadow: "none",
+    borderBottom: "1px solid #eaeaea",
     cursor: "pointer",
     zIndex: 1,
   },
@@ -3102,15 +3085,26 @@ const styles: Record<string, CSSProperties> = {
     height: 60,
     fontSize: "1.25rem",
   },
-  authorName: {
+  authorNameRow: {
     margin: 0,
+    display: "flex",
+    alignItems: "baseline",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  authorName: {
     color: "var(--text-primary)",
     fontWeight: 800,
+  },
+  authorDate: {
+    color: "var(--neutral-600)",
+    fontSize: "0.92rem",
+    fontWeight: 500,
   },
   authorMeta: {
     margin: "4px 0 0",
     color: "var(--neutral-700)",
-    fontSize: "0.82rem",
+    fontSize: "0.92rem",
   },
   cardActions: {
     display: "flex",

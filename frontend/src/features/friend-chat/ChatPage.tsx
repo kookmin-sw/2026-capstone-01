@@ -30,7 +30,6 @@ import {
 import { useChat } from "./ChatProvider";
 import { reportChatNetworkError } from "../../utils/chatDiagnostics";
 import ConfirmToast from "../../components/ConfirmToast";
-import FeedPopup from "../../components/FeedPopup";
 import { navigateBackOrFallback } from "../../utils/navigation";
 
 type FriendManagerTab = "friend" | "request";
@@ -82,7 +81,6 @@ export default function ChatPage({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [currentUserName, setCurrentUserName] = useState<string | null>(null);
-  const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
   const [internalSearchQuery, setInternalSearchQuery] = useState("");
   const [isFriendManagerOpen, setIsFriendManagerOpen] = useState(false);
   const [friendManagerTab, setFriendManagerTab] = useState<FriendManagerTab>(
@@ -858,13 +856,6 @@ export default function ChatPage({
           />
         ) : null}
 
-        {feedPopupUserId ? (
-          <FeedPopup
-            key={feedPopupUserId}
-            userId={feedPopupUserId}
-            onClose={() => setFeedPopupUserId(null)}
-          />
-        ) : null}
       </div>
     </div>
   );
@@ -955,14 +946,16 @@ function SwipeChatRow({
         if (deltaX > 44) onCloseActions();
       }}
     >
-      <div style={styles.chatSwipeActions}>
-        <button type="button" style={styles.muteRoomButton} disabled={busy} onClick={onMute}>
-          {room.notification_muted ? "Unmute" : "Mute"}
-        </button>
-        <button type="button" style={styles.leaveRoomButton} disabled={busy} onClick={onLeave}>
-          Leave
-        </button>
-      </div>
+      {isOpen ? (
+        <div style={styles.chatSwipeActions}>
+          <button type="button" style={styles.muteRoomButton} disabled={busy} onClick={onMute}>
+            {room.notification_muted ? "Unmute" : "Mute"}
+          </button>
+          <button type="button" style={styles.leaveRoomButton} disabled={busy} onClick={onLeave}>
+            Leave
+          </button>
+        </div>
+      ) : null}
       <button
         type="button"
         style={{ ...styles.chatRow, ...(isOpen ? styles.chatRowShifted : {}) }}
@@ -1232,12 +1225,12 @@ const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
     padding: "calc(20px + var(--app-safe-top)) 0 34px",
-    background: "#f1f8f6",
+    background: "#ffffff",
     fontFamily: "'Pretendard Variable', 'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   shell: {
     width: "100%",
-    maxWidth: 393,
+    maxWidth: 430,
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
@@ -1498,9 +1491,9 @@ const styles: Record<string, CSSProperties> = {
     gap: 12,
     width: "100%",
     minHeight: 76,
-    padding: "10px 17px",
+    padding: "12px 10px",
     borderRadius: 0,
-    background: "#f1f8f6",
+    background: "#ffffff",
     border: "none",
     cursor: "pointer",
     textAlign: "left",
@@ -1549,7 +1542,7 @@ const styles: Record<string, CSSProperties> = {
     placeItems: "center",
     flexShrink: 0,
     background: "linear-gradient(135deg, var(--brand-primary), var(--brand-primary-deep))",
-    color: "#ffffff",
+    color: "#ffffffff",
     fontWeight: 800,
     overflow: "hidden",
   },
@@ -1723,17 +1716,17 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     justifyContent: "center",
     alignItems: "flex-end",
-    padding: "18px 14px 0",
+    padding: "18px 0 0",
     background: "rgba(15,23,42,0.36)",
   },
   managerPanel: {
-    width: "min(760px, 100%)",
+    width: "min(430px, 100%)",
     maxHeight: "88dvh",
     overflowY: "auto",
     display: "flex",
     flexDirection: "column",
     gap: 14,
-    padding: "0 18px 18px",
+    padding: "0 10px 18px",
     borderRadius: "26px 26px 0 0",
     background: "#ffffff",
     boxShadow: "0 22px 70px rgba(15,23,42,0.22)",
@@ -1813,7 +1806,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 12,
-    padding: 16,
+    padding: "14px 10px",
     borderRadius: 20,
     border: "1px solid #eeeeee",
     background: "#ffffff",
@@ -1847,7 +1840,7 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    padding: 12,
+    padding: "12px 10px",
     borderRadius: 16,
     background: "#ffffff",
     border: "1px solid #eeeeee",
