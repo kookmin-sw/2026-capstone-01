@@ -16,6 +16,7 @@ import pytest_asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.domain.auth.model.withdrawal_request import WithdrawalRequest
+from app.domain.auth.service.profile import ProfileService
 from app.domain.auth.service.register import RegisterService
 from app.domain.auth.service.signup import SignupService
 from app.domain.auth.service.withdraw import WithdrawService
@@ -159,3 +160,11 @@ def signup_service(uow) -> SignupService:
 def register_service(uow) -> RegisterService:
     """2차 가입 — RDB 만 터치 (UserDetailInform + UserTravelStyle)."""
     return RegisterService(uow=uow)
+
+
+@pytest.fixture
+def profile_service(uow) -> ProfileService:
+    """프로필 조회/수정 + 마이페이지 stats — RDB 만 사용. ObjectStorage 는 stats 경로에서
+    호출되지 않으므로 real `get_object_storage` 가 import 단에서 평가돼도 무방.
+    """
+    return ProfileService(uow=uow)

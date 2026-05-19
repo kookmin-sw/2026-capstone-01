@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import pytest
 
 from app.domain.auth.service.profile import ProfileService
@@ -32,9 +34,26 @@ def storage_mock():
 
 
 @pytest.fixture
+def feed_post_like_repo_mock():
+    """`get_my_stats` 의 cross-domain 의존성 — 좋아요 총 합 카운터 mock."""
+    mock = AsyncMock()
+    mock.count_total_for_owner = AsyncMock(return_value=0)
+    return mock
+
+
+@pytest.fixture
+def friendship_repo_mock():
+    """`get_my_stats` 의 cross-domain 의존성 — ACCEPTED 친구 카운터 mock."""
+    mock = AsyncMock()
+    mock.count_accepted_for = AsyncMock(return_value=0)
+    return mock
+
+
+@pytest.fixture
 def service(
     monkeypatch, mock_session,
     user_repo_mock, user_detail_repo_mock, storage_mock,
+    feed_post_like_repo_mock, friendship_repo_mock,
 ):
     """Mock 레포 + Storage 가 주입된 ProfileService."""
     monkeypatch.setattr(
@@ -44,6 +63,14 @@ def service(
     monkeypatch.setattr(
         "app.domain.auth.service.profile.UserDetailInformRepository",
         lambda session: user_detail_repo_mock,
+    )
+    monkeypatch.setattr(
+        "app.domain.auth.service.profile.FeedPostLikeRepository",
+        lambda session: feed_post_like_repo_mock,
+    )
+    monkeypatch.setattr(
+        "app.domain.auth.service.profile.FriendshipRepository",
+        lambda session: friendship_repo_mock,
     )
     monkeypatch.setattr(
         "app.domain.auth.service.profile.get_object_storage",
