@@ -167,6 +167,7 @@ const MIN_HORIZONTAL_SWIPE_PX: number = 96;
 const MAX_VERTICAL_SWIPE_PX: number = 32;
 const HORIZONTAL_SWIPE_DOMINANCE: number = 2;
 const ACTIVITY_TOAST_POLL_INTERVAL_MS: number = 5000;
+const DOUBLE_BACK_EXIT_INTERVAL_MS: number = 1800;
 
 type TouchPoint = {
   x: number;
@@ -314,9 +315,11 @@ function AndroidBackButtonHandler() {
   const location = useLocation();
   const navigate = useNavigate();
   const locationRef = useRef(location);
+  const lastExitBackPressedAtRef = useRef(0);
 
   useEffect(() => {
     locationRef.current = location;
+    lastExitBackPressedAtRef.current = 0;
   }, [location]);
 
   useEffect(() => {
@@ -328,6 +331,26 @@ function AndroidBackButtonHandler() {
       if (backEvent.defaultPrevented) return;
 
       const pathname = locationRef.current.pathname;
+      if (isDoubleBackExitPath(pathname)) {
+        const now = window.performance.now();
+        if (now - lastExitBackPressedAtRef.current <= DOUBLE_BACK_EXIT_INTERVAL_MS) {
+          void CapacitorApp.exitApp();
+          return;
+        }
+
+        lastExitBackPressedAtRef.current = now;
+        window.dispatchEvent(
+          new CustomEvent<AppToastDetail>("krip:app-toast", {
+            detail: {
+              title: "Press back again to exit",
+              variant: "info",
+              placement: "center",
+            },
+          })
+        );
+        return;
+      }
+
       if (pathname.startsWith("/chat/")) {
         navigate("/mate", { replace: true, state: { mainTab: "chat" } });
         return;
@@ -349,6 +372,10 @@ function AndroidBackButtonHandler() {
   }, [navigate]);
 
   return null;
+}
+
+function isDoubleBackExitPath(pathname: string): boolean {
+  return pathname === "/" || pathname === "/login" || pathname === "/home";
 }
 
 function ViewportHeightController() {
