@@ -1,0 +1,269 @@
+import type { CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { getMyProfile } from "../api/auth/auth";
+import { createDirectChatRoom } from "../api/chat";
+import {
+  getFeedPopup,
+  getUserFeedPosts,
+  type FeedPost,
+  type FeedPopupResponse,
+} from "../api/feed";
+import { getFriendDetail, sendFriendRequest, type FriendshipStatus } from "../api/friend";
+
+const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
+
+export default function FeedPopup({
+  userId,
+  onClose,
+}: {
+  userId: string;
+  onClose: () => void;
+  side?: "left" | "right";
+}) {
+  const navigate = useNavigate();
+  const [popup, setPopup] = useState<FeedPopupResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedPost, setSelectedPost] = useState<FeedPost | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMoreFeed, setHasMoreFeed] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [viewerUserId, setViewerUserId] = useState("");
+  const [friendshipStatus, setFriendshipStatus] = useState<FriendshipStatus | null>(null);
+  const [isRequester, setIsRequester] = useState<boolean | null>(null);
+  const [relationshipBusy, setRelationshipBusy] = useState(false);
+  const [sheetState, setSheetState] = useState<"collapsed" | "expanded">("collapsed");
+
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragPointerIdRef = useRef<number | null>(null);
+  const dragStartYRef = useRef(0);
+  const dragRafRef = useRef<number | null>(null);
+  const dragBaseRef = useRef(0);
+
+  function getCollapsedY(): number {
+    return Math.round(window.innerHeight * 0.45);
+  }
+  function applyTransform(state: "collapsed" | "expanded", withTransition = true): void {
+    const el = sheetRef.current;
+    if (!el) return;
+    el.style.transition = withTransition ? "transform 300ms cubic-bezier(0.22,1,0.36,1)" : "none";
+    el.style.transform = state === "expanded" ? "translate3d(0,0,0)" : `translate3d(0,${getCollapsedY()}px,0)`;
+  }
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      const el = sheetRef.current;
+      if (!el) return;
+      el.style.transition = "none";
+      el.style.transform = `translate3d(0,${getCollapsedY()}px,0)`;
+      requestAnimationFrame(() => {
+        if (sheetRef.current) sheetRef.current.style.transition = "transform 300ms cubic-bezier(0.22,1,0.36,1)";
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    getFeedPopup(userId)
+      .then((response) => {
+        if (isMounted) {
+          setPopup(response);
+          setNextCursor(response.feed.items[response.feed.items.length - 1]?.post_id ?? null);
+          setHasMoreFeed(response.feed.items.length >= 9);
+        }
+      })
+      .catch((loadError) => { if (isMounted) setError(toErrorMessage(loadError, "Feed could not be loaded.")); })
+      .finally(() => { if (isMounted) setLoading(false); });
+    return () => { isMounted = false; };
+  }, [userId]);
+
+  useEffect(() => {
+    let mounted = true;
+    getMyProfile()
+      .then((viewer) => { if (mounted) setViewerUserId(viewer?.user_id ?? ""); })
+      .catch(() => { if (mounted) setViewerUserId(""); });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!viewerUserId || viewerUserId === userId) return undefined;
+    getFriendDetail(userId)
+      .then((detail) => {
+        if (!mounted) return;
+        setFriendshipStatus(detail.friendship_status);
+        setIsRequester(detail.is_requester);
+      })
+      .catch(() => { if (!mounted) return; setFriendshipStatus(null); setIsRequester(null); });
+    return () => { mounted = false; };
+  }, [userId, viewerUserId]);
+
+  const profileMetaItems = [popup?.nationality, ...(popup?.travel_styles ?? [])]
+    .filter((value): value is string => Boolean(value))
+    .map(formatProfileMeta)
+    .slice(0, 3);
+  const canShowProfileActions = Boolean(viewerUserId && viewerUserId !== userId);
+  const totalLikes = popup?.feed.items.reduce((sum, post) => sum + post.like_count, 0) ?? 0;
+
+  async function handleAddFriend(): Promise<void> {
+    if (relationshipBusy || !canShowProfileActions) return;
+    setRelationshipBusy(true);
+    try {
+      const friendship = await sendFriendRequest(userId);
+      setFriendshipStatus(friendship.status);
+      setIsRequester(friendship.is_requester);
+    } catch (requestError) {
+      setError(toErrorMessage(requestError, "Failed to send friend request."));
+    } finally { setRelationshipBusy(false); }
+  }
+
+  async function handleOpenChat(): Promise<void> {
+    if (relationshipBusy || !canShowProfileActions) return;
+    setRelationshipBusy(true);
+    try {
+      const room = await createDirectChatRoom(userId);
+      if (!room?.chat_room_id) throw new Error("Failed to open chat room.");
+      onClose();
+      navigate(`/chat/${room.chat_room_id}`);
+    } catch (chatError) {
+      setError(toErrorMessage(chatError, "Failed to open chat."));
+    } finally { setRelationshipBusy(false); }
+  }
+
+  async function handleLoadMore(): Promise<void> {
+    if (!popup || loadingMore || !hasMoreFeed) return;
+    const cursor = nextCursor || popup.feed.items[popup.feed.items.length - 1]?.post_id;
+    if (!cursor) return;
+    setLoadingMore(true); setError("");
+    try {
+      const response = await getUserFeedPosts(userId, cursor);
+      setPopup((current) => {
+        if (!current) return current;
+        const existingIds = new Set(current.feed.items.map((post) => post.post_id));
+        const nextItems = response.posts.filter((post) => !existingIds.has(post.post_id));
+        return { ...current, feed: { items: [...current.feed.items, ...nextItems] } };
+      });
+      setNextCursor(response.next_cursor);
+      setHasMoreFeed(Boolean(response.next_cursor));
+    } catch (loadError) {
+      setError(toErrorMessage(loadError, "More feed photos could not be loaded."));
+    } finally { setLoadingMore(false); }
+  }
+
+  // — drag handlers (RAF-based, no setState during move) —
+  function onHandleDown(e: React.PointerEvent<HTMLButtonElement>): void {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragPointerIdRef.current = e.pointerId;
+    dragStartYRef.current = e.clientY;
+    dragBaseRef.current = sheetState === "expanded" ? 0 : getCollapsedY();
+    const el = sheetRef.current;
+    if (el) el.style.transition = "none";
+  }
+  function onHandleMove(e: React.PointerEvent<HTMLButtonElement>): void {
+    if (dragPointerIdRef.current !== e.pointerId) return;
+    const y = Math.max(0, dragBaseRef.current + (e.clientY - dragStartYRef.current));
+    if (dragRafRef.current !== null) cancelAnimationFrame(dragRafRef.current);
+    dragRafRef.current = requestAnimationFrame(() => {
+      if (sheetRef.current) sheetRef.current.style.transform = `translate3d(0,${y}px,0)`;
+      dragRafRef.current = null;
+    });
+  }
+  function onHandleUp(e: React.PointerEvent<HTMLButtonElement>): void {
+    if (dragPointerIdRef.current !== e.pointerId) return;
+    dragPointerIdRef.current = null;
+    if (dragRafRef.current !== null) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = null; }
+    const deltaY = e.clientY - dragStartYRef.current;
+    const vh = window.innerHeight;
+    if (deltaY > Math.max(150, vh * 0.22)) { onClose(); return; }
+    if (sheetState === "collapsed" && deltaY < -80) {
+      setSheetState("expanded"); applyTransform("expanded");
+    } else if (sheetState === "expanded" && deltaY > 80) {
+      setSheetState("collapsed"); applyTransform("collapsed");
+    } else {
+      applyTransform(sheetState);
+    }
+  }
+
+  return (
+    <>
+      <div style={styles.backdrop} onClick={onClose} />
+      <div ref={sheetRef} style={styles.sheet} onClick={(e) => e.stopPropagation()}>
+        {/* Drag handle */}
+        <button
+          type="button"
+          style={styles.handleBtn}
+          onPointerDown={onHandleDown}
+          onPointerMove={onHandleMove}
+          onPointerUp={onHandleUp}
+          onPointerCancel={onHandleUp}
+          aria-label="Drag to expand or close"
+        >
+          <span style={styles.handle} />
+        </button>
+
+        {loading ? (
+          <div style={styles.statePanel}>Loading feed...</div>
+        ) : error ? (
+          <div style={styles.statePanel}>{error}</div>
+        ) : popup ? (
+          <>
+            {/* Profile header */}
+            <header style={styles.header}>
+              <img
+                src={popup.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
+                alt=""
+                style={styles.avatar}
+              />
+              <h2 style={styles.name}>{popup.user_name || "Unknown"}</h2>
+              <div style={styles.statsRow}>
+                <span style={styles.statItem}><strong>{popup.feed.items.length}</strong> Posts</span>
+                <span style={styles.statItem}><strong>{totalLikes}</strong> Likes</span>
+              </div>
+              {profileMetaItems.length ? (
+                <div style={styles.chipRow}>
+                  {profileMetaItems.map((item) => (
+                    <span key={item} style={styles.profileChip}>{item}</span>
+                  ))}
+                </div>
+              ) : null}
+            </header>
+
+            {canShowProfileActions ? (
+              <div style={styles.actionBar}>
+                <button
+                  type="button"
+                  style={styles.chatBtn}
+                  onClick={() => void handleOpenChat()}
+                  disabled={relationshipBusy}
+                >
+                  Chat
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.addFriendBtn,
+                    ...(friendshipStatus === "accepted" || friendshipStatus === "pending"
+                      ? styles.addFriendBtnDone : {}),
+                  }}
+                  onClick={() => void handleAddFriend()}
+                  disabled={relationshipBusy || friendshipStatus === "pending" || friendshipStatus === "accepted"}
+                >
+                  {friendshipStatus === "accepted" ? "Friends"
+                    : friendshipStatus === "pending" ? (isRequester ? "Requested" : "Pending")
+                    : "Add Friend"}
+                </button>
+              </div>
+            ) : null}
+
+            {/* Feed grid — edge-to-edge */}
+            {popup.feed.items.length ? (
+              <div style={styles.grid}>
+                {popup.feed.items.map((post) => (
+                  <button
+                    key={post.post_id}
+                    type="button"
+                    style={styles.tile}
+                    onClick={() => setSelectedPost(post)}
+                  >
+                    <img src={g

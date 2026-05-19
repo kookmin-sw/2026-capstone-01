@@ -15,7 +15,6 @@ import {
 import { getMyProfile } from "../../api/auth/auth";
 import { getFriendDetail } from "../../api/friend";
 import ConfirmToast from "../../components/ConfirmToast";
-import FeedPopup from "../../components/FeedPopup";
 import { useChat } from "./ChatProvider";
 
 const BOTTOM_THRESHOLD_PX = 160;
@@ -65,7 +64,6 @@ export default function ChatRoomPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
-  const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
   const [isLeaveConfirmOpen, setIsLeaveConfirmOpen] = useState(false);
   const [isInviteConfirmOpen, setIsInviteConfirmOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -115,11 +113,6 @@ export default function ChatRoomPage() {
 
   useEffect(() => {
     function handleAndroidBack(event: Event): void {
-      if (feedPopupUserId) {
-        event.preventDefault();
-        setFeedPopupUserId(null);
-        return;
-      }
       if (isLeaveConfirmOpen) {
         event.preventDefault();
         setIsLeaveConfirmOpen(false);
@@ -152,7 +145,6 @@ export default function ChatRoomPage() {
       window.removeEventListener("krip:android-back", handleAndroidBack);
     };
   }, [
-    feedPopupUserId,
     infoOpen,
     inviteOpen,
     isInviteConfirmOpen,
@@ -598,7 +590,7 @@ export default function ChatRoomPage() {
   function openFeedPopup(userId?: string | null): void {
     if (userId) {
       setInfoOpen(false);
-      setFeedPopupUserId(userId);
+      navigate(`/profile/${userId}`);
     }
   }
 
@@ -993,14 +985,6 @@ export default function ChatRoomPage() {
             ) : null}
           </aside>
         </div>
-      ) : null}
-
-      {feedPopupUserId ? (
-        <FeedPopup
-          userId={feedPopupUserId}
-          side="left"
-          onClose={() => setFeedPopupUserId(null)}
-        />
       ) : null}
 
       {isLeaveConfirmOpen ? (

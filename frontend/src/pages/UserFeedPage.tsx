@@ -305,69 +305,71 @@ export default function UserFeedPage() {
         <div style={styles.statePanel}>{error}</div>
       ) : profile ? (
         <>
-          <section style={styles.profileHeader}>
-            <img
-              src={profile.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
-              alt=""
-              style={styles.avatar}
-            />
-            <div style={styles.profileText}>
-              <div style={styles.nameRow}>
+          <section style={styles.profileSection}>
+            <div style={styles.profileGrid}>
+              <img
+                src={profile.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
+                alt=""
+                style={styles.avatar}
+              />
+              <div style={styles.profileInfo}>
                 <h1 style={styles.name}>{profile.user_name || "Unknown"}</h1>
-                {canShowProfileActions ? (
-                  <div style={styles.profileActions}>
-                    {friendshipStatus !== "accepted" ? (
-                      <button
-                        type="button"
-                        style={styles.profileActionButton}
-                        onClick={() => void handleAddFriend()}
-                        disabled={relationshipBusy || friendshipStatus === "pending"}
-                      >
-                        {friendshipStatus === "pending"
-                          ? isRequester
-                            ? "Requested"
-                            : "Pending"
-                          : "Add Friend"}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      style={styles.profileActionButton}
-                      onClick={() => void handleOpenChat()}
-                      disabled={relationshipBusy}
-                    >
-                      Chat
-                    </button>
+                <div style={styles.statsRow}>
+                  <div style={styles.statItem}>
+                    <span style={styles.statNumber}>{posts.length}</span>
+                    <span style={styles.statLabel}>Posts</span>
                   </div>
-                ) : null}
-              </div>
-              {visibleProfileMetaItems.length > 0 ? (
-                <div style={styles.metaRow}>
-                  <p style={styles.meta}>{visibleProfileMetaItems.join(" · ")}</p>
+                </div>
+                <div style={styles.chipsRow}>
+                  {visibleProfileMetaItems.map((item) => (
+                    <span key={item} style={styles.chip}>{item}</span>
+                  ))}
                   {profileMetaItems.length > 3 ? (
                     <button
                       type="button"
-                      style={styles.metaToggle}
+                      style={styles.chipMoreButton}
                       onClick={() => setIsMetaExpanded((current) => !current)}
-                      aria-label={
-                        isMetaExpanded
-                          ? "Show fewer travel styles"
-                          : `Show ${hiddenMetaCount} more travel styles`
-                      }
+                      aria-label={isMetaExpanded ? "Show fewer" : `Show ${hiddenMetaCount} more`}
                     >
-                      <span
-                        style={{
-                          ...styles.metaToggleTriangle,
-                          ...(isMetaExpanded ? styles.metaToggleTriangleOpen : {}),
-                        }}
-                      />
+                      <ChevronDownIcon flipped={isMetaExpanded} />
                     </button>
                   ) : null}
                 </div>
-              ) : null}
-              <p style={styles.count}>{posts.length} posts</p>
+              </div>
             </div>
+
+            {canShowProfileActions ? (
+              <div style={styles.actionBarWrap}>
+                <div style={styles.actionBar}>
+                  <button
+                    type="button"
+                    style={styles.actionBarBtn}
+                    onClick={() => void handleOpenChat()}
+                    disabled={relationshipBusy}
+                  >
+                    <ChatSvg />
+                    Chat
+                  </button>
+                  <span style={styles.actionBarDivider} />
+                  <button
+                    type="button"
+                    style={styles.actionBarBtn}
+                    onClick={() => void handleAddFriend()}
+                    disabled={relationshipBusy || friendshipStatus === "accepted"}
+                  >
+                    <AddFriendSvg />
+                    {friendshipStatus === "accepted"
+                      ? "Friends"
+                      : friendshipStatus === "pending"
+                        ? isRequester ? "Requested" : "Pending"
+                        : "Add Friend"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </section>
+
+          <div style={styles.sectionDivider} />
 
           {posts.length > 0 ? (
             <section style={styles.grid}>
@@ -598,6 +600,34 @@ function CommentIcon() {
   );
 }
 
+function ChatSvg() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+function AddFriendSvg() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <line x1="19" y1="8" x2="19" y2="14" />
+      <line x1="22" y1="11" x2="16" y2="11" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon({ flipped }: { flipped: boolean }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" stroke="#606060" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      style={{ transform: flipped ? "rotate(180deg)" : "none", transition: "transform 200ms" }}>
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
@@ -630,91 +660,123 @@ const styles: Record<string, CSSProperties> = {
   topSpacer: {
     width: 48,
   },
-  profileHeader: {
+  profileSection: {
     width: "min(430px, 100%)",
-    margin: "8px auto 18px",
-    display: "flex",
-    alignItems: "center",
+    margin: "0 auto",
+  },
+  profileGrid: {
+    display: "grid",
+    gridTemplateColumns: "108px 1fr",
     gap: 16,
-    padding: "0 18px",
+    alignItems: "flex-start",
+    padding: "14px 18px 16px",
   },
   avatar: {
-    width: 84,
-    height: 84,
+    width: 108,
+    height: 108,
     borderRadius: "50%",
     objectFit: "cover",
-    background: "var(--surface-muted)",
-  },
-  profileText: {
-    minWidth: 0,
-  },
-  nameRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  name: {
-    margin: 0,
-    color: "#171717",
-    fontSize: "1.3rem",
-    lineHeight: 1.15,
-  },
-  profileActions: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-  },
-  profileActionButton: {
-    minHeight: 26,
-    padding: "0 9px",
-    border: "1px solid rgba(0, 121, 128, 0.18)",
-    borderRadius: 999,
-    background: "#ffffff",
-    color: "var(--brand-primary-deep)",
-    fontSize: "0.72rem",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  metaRow: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: 6,
-    marginTop: 6,
-  },
-  meta: {
-    margin: 0,
-    color: "var(--brand-primary-deep)",
-    fontSize: "0.84rem",
-    fontWeight: 900,
-    overflowWrap: "anywhere",
-  },
-  metaToggle: {
-    width: 22,
-    height: 22,
-    padding: 0,
-    border: "none",
-    background: "transparent",
-    display: "inline-grid",
-    placeItems: "center",
-    cursor: "pointer",
+    background: "#e8e8e8",
     flexShrink: 0,
   },
-  metaToggleTriangle: {
-    width: 0,
-    height: 0,
-    borderLeft: "5px solid transparent",
-    borderRight: "5px solid transparent",
-    borderTop: "6px solid var(--brand-primary-deep)",
+  profileInfo: {
+    minWidth: 0,
+    paddingTop: 2,
   },
-  metaToggleTriangleOpen: {
-    transform: "rotate(180deg)",
+  name: {
+    margin: "0 0 8px",
+    color: "#1a1a1a",
+    fontSize: "1.25rem",
+    fontWeight: 400,
+    letterSpacing: "-0.4px",
+    lineHeight: 1.2,
   },
-  count: {
-    margin: "6px 0 0",
-    color: "var(--neutral-700)",
-    fontSize: "0.86rem",
-    fontWeight: 800,
+  statsRow: {
+    display: "flex",
+    gap: 20,
+    marginBottom: 10,
+  },
+  statItem: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+  },
+  statNumber: {
+    color: "#323232",
+    fontSize: "1rem",
+    fontWeight: 600,
+    letterSpacing: "-0.32px",
+    lineHeight: 1.2,
+  },
+  statLabel: {
+    color: "#323232",
+    fontSize: "0.75rem",
+    letterSpacing: "-0.2px",
+    lineHeight: 1.3,
+  },
+  chipsRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 5,
+    alignItems: "center",
+  },
+  chip: {
+    height: 22,
+    padding: "0 9px",
+    border: "0.7px solid #d7d7d7",
+    borderRadius: 24,
+    color: "#606060",
+    fontSize: "0.75rem",
+    letterSpacing: "-0.24px",
+    display: "inline-flex",
+    alignItems: "center",
+  },
+  chipMoreButton: {
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+    padding: 0,
+    width: 24,
+    height: 24,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionBarWrap: {
+    background: "#f5f5f5",
+    padding: "10px 18px 12px",
+  },
+  actionBar: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1px 1fr",
+    background: "#ffffff",
+    border: "1px solid #bebebe",
+    borderRadius: 12,
+    boxShadow: "0 0 3px rgba(0,0,0,0.15)",
+    height: 50,
+    overflow: "hidden",
+  },
+  actionBarBtn: {
+    border: "none",
+    background: "transparent",
+    color: "#606060",
+    fontSize: "1rem",
+    letterSpacing: "-0.32px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  actionBarDivider: {
+    background: "#bebebe",
+    width: 1,
+    alignSelf: "stretch",
+  },
+  sectionDivider: {
+    height: 1,
+    background: "#e8e8e8",
+    margin: "0 0 4px",
   },
   grid: {
     display: "grid",
@@ -743,8 +805,8 @@ const styles: Record<string, CSSProperties> = {
     margin: "18px auto",
     padding: 22,
     borderRadius: 18,
-    background: "var(--surface-muted)",
-    color: "var(--neutral-700)",
+    background: "#f3f3f3",
+    color: "#555555",
     fontWeight: 800,
     textAlign: "center",
   },
@@ -867,7 +929,7 @@ const styles: Record<string, CSSProperties> = {
   },
   commentsState: {
     padding: 16,
-    color: "var(--neutral-700)",
+    color: "#555555",
     fontWeight: 800,
     textAlign: "center",
   },

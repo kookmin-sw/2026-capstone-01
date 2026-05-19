@@ -44,7 +44,7 @@ function preventViewportZoom(): void {
     "touchend",
     (event) => {
       const now = window.performance.now();
-      if (now - lastTouchEndAt <= 320) {
+      if (event.cancelable && now - lastTouchEndAt <= 320) {
         event.preventDefault();
       }
       lastTouchEndAt = now;
