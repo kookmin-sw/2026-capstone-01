@@ -4,10 +4,12 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   deleteMyProfileImage,
   getMyProfile,
+  getMyProfileStats,
   logoutUser,
   replaceMyProfileImage,
   updateMyProfile,
   uploadMyProfileImage,
+  type MyProfileStats,
   type ProfilePreferencesPayload,
   type ProfileUpdatePayload,
   type UserProfile,
@@ -38,6 +40,7 @@ import {
   type FeedPost,
   type FeedVisibility,
 } from "../api/feed";
+import { setGlobalNotificationMuted } from "../api/notification";
 import { showAppToast } from "../utils/appToast";
 
 const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
@@ -130,6 +133,10 @@ const PLANNING_KEYS = new Set(PLANNING_OPTIONS.map((option) => option.key));
 
 const MIN_AGE = 20;
 const MAX_AGE = 100;
+const EMPTY_PROFILE_STATS: MyProfileStats = {
+  total_feed_likes: 0,
+  total_friends: 0,
+};
 
 type ProfileInfoDraft = {
   user_name: string;
@@ -191,12 +198,15 @@ export default function MyPage() {
   const openedNotificationPostIdRef = useRef("");
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileStats, setProfileStats] =
+    useState<MyProfileStats>(EMPTY_PROFILE_STATS);
   const [profileImagePreview, setProfileImagePreview] = useState("");
   const [isUploadingProfileImage, setIsUploadingProfileImage] = useState(false);
   const [isDeletingProfileImage, setIsDeletingProfileImage] = useState(false);
   const [isProfileImageMenuOpen, setIsProfileImageMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isNotificationMuteSaving, setIsNotificationMuteSaving] = useState(false);
   const [preferenceDraft, setPreferenceDraft] =
     useState<ProfilePreferencesPayload>(EMPTY_PREFERENCES);
   const [isPreferenceEditing, setIsPreferenceEditing] = useState(false);
@@ -244,6 +254,15 @@ export default function MyPage() {
         }
       })
       .catch(() => setProfile(null));
+  }, []);
+
+  useEffect(() => {
+    getMyProfileStats()
+      .then((stats) => setProfileStats(sanitizeProfileStats(stats)))
+      .catch((error) => {
+        console.warn("Failed to load profile stats", error);
+        setProfileStats(EMPTY_PROFILE_STATS);
+      });
   }, []);
 
   useEffect(() => {
@@ -544,10 +563,10 @@ export default function MyPage() {
 
   function updateFeedPostState(post: FeedPost): void {
     setFeedPosts((current) =>
-      current.map((item) => (item.post_id === post.post_id ? post : item))
+      current.map((item) => (item.post_id === post.post_id ? mergeFeedPost(item, post) : item))
     );
     setSelectedFeedPost((current) =>
-      current?.post_id === post.post_id ? post : current
+      current?.post_id === post.post_id ? mergeFeedPost(current, post) : current
     );
   }
 
@@ -556,7 +575,12 @@ export default function MyPage() {
 
     setIsFeedActionRunning(true);
     try {
-      updateFeedPostState(await updateFeedPostVisibility(selectedFeedPost.post_id, visibility));
+      updateFeedPostState(
+        mergeFeedPost(
+          selectedFeedPost,
+          await updateFeedPostVisibility(selectedFeedPost.post_id, visibility)
+        )
+      );
     } catch (error) {
       window.alert(toErrorMessage(error, "Failed to update visibility."));
     } finally {
@@ -570,9 +594,12 @@ export default function MyPage() {
     setIsFeedActionRunning(true);
     try {
       updateFeedPostState(
-        await updateFeedPostCaption(
-          selectedFeedPost.post_id,
-          selectedCaptionDraft.trim() || null
+        mergeFeedPost(
+          selectedFeedPost,
+          await updateFeedPostCaption(
+            selectedFeedPost.post_id,
+            selectedCaptionDraft.trim() || null
+          )
         )
       );
       setIsFeedPostEditing(false);
@@ -598,6 +625,13 @@ export default function MyPage() {
       setFeedPosts((current) =>
         current.filter((item) => item.post_id !== selectedFeedPost.post_id)
       );
+      setProfileStats((current) => ({
+        ...current,
+        total_feed_likes: Math.max(
+          0,
+          current.total_feed_likes - safeCount(selectedFeedPost.like_count)
+        ),
+      }));
       setSelectedFeedPost(null);
       setFeedConfirm(null);
     } catch (error) {
@@ -610,23 +644,33 @@ export default function MyPage() {
   async function handleSelectedLike(): Promise<void> {
     if (!selectedFeedPost || isFeedActionRunning) return;
 
+    const previousPost = selectedFeedPost;
+    const nextLiked = !previousPost.is_liked;
+    const optimisticPost = {
+      ...previousPost,
+      is_liked: nextLiked,
+      like_count: Math.max(0, previousPost.like_count + (nextLiked ? 1 : -1)),
+    };
+
     setIsFeedActionRunning(true);
+    updateFeedPostState(optimisticPost);
+    updateTotalFeedLikes(nextLiked ? 1 : -1);
     try {
-      const response = await likeFeedPost(selectedFeedPost.post_id);
-      updateFeedPostState({ ...selectedFeedPost, like_count: response.like_count });
-      setSelectedFeedLikes((await getFeedPostLikes(selectedFeedPost.post_id)).users);
+      const response = nextLiked
+        ? await likeFeedPost(previousPost.post_id)
+        : await unlikeFeedPost(previousPost.post_id);
+      const nextPost = {
+        ...optimisticPost,
+        like_count: response.like_count,
+        is_liked: nextLiked,
+      };
+      updateFeedPostState(nextPost);
+      updateTotalFeedLikes(safeCount(response.like_count) - safeCount(optimisticPost.like_count));
+      setSelectedFeedLikes((await getFeedPostLikes(previousPost.post_id)).users);
     } catch (error) {
-      if (getApiStatus(error) === 400) {
-        try {
-          const response = await unlikeFeedPost(selectedFeedPost.post_id);
-          updateFeedPostState({ ...selectedFeedPost, like_count: response.like_count });
-          setSelectedFeedLikes((await getFeedPostLikes(selectedFeedPost.post_id)).users);
-        } catch (unlikeError) {
-          window.alert(toErrorMessage(unlikeError, "Failed to update like."));
-        }
-      } else {
-        window.alert(toErrorMessage(error, "Failed to update like."));
-      }
+      updateFeedPostState(previousPost);
+      updateTotalFeedLikes(nextLiked ? -1 : 1);
+      window.alert(toErrorMessage(error, "Failed to update like."));
     } finally {
       setIsFeedActionRunning(false);
     }
@@ -687,6 +731,15 @@ export default function MyPage() {
     }
 
     void confirmCommentDelete(feedConfirm.comment);
+  }
+
+  function updateTotalFeedLikes(delta: number): void {
+    if (!Number.isFinite(delta) || delta === 0) return;
+
+    setProfileStats((current) => ({
+      ...current,
+      total_feed_likes: Math.max(0, current.total_feed_likes + Math.trunc(delta)),
+    }));
   }
 
   async function handleLogout(): Promise<void> {
@@ -933,11 +986,43 @@ export default function MyPage() {
     }
   }
 
+  async function handleGlobalNotificationMuteToggle(): Promise<void> {
+    if (isNotificationMuteSaving) return;
+
+    const nextMuted = profile?.notification_muted !== true;
+    setIsNotificationMuteSaving(true);
+    try {
+      await setGlobalNotificationMuted(nextMuted);
+      setProfile((current) =>
+        current ? { ...current, notification_muted: nextMuted } : current
+      );
+      showAppToast({
+        title: nextMuted ? "Notifications muted" : "Notifications enabled",
+        variant: "success",
+      });
+    } catch (error) {
+      showAppToast({
+        title: "Failed to update notifications",
+        message: toErrorMessage(error, "Please try again."),
+        variant: "error",
+      });
+    } finally {
+      setIsNotificationMuteSaving(false);
+    }
+  }
+
   const profileImageUrl =
     profileImagePreview || getProfileImageUrl(profile) || DEFAULT_PROFILE_IMAGE_URL;
   const canDeleteProfileImage =
     Boolean(getProfileImageUrl(profile)) && !profileImagePreview;
   const nameText = profile?.user_name ?? "";
+  const isNotificationMuted = profile?.notification_muted === true;
+  const profileChips = [
+    profile?.nationality,
+    ...(profile?.travel_styles ?? []),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .slice(0, 3);
   const infoItems = [
     { label: "Name", value: profile?.user_name ?? "" },
     { label: "Email", value: profile?.email ?? "" },
@@ -999,34 +1084,59 @@ export default function MyPage() {
         <div style={styles.socialProfileBody}>
           <div style={styles.socialNameRow}>
             <h1 style={styles.name}>{nameText || "Unknown"}</h1>
-            <button
-              type="button"
-              style={styles.settingsButton}
-              onClick={() => setIsSettingsOpen(true)}
-              aria-label="Open settings"
-            >
-              <img src="/SettingsIcon.svg" alt="settings" style={{ width: 20, height: 20, objectFit: "contain", display: "block" }} />
-            </button>
-            <button
-              type="button"
-              style={styles.newPostButton}
-              onClick={() => {
-                if (feedPosts.length >= 100) {
-                  window.alert("The maximum feed photo limit is 100.");
-                  return;
-                }
-                feedImageInputRef.current?.click();
-              }}
-              aria-label="Create new post"
-            >
-              <img src="/PostIcon.svg" alt="" aria-hidden="true" style={{ width: 20, height: 20, objectFit: "contain", display: "block" }} />
-            </button>
           </div>
-          <span style={styles.profileStat}>
-            <strong>{feedPosts.length}</strong> posts
-          </span>
+          <div style={styles.profileStatsRow}>
+            <span style={styles.profileStat}>
+              <strong style={styles.profileStatNumber}>{safeCount(feedPosts.length)}</strong>
+              <span>Posts</span>
+            </span>
+            <span style={styles.profileStat}>
+              <strong style={styles.profileStatNumber}>{safeCount(profileStats.total_feed_likes)}</strong>
+              <span>Likes</span>
+            </span>
+            <span style={styles.profileStat}>
+              <strong style={styles.profileStatNumber}>{safeCount(profileStats.total_friends)}</strong>
+              <span>Friends</span>
+            </span>
+          </div>
+          {profileChips.length ? (
+            <div style={styles.profileChipRow}>
+              {profileChips.map((chip) => (
+                <span key={chip} style={styles.profileChip}>
+                  {formatProfileChip(chip)}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       </section>
+
+      <section style={styles.profileActionBar}>
+        <button
+          type="button"
+          style={styles.profileActionButton}
+          onClick={() => setIsSettingsOpen(true)}
+        >
+          <img src="/SettingsIcon.svg" alt="" style={styles.profileActionIcon} />
+          <span>settings</span>
+        </button>
+        <span style={styles.profileActionDivider} />
+        <button
+          type="button"
+          style={styles.profileActionButton}
+          onClick={() => {
+            if (feedPosts.length >= 100) {
+              window.alert("The maximum feed photo limit is 100.");
+              return;
+            }
+            feedImageInputRef.current?.click();
+          }}
+        >
+          <img src="/PostIcon.svg" alt="" style={styles.profileActionIcon} />
+          <span>new post</span>
+        </button>
+      </section>
+      <div style={styles.profileActionDividerLine} />
 
       <section style={styles.section}>
         <input
@@ -1133,6 +1243,32 @@ export default function MyPage() {
             >
               Edit Travel Preferences
             </button>
+            <div style={styles.settingsToggleRow}>
+              <span style={styles.settingsToggleText}>
+                <strong style={styles.settingsToggleTitle}>Notification</strong>
+                <span style={styles.settingsToggleCopy}>
+                  {isNotificationMuted ? "All push notifications are muted." : "Push notifications are enabled."}
+                </span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!isNotificationMuted}
+                style={{
+                  ...styles.settingsSwitch,
+                  ...(!isNotificationMuted ? styles.settingsSwitchOn : {}),
+                }}
+                onClick={() => void handleGlobalNotificationMuteToggle()}
+                disabled={isNotificationMuteSaving}
+              >
+                <span
+                  style={{
+                    ...styles.settingsSwitchThumb,
+                    ...(!isNotificationMuted ? styles.settingsSwitchThumbOn : {}),
+                  }}
+                />
+              </button>
+            </div>
             {isPreferenceEditing ? (
               <PreferenceEditor
                 value={preferenceDraft}
@@ -1932,8 +2068,6 @@ function FeedPostModal({
   onCommentSubmit: () => void;
   onCommentDelete: (comment: FeedComment) => void;
 }) {
-  const isLikedByMe = likes.some((likeUser) => likeUser.user_id === currentUserId);
-
   return (
     <div style={styles.modalBackdrop} onClick={onClose}>
       <div style={styles.feedModal} onClick={(event) => event.stopPropagation()}>
@@ -2052,7 +2186,7 @@ function FeedPostModal({
                 aria-label="Like"
               >
                 <span style={styles.feedActionCount}>{post.like_count}</span>
-                <HeartIcon filled={isLikedByMe} />
+                <HeartIcon filled={post.is_liked} />
               </button>
               <span style={styles.feedCommentSummary}>
                 <span style={styles.feedActionCount}>{post.comment_count}</span>
@@ -2121,19 +2255,18 @@ function CommentIcon() {
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
-    padding: "calc(28px + var(--app-safe-top)) 16px calc(110px + var(--app-safe-bottom))",
-    background: "#f5f5f5",
-    fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
+    padding: "calc(42px + var(--app-safe-top)) 12px calc(110px + var(--app-safe-bottom))",
+    background: "#ffffff",
+    fontFamily: "'Apple SD Gothic Neo', 'Pretendard Variable', 'Nunito', sans-serif",
   },
   socialProfile: {
-    maxWidth: 880,
+    maxWidth: 540,
     margin: "0 auto",
     display: "grid",
-    gridTemplateColumns: "108px minmax(0, 1fr)",
-    gap: 20,
+    gridTemplateColumns: "132px minmax(0, 1fr)",
+    gap: 14,
     alignItems: "center",
-    padding: "8px 0 24px",
-    borderBottom: "1px solid var(--neutral-200)",
+    padding: "0 6px 20px",
   },
   socialProfileBody: {
     minWidth: 0,
@@ -2141,33 +2274,7 @@ const styles: Record<string, CSSProperties> = {
   socialNameRow: {
     display: "flex",
     alignItems: "center",
-    gap: 4,
-    flexWrap: "wrap",
-  },
-  settingsButton: {
-    width: 38,
-    height: 38,
-    border: "none",
-    borderRadius: 0,
-    padding: 0,
-    background: "transparent",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-  },
-  newPostButton: {
-    width: 38,
-    height: 38,
-    border: "none",
-    borderRadius: 0,
-    padding: 0,
-    background: "transparent",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    boxShadow: "none",
+    minHeight: 32,
   },
   statusMessage: {
     margin: "10px 0 12px",
@@ -2176,8 +2283,49 @@ const styles: Record<string, CSSProperties> = {
     overflowWrap: "anywhere",
   },
   profileStat: {
-    color: "var(--neutral-700)",
-    fontWeight: 800,
+    minWidth: 56,
+    color: "#323232",
+    fontSize: "0.98rem",
+    fontWeight: 400,
+    lineHeight: 1.28,
+    letterSpacing: "-0.02em",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+  },
+  profileStatNumber: {
+    fontWeight: 400,
+  },
+  profileStatsRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 26,
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  profileChipRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    overflow: "hidden",
+  },
+  profileChip: {
+    height: 22,
+    maxWidth: 116,
+    padding: "0 10px",
+    border: "0.7px solid #d7d7d7",
+    borderRadius: 24,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#606060",
+    fontSize: "0.68rem",
+    fontWeight: 400,
+    lineHeight: 1,
+    letterSpacing: "-0.02em",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   avatarWrap: {
     position: "relative",
@@ -2194,7 +2342,7 @@ const styles: Record<string, CSSProperties> = {
     background: "var(--neutral-100)",
     overflow: "hidden",
     cursor: "pointer",
-    boxShadow: "0 12px 26px rgba(33,33,33,0.14)",
+    boxShadow: "0 8px 18px rgba(33,33,33,0.1)",
   },
   avatarImage: {
     width: "100%",
@@ -2227,7 +2375,7 @@ const styles: Record<string, CSSProperties> = {
   avatarMenu: {
     position: "absolute",
     left: 0,
-    top: 148,
+    top: 118,
     zIndex: 6,
     width: 168,
     padding: 8,
@@ -2261,13 +2409,61 @@ const styles: Record<string, CSSProperties> = {
   },
   name: {
     margin: 0,
-    color: "var(--text-primary)",
-    fontSize: "1.1rem",
+    color: "#1a1a1a",
+    fontSize: "1.25rem",
+    fontWeight: 400,
     lineHeight: 1.15,
+    letterSpacing: "-0.02em",
+  },
+  profileActionBar: {
+    maxWidth: 525,
+    minHeight: 50,
+    margin: "6px auto 0",
+    border: "1px solid #bebebe",
+    borderRadius: 12,
+    background: "#ffffff",
+    boxShadow: "0 1px 8px rgba(0,0,0,0.04)",
+    display: "grid",
+    gridTemplateColumns: "1fr 1px 1fr",
+    alignItems: "center",
+  },
+  profileActionDividerLine: {
+    width: "calc(100% + 24px)",
+    height: 1,
+    margin: "16px -12px 10px",
+    background: "#d7d7d7",
+  },
+  profileActionButton: {
+    height: 50,
+    border: "none",
+    padding: 0,
+    background: "transparent",
+    color: "#606060",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    fontSize: "1rem",
+    fontWeight: 400,
+    letterSpacing: "-0.02em",
+    cursor: "pointer",
+  },
+  profileActionIcon: {
+    width: 26,
+    height: 26,
+    objectFit: "contain",
+    display: "block",
+    opacity: 0.72,
+  },
+  profileActionDivider: {
+    width: 1,
+    height: 31,
+    background: "#bebebe",
   },
   section: {
-    maxWidth: 880,
-    margin: "20px auto 0",
+    width: "calc(100% + 24px)",
+    maxWidth: "none",
+    margin: "0 -12px",
   },
   sectionTitle: {
     margin: "0 0 8px",
@@ -2328,13 +2524,13 @@ const styles: Record<string, CSSProperties> = {
   feedGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 6,
+    gap: 2,
   },
   feedTile: {
     position: "relative",
     padding: 0,
     border: "none",
-    borderRadius: 4,
+    borderRadius: 0,
     overflow: "hidden",
     background: "#050608",
     aspectRatio: "1 / 1",
@@ -2626,6 +2822,57 @@ const styles: Record<string, CSSProperties> = {
   },
   settingsDangerButton: {
     color: "#dc2626",
+  },
+  settingsToggleRow: {
+    minHeight: 58,
+    border: "1px solid var(--neutral-200)",
+    borderRadius: 14,
+    padding: "10px 12px 10px 14px",
+    background: "#ffffff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  settingsToggleText: {
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+  },
+  settingsToggleTitle: {
+    color: "var(--text-primary)",
+    fontSize: "0.92rem",
+  },
+  settingsToggleCopy: {
+    color: "var(--neutral-500)",
+    fontSize: "0.74rem",
+    fontWeight: 800,
+  },
+  settingsSwitch: {
+    width: 48,
+    height: 28,
+    border: "none",
+    borderRadius: 999,
+    padding: 3,
+    background: "#d7dce0",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  settingsSwitchOn: {
+    background: "#01C0C0",
+  },
+  settingsSwitchThumb: {
+    display: "block",
+    width: 22,
+    height: 22,
+    borderRadius: "50%",
+    background: "#ffffff",
+    transform: "translateX(0)",
+    transition: "transform 160ms ease",
+  },
+  settingsSwitchThumbOn: {
+    transform: "translateX(20px)",
   },
   statusEditor: {
     display: "flex",
@@ -3415,6 +3662,7 @@ function createOptimisticFeedPost({
     visibility,
     like_count: 0,
     comment_count: 0,
+    is_liked: false,
     created_at: now,
     updated_at: now,
     uploadStatus: "uploading",
@@ -3428,6 +3676,15 @@ function createOptimisticFeedPost({
 
 function getFeedImageUrl(post: FeedPostItem): string {
   return post.uploadPreviewUrl || post.thumbnail_medium_url || post.thumbnail_small_url || post.original_url || "";
+}
+
+function mergeFeedPost<T extends FeedPost>(current: T, next: FeedPost): T {
+  return {
+    ...current,
+    ...next,
+    is_liked:
+      typeof next.is_liked === "boolean" ? next.is_liked : current.is_liked,
+  };
 }
 
 async function isAnimatedFeedImage(file: File): Promise<boolean> {
@@ -3610,6 +3867,24 @@ function formatGender(gender?: string): string {
   if (gender === "male") return "Male";
   if (gender === "female") return "Female";
   return gender || "";
+}
+
+function formatProfileChip(value: string): string {
+  return value.trim().replace(/[_-]+/g, " ");
+}
+
+function sanitizeProfileStats(stats: MyProfileStats | null | undefined): MyProfileStats {
+  return {
+    total_feed_likes: safeCount(stats?.total_feed_likes),
+    total_friends: safeCount(stats?.total_friends),
+  };
+}
+
+function safeCount(value: unknown): number {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numberValue) || numberValue < 0) return 0;
+
+  return Math.trunc(numberValue);
 }
 
 function toErrorMessage(error: unknown, fallback: string): string {

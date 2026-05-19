@@ -34,6 +34,12 @@ export interface UserProfile {
   time_preferences?: string[];
   communication_preference?: string;
   planning_preference?: string;
+  notification_muted?: boolean;
+}
+
+export interface MyProfileStats {
+  total_feed_likes: number;
+  total_friends: number;
 }
 
 export interface ProfileImageResponse {
@@ -419,6 +425,11 @@ export async function getMyProfile(): Promise<UserProfile | null> {
   return myProfileRequest;
 }
 
+export async function getMyProfileStats(): Promise<MyProfileStats> {
+  const data = await authRequest<unknown>("/api/auth/profile/me/stats");
+  return normalizeMyProfileStats(data);
+}
+
 export async function updateMyProfile(
   payload: ProfileUpdatePayload
 ): Promise<UserProfile | null> {
@@ -440,6 +451,22 @@ function buildProfileImageFormData(file: File): FormData {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeMyProfileStats(value: unknown): MyProfileStats {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    total_feed_likes: normalizeNonNegativeInteger(source.total_feed_likes),
+    total_friends: normalizeNonNegativeInteger(source.total_friends),
+  };
+}
+
+function normalizeNonNegativeInteger(value: unknown): number {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numberValue) || numberValue < 0) return 0;
+
+  return Math.trunc(numberValue);
 }
 
 function unwrapProfileResponse(value: unknown): Record<string, unknown> | null {

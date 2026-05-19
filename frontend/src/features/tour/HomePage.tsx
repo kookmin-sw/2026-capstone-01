@@ -1,5 +1,12 @@
 ﻿import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent, SyntheticEvent, UIEvent } from "react";
+import type {
+  CSSProperties,
+  MouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+  SyntheticEvent,
+  UIEvent,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
   addTourPlaceFavorite,
@@ -60,6 +67,7 @@ type SortFilter = (typeof SORT_FILTERS)[number];
 type LocationStatus = "detecting" | "ready" | "approximate" | "fallback";
 type PlaceCategory = string;
 type PlaceTag = "Indoor" | "Outdoor" | "Crowded" | "Quiet";
+type PlaceDetailSheetState = "collapsed" | "expanded" | "closed";
 
 interface Place {
   id: string;
@@ -364,6 +372,26 @@ function getPlaceThumbnailUrl(place: Place): string {
   return place.photos[0] || categoryImageUrl || "";
 }
 
+function getDetailPhotos(place: Place, failedUrls: Set<string>): string[] {
+  const fallbackImageUrl = getPlaceCategoryImageUrl(place.category);
+
+  return place.photos.filter((photo) => {
+    const normalizedPhoto = photo.trim();
+    if (!normalizedPhoto || failedUrls.has(normalizedPhoto)) return false;
+    if (fallbackImageUrl && normalizedPhoto === fallbackImageUrl) return false;
+    return !isDefaultPlaceImageUrl(normalizedPhoto);
+  });
+}
+
+function isDefaultPlaceImageUrl(url: string): boolean {
+  const normalized = url.trim().toLowerCase();
+  return (
+    normalized.includes("default") ||
+    normalized.includes("placeholder") ||
+    normalized.includes("fallback")
+  );
+}
+
 function handlePlaceThumbnailError(
   event: SyntheticEvent<HTMLImageElement>,
   place: Place
@@ -540,6 +568,17 @@ export default function HomePage() {
   const [recentSearches, setRecentSearches] = useState<SearchHistoryItem[]>([]);
   const [locationLabel, setLocationLabel] = useState(DEFAULT_LOCATION_LABEL);
   const [selectedPlace, setSelectedPlace] = useState<PlaceWithMeta | null>(null);
+  const [modalTab, setModalTab] = useState<"home" | "reviews" | "service">("home");
+  const [placeDetailSheetState, setPlaceDetailSheetState] =
+    useState<PlaceDetailSheetState>("closed");
+  const [failedDetailPhotoUrls, setFailedDetailPhotoUrls] = useState<Set<string>>(
+    () => new Set()
+  );
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragStartYRef = useRef(0);
+  const dragPointerIdRef = useRef<number | null>(null);
+  const dragRafRef = useRef<number | null>(null);
+  const dragBaseTranslateRef = useRef(0);
   const [placesError, setPlacesError] = useState("");
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [currentLocation, setCurrentLocation] = useState(DEFAULT_LOCATION);
@@ -1026,10 +1065,79 @@ export default function HomePage() {
 
   function openPlaceDetail(place: PlaceWithMeta): void {
     setSelectedPlace(place);
+    setModalTab("home");
+    setPlaceDetailSheetState("collapsed");
+    setFailedDetailPhotoUrls(new Set());
+    // Apply collapsed position immediately (no transition) after mount
+    requestAnimationFrame(() => {
+      const el = sheetRef.current;
+      if (!el) return;
+      el.style.transition = "none";
+      el.style.transform = `translate3d(0, ${getCollapsedY()}px, 0)`;
+      requestAnimationFrame(() => {
+        if (sheetRef.current) sheetRef.current.style.transition = "transform 300ms cubic-bezier(0.22, 1, 0.36, 1)";
+      });
+    });
   }
 
   function closePlaceDetail(): void {
+    dragPointerIdRef.current = null;
+    if (dragRafRef.current !== null) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = null; }
+    setPlaceDetailSheetState("closed");
     setSelectedPlace(null);
+    setFailedDetailPhotoUrls(new Set());
+  }
+
+  function handleModalHandlePointerDown(event: ReactPointerEvent<HTMLButtonElement>): void {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragPointerIdRef.current = event.pointerId;
+    dragStartYRef.current = event.clientY;
+    dragBaseTranslateRef.current = placeDetailSheetState === "expanded" ? 0 : getCollapsedY();
+    const el = sheetRef.current;
+    if (el) el.style.transition = "none";
+  }
+
+  function handleModalHandlePointerMove(event: ReactPointerEvent<HTMLButtonElement>): void {
+    if (dragPointerIdRef.current !== event.pointerId) return;
+    const rawY = dragBaseTranslateRef.current + (event.clientY - dragStartYRef.current);
+    const clampedY = Math.max(0, rawY);
+    if (dragRafRef.current !== null) cancelAnimationFrame(dragRafRef.current);
+    dragRafRef.current = requestAnimationFrame(() => {
+      if (sheetRef.current) sheetRef.current.style.transform = `translate3d(0, ${clampedY}px, 0)`;
+      dragRafRef.current = null;
+    });
+  }
+
+  function handleModalHandlePointerEnd(event: ReactPointerEvent<HTMLButtonElement>): void {
+    if (dragPointerIdRef.current !== event.pointerId) return;
+    dragPointerIdRef.current = null;
+    if (dragRafRef.current !== null) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = null; }
+
+    const deltaY = event.clientY - dragStartYRef.current;
+    const vh = window.innerHeight;
+    const expandThreshold = -80;
+    const collapseThreshold = 80;
+    const closeThreshold = Math.max(150, vh * 0.22);
+
+    if (placeDetailSheetState === "collapsed" && deltaY < expandThreshold) {
+      setPlaceDetailSheetState("expanded");
+      applySheetTransform("expanded");
+    } else if (placeDetailSheetState === "expanded" && deltaY > collapseThreshold && deltaY < closeThreshold) {
+      setPlaceDetailSheetState("collapsed");
+      applySheetTransform("collapsed");
+    } else if (deltaY > closeThreshold) {
+      closePlaceDetail();
+    } else {
+      applySheetTransform(placeDetailSheetState);
+    }
+  }
+
+  function handleDetailPhotoError(photoUrl: string): void {
+    setFailedDetailPhotoUrls((current) => {
+      const next = new Set(current);
+      next.add(photoUrl);
+      return next;
+    });
   }
 
   function openSearchSheet(): void {
@@ -1098,6 +1206,20 @@ export default function HomePage() {
 
   function scrollToTop() {
     bodyScrollerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function getCollapsedY(): number {
+    return Math.round(window.innerHeight * 0.2);
+  }
+  function applySheetTransform(state: PlaceDetailSheetState, withTransition = true): void {
+    const el = sheetRef.current;
+    if (!el) return;
+    el.style.transition = withTransition
+      ? "transform 300ms cubic-bezier(0.22, 1, 0.36, 1)"
+      : "none";
+    el.style.transform = state === "expanded"
+      ? "translate3d(0, 0, 0)"
+      : `translate3d(0, ${getCollapsedY()}px, 0)`;
   }
 
   return (
@@ -1264,129 +1386,182 @@ export default function HomePage() {
       </div>
 
       {selectedPlace ? (
-        <div style={styles.modalOverlay} onClick={closePlaceDetail}>
-          <div style={styles.modalCard} onClick={(event) => event.stopPropagation()}>
-            <div
-              style={{
-                ...styles.modalHero,
-                ...(getPlaceThumbnailUrl(selectedPlace)
-                  ? {
-                      backgroundImage: `linear-gradient(180deg, rgba(24,26,32,0.16), rgba(24,26,32,0.56)), url(${getPlaceThumbnailUrl(selectedPlace)})`,
-                      backgroundSize: "cover",
-                      backgroundPosition: "center",
-                    }
-                  : {}),
-              }}
+        <div
+          ref={sheetRef}
+          style={styles.modalCard}
+          onClick={(event) => event.stopPropagation()}
+        >
+            {/* Drag handle */}
+            <button
+              type="button"
+              style={styles.modalHandleButton}
+              onPointerDown={handleModalHandlePointerDown}
+              onPointerMove={handleModalHandlePointerMove}
+              onPointerUp={handleModalHandlePointerEnd}
+              onPointerCancel={handleModalHandlePointerEnd}
+              aria-label="Expand place detail"
             >
-              <div style={styles.modalHeroTop}>
-                <span style={styles.modalCategory}>{selectedPlace.category}</span>
-                <button
-                  type="button"
-                  style={styles.modalCloseButton}
-                  onClick={closePlaceDetail}
-                  aria-label="Close details"
-                >
-                  x
-                </button>
-              </div>
-              <div>
-                <h2
-                  style={{
-                    ...styles.modalTitle,
-                    ...(getPlaceThumbnailUrl(selectedPlace) ? styles.modalTitleOnImage : {}),
-                  }}
-                >
-                  {selectedPlace.name}
-                </h2>
-                <p
-                  style={{
-                    ...styles.modalDistance,
-                    ...(getPlaceThumbnailUrl(selectedPlace) ? styles.modalDistanceOnImage : {}),
-                  }}
-                >
-                  {locationLabel} / {formatDistance(selectedPlace.distanceKm)}
-                </p>
-              </div>
+              <span style={styles.modalHandle} />
+            </button>
+
+            {/* Category + feature tags */}
+            <div style={styles.modalTagRow}>
+              <span style={styles.modalCategoryTag}>{selectedPlace.groupCategory}</span>
+              {selectedPlace.tags.map((tag) => (
+                <span key={tag} style={styles.modalFeatureTag}>{tag}</span>
+              ))}
             </div>
 
-            <div style={styles.modalBody}>
-              <p style={styles.modalDescription}>{selectedPlace.description}</p>
-
-              <div style={styles.detailStack}>
-                <DetailRow
-                  label="Address"
-                  value={selectedPlace.shortAddress || selectedPlace.address}
-                />
-                <DetailRow
-                  label="Rating"
-                  value={formatRating(selectedPlace.rating, selectedPlace.reviewCount)}
-                />
-                <DetailRow
-                  label="Price"
-                  value={formatPriceRange(
-                    selectedPlace.priceLevel,
-                    selectedPlace.priceRange
-                  )}
-                />
-                <DetailRow label="Phone" value={selectedPlace.phone} />
-                <DetailRow
-                  label="International Phone"
-                  value={selectedPlace.phoneInternational}
-                />
-              </div>
-
-              <div style={styles.modalInfoGrid}>
-                <div style={styles.modalInfoCard}>
-                  <span style={styles.modalInfoLabel}>Reviews</span>
-                  <strong style={styles.modalInfoValue}>
-                    {selectedPlace.reviewCount.toLocaleString()}
-                  </strong>
-                </div>
-                <div style={styles.modalInfoCard}>
-                  <span style={styles.modalInfoLabel}>Opening Hours</span>
-                  <strong style={styles.modalInfoValue}>
-                    {selectedPlace.openingHours[0] || "Not available"}
-                  </strong>
+            {/* Title + bookmark */}
+            <div style={styles.modalTitleRow}>
+              <div style={styles.modalTitleBlock}>
+                <h2 style={styles.modalTitle}>{selectedPlace.name}</h2>
+                <div style={styles.modalMetaRow}>
+                  {Number.isFinite(selectedPlace.rating) ? (
+                    <>
+                      <StarIconSmall />
+                      <span style={styles.modalMetaText}>{selectedPlace.rating!.toFixed(1)}</span>
+                      <span style={styles.modalMetaSep}>|</span>
+                      <span style={styles.modalMetaText}>{selectedPlace.reviewCount} reviews</span>
+                      <span style={styles.modalMetaSep}>·</span>
+                    </>
+                  ) : null}
+                  <PinIconSmall />
+                  <span style={styles.modalMetaText}>{formatDistance(selectedPlace.distanceKm)}</span>
                 </div>
               </div>
+              <button
+                type="button"
+                style={{
+                  ...styles.modalBookmarkBtn,
+                  ...(favoriteActionIds.includes(selectedPlace.id)
+                    ? styles.favoriteButtonPending
+                    : {}),
+                }}
+                onClick={() => void toggleFavorite(selectedPlace)}
+                disabled={favoriteActionIds.includes(selectedPlace.id)}
+                aria-label={`Toggle favorite for ${selectedPlace.name}`}
+              >
+                <BookmarkIcon filled={selectedPlace.isFavorite} />
+              </button>
+            </div>
 
-              {selectedPlace.services.length > 0 ? (
-                <DetailChipSection label="Services" items={selectedPlace.services} />
-              ) : null}
+            {/* Photo gallery */}
+            {getDetailPhotos(selectedPlace, failedDetailPhotoUrls).length > 0 ? (
+              <div style={styles.photoGallery}>
+                {getDetailPhotos(selectedPlace, failedDetailPhotoUrls).slice(0, 3).map((photo, index) => (
+                  <div key={index} style={styles.galleryPhotoWrap}>
+                    <img
+                      src={photo}
+                      alt={`${selectedPlace.name} photo ${index + 1}`}
+                      style={styles.galleryPhoto}
+                      onError={() => handleDetailPhotoError(photo)}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
-              {selectedPlace.payment.length > 0 ? (
-                <DetailChipSection label="Payment" items={selectedPlace.payment} />
-              ) : null}
+            {/* Tab bar */}
+            <div style={styles.modalTabBar}>
+              {(["home", "reviews", "service"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  style={styles.modalTabBtn}
+                  onClick={() => setModalTab(tab)}
+                >
+                  <span style={modalTab === tab ? styles.modalTabLabelActive : styles.modalTabLabel}>
+                    {tab === "home" ? "Home" : tab === "reviews" ? "Reviews" : "Service"}
+                  </span>
+                  <div
+                    style={
+                      modalTab === tab
+                        ? styles.modalTabUnderlineActive
+                        : styles.modalTabUnderline
+                    }
+                  />
+                </button>
+              ))}
+            </div>
 
-              {selectedPlace.accessibility.length > 0 ? (
-                <DetailChipSection label="Accessibility" items={selectedPlace.accessibility} />
-              ) : null}
-
-              {selectedPlace.parking.length > 0 ? (
-                <DetailChipSection label="Parking" items={selectedPlace.parking} />
-              ) : null}
-
-              <div style={styles.detailLinkRow}>
+            {/* Tab: Home */}
+            {modalTab === "home" ? (
+              <div style={styles.modalTabContent}>
+                {selectedPlace.shortAddress || selectedPlace.address ? (
+                  <PlaceInfoRow icon={<PinIconInline />}>
+                    {selectedPlace.shortAddress || selectedPlace.address}
+                  </PlaceInfoRow>
+                ) : null}
+                {selectedPlace.phone || selectedPlace.phoneInternational ? (
+                  <PlaceInfoRow icon={<PhoneIconInline />}>
+                    <div>
+                      {selectedPlace.phone ? <div>{selectedPlace.phone}</div> : null}
+                      {selectedPlace.phoneInternational &&
+                      selectedPlace.phoneInternational !== selectedPlace.phone ? (
+                        <div>{selectedPlace.phoneInternational}</div>
+                      ) : null}
+                    </div>
+                  </PlaceInfoRow>
+                ) : null}
                 {selectedPlace.website ? (
-                  <a
-                    href={selectedPlace.website}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={styles.detailLink}
-                  >
-                    Website
-                  </a>
+                  <PlaceInfoRow icon={<GlobeIconInline />}>
+                    <a
+                      href={selectedPlace.website}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={styles.infoLink}
+                    >
+                      {selectedPlace.website}
+                    </a>
+                  </PlaceInfoRow>
                 ) : null}
                 {selectedPlace.googleMapsUrl ? (
-                  <a
-                    href={selectedPlace.googleMapsUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={styles.detailLink}
-                  >
-                    Open Map
-                  </a>
+                  <PlaceInfoRow icon={<MapIconInline />}>
+                    <a
+                      href={selectedPlace.googleMapsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={styles.infoLink}
+                    >
+                      [Google Maps URL]
+                    </a>
+                  </PlaceInfoRow>
                 ) : null}
+                {selectedPlace.openingHours.length > 0 ? (
+                  <PlaceInfoRow icon={<ClockIconInline />}>
+                    {selectedPlace.openingHours[0]}
+                  </PlaceInfoRow>
+                ) : null}
+                {selectedPlace.description ? (
+                  <p style={styles.modalDescription}>{selectedPlace.description}</p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Tab: Reviews */}
+            {modalTab === "reviews" ? (
+              <div style={styles.modalTabContent}>
+                {selectedPlace.reviews.length > 0 ? (
+                  selectedPlace.reviews.map((review, index) => (
+                    <div key={`${review.author}-${index}`} style={styles.reviewCard}>
+                      <div style={styles.reviewHeader}>
+                        <strong>{review.author}</strong>
+                        <span>
+                          {[
+                            review.rating ? `★ ${review.rating}` : null,
+                            review.relativeTime,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      </div>
+                      <p style={styles.reviewBody}>{review.text || "No review text"}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p style={styles.searchEmpty}>No reviews available yet.</p>
+                )}
                 {selectedPlace.googleMapReviewLink ? (
                   <a
                     href={selectedPlace.googleMapReviewLink}
@@ -1394,48 +1569,43 @@ export default function HomePage() {
                     rel="noreferrer"
                     style={styles.detailLink}
                   >
-                    View Reviews
+                    View all reviews on Google Maps
                   </a>
                 ) : null}
               </div>
+            ) : null}
 
-              {selectedPlace.reviews.length > 0 ? (
-                <div style={styles.reviewSection}>
-                  <p style={styles.sectionLabel}>Reviews</p>
-                  {selectedPlace.reviews.slice(0, 3).map((review, index) => (
-                    <div key={`${review.author}-${index}`} style={styles.reviewCard}>
-                      <div style={styles.reviewHeader}>
-                        <strong>{review.author}</strong>
-                        <span>
-                          {[review.rating ? `${review.rating}` : null, review.relativeTime]
-                            .filter(Boolean)
-                            .join(" / ")}
-                        </span>
-                      </div>
-                      <p style={styles.reviewBody}>
-                        {review.text || "No review text"}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+            {/* Tab: Service */}
+            {modalTab === "service" ? (
+              <div style={styles.modalTabContent}>
+                {selectedPlace.services.length > 0 ? (
+                  <DetailChipSection label="Services" items={selectedPlace.services} />
+                ) : null}
+                {selectedPlace.payment.length > 0 ? (
+                  <DetailChipSection label="Payment" items={selectedPlace.payment} />
+                ) : null}
+                {selectedPlace.accessibility.length > 0 ? (
+                  <DetailChipSection label="Accessibility" items={selectedPlace.accessibility} />
+                ) : null}
+                {selectedPlace.parking.length > 0 ? (
+                  <DetailChipSection label="Parking" items={selectedPlace.parking} />
+                ) : null}
+                {selectedPlace.priceLevel || selectedPlace.priceRange ? (
+                  <DetailRow
+                    label="Price"
+                    value={formatPriceRange(selectedPlace.priceLevel, selectedPlace.priceRange)}
+                  />
+                ) : null}
+                {selectedPlace.services.length === 0 &&
+                selectedPlace.payment.length === 0 &&
+                selectedPlace.accessibility.length === 0 &&
+                selectedPlace.parking.length === 0 ? (
+                  <p style={styles.searchEmpty}>No service information available.</p>
+                ) : null}
+              </div>
+            ) : null}
 
-              <button
-                type="button"
-                style={{
-                  ...styles.modalFavoriteButton,
-                  ...(favoriteActionIds.includes(selectedPlace.id)
-                    ? styles.favoriteButtonPending
-                    : {}),
-                }}
-                onClick={() => void toggleFavorite(selectedPlace)}
-                disabled={favoriteActionIds.includes(selectedPlace.id)}
-              >
-                {selectedPlace.isFavorite ? "Remove Favorite" : "Add to Favorites"}
-              </button>
-            </div>
           </div>
-        </div>
       ) : null}
 
       {isSearchOpen ? (
@@ -1469,7 +1639,6 @@ export default function HomePage() {
 
             <div style={styles.searchSheetSection}>
               <div style={styles.searchSheetLabelRow}>
-                <p style={styles.searchSheetTitle}>Suggested Searches</p>
                 <button
                   type="button"
                   style={styles.linkButton}
@@ -1665,6 +1834,134 @@ function DetailChipSection({
   );
 }
 
+function ChevronLeftIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    >
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function StarIconSmall() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="#F8B400" stroke="none">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  );
+}
+
+function PinIconSmall() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="#848484">
+      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+    </svg>
+  );
+}
+
+function PinIconInline() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="#01C0C0">
+      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+    </svg>
+  );
+}
+
+function PhoneIconInline() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="#01C0C0">
+      <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
+    </svg>
+  );
+}
+
+function GlobeIconInline() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#01C0C0"
+      strokeWidth="1.8"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </svg>
+  );
+}
+
+function MapIconInline() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#01C0C0"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+      <line x1="8" y1="2" x2="8" y2="18" />
+      <line x1="16" y1="6" x2="16" y2="22" />
+    </svg>
+  );
+}
+
+function ClockIconInline() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#01C0C0"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
+function PlaceInfoRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <div style={styles.infoRow}>
+      <span style={styles.infoIcon}>{icon}</span>
+      <span style={styles.infoText}>{children}</span>
+    </div>
+  );
+}
+
 const styles: Record<string, CSSProperties> = {
   loading: {
     minHeight: "var(--app-viewport-height)",
@@ -1735,7 +2032,7 @@ const styles: Record<string, CSSProperties> = {
     flexShrink: 0,
     display: "flex",
     flexDirection: "column",
-    gap: 6,
+    gap: 7,
     paddingTop: "calc(12px + var(--app-safe-top))",
     paddingBottom: 14,
     boxSizing: "border-box",
@@ -1755,9 +2052,10 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     alignSelf: "flex-start",
+    marginLeft: 4,
   },
   headerLogo: {
-    height: "clamp(28px, 6vw, 40px)",
+    height: "clamp(22px, 4.8vw, 32px)",
     width: "auto",
     objectFit: "contain",
     display: "block",
@@ -1817,7 +2115,7 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 900,
   },
   searchPanel: {
-    padding: "0 16px",
+    padding: "8px 16px 0",
     borderRadius: 28,
     background: "transparent",
   },
@@ -1951,7 +2249,7 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     background: "#fff",
     borderRadius: "1.8rem",
-    boxShadow: "var(--shadow-soft)",
+    boxShadow: "none",
     paddingTop: 6,
   },
   emptyListSection: {
@@ -2114,7 +2412,6 @@ const styles: Record<string, CSSProperties> = {
   modalOverlay: {
     position: "fixed",
     inset: 0,
-    padding: "calc(16px + var(--app-safe-top)) 16px 0",
     background: "rgba(24, 26, 32, 0.42)",
     display: "flex",
     alignItems: "flex-end",
@@ -2123,81 +2420,225 @@ const styles: Record<string, CSSProperties> = {
     animation: "fadeInOverlay 220ms ease-out",
   },
   modalCard: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 50,
+    background: "#fff",
+    height: "100dvh",
+
+    overflow: "hidden",
+
+    willChange: "transform",
+    transform: "translate3d(0, 100vh, 0)",
+    backfaceVisibility: "hidden",
+    WebkitBackfaceVisibility: "hidden",
+
+    contain: "layout style paint",
+    paddingTop: "var(--app-safe-top, 0px)",
+    paddingBottom: "calc(16px + var(--app-safe-bottom, 0px))",
+  },
+  modalCardDragging: {
+    cursor: "grabbing",
+  },
+  modalHandleButton: {
     width: "100%",
-    maxWidth: 760,
-    minHeight: "78dvh",
-    maxHeight: "88dvh",
-    overflowY: "auto",
-    borderRadius: "32px 32px 0 0",
-    background: "var(--surface-panel)",
-    boxShadow: "0 28px 72px rgba(24, 26, 32, 0.18)",
-    animation: "slideUpModal 280ms cubic-bezier(0.22, 1, 0.36, 1)",
+    minHeight: 28,
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    display: "grid",
+    placeItems: "center",
+    cursor: "grab",
+    touchAction: "none",
+    userSelect: "none",
   },
-  modalHero: {
-    padding: 22,
-    minHeight: 220,
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
-    borderRadius: "32px 32px 0 0",
-    background: "linear-gradient(160deg, rgba(5,181,187,0.2), rgba(248,180,0,0.18))",
+  modalHandle: {
+    display: "block",
+    width: 48,
+    height: 5,
+    borderRadius: 999,
+    background: "#dadada",
   },
-  modalHeroTop: {
+  modalNavBar: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
+    padding: "0 14px 8px",
+  },
+  modalNavBtn: {
+    width: 32,
+    height: 32,
+    border: "none",
+    borderRadius: "50%",
+    background: "transparent",
+    color: "#222",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+  },
+  modalTagRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 4,
+    padding: "0 16px 12px",
+  },
+  modalCategoryTag: {
+    padding: "6px 12px",
+    borderRadius: 999,
+    background: "#fff5d9",
+    color: "#936b00",
+    fontSize: "0.875rem",
+    fontWeight: 700,
+  },
+  modalFeatureTag: {
+    padding: "6px 12px",
+    borderRadius: 999,
+    background: "#dffcfc",
+    color: "#01c0c0",
+    fontSize: "0.8125rem",
+    fontWeight: 600,
+  },
+  modalTitleRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    padding: "0 16px 12px",
     gap: 12,
   },
-  modalCategory: {
-    padding: "8px 12px",
-    borderRadius: 999,
-    background: "rgba(255,255,255,0.7)",
-    fontSize: "0.8rem",
-    fontWeight: 800,
-    color: "var(--text-secondary)",
-  },
-  modalCloseButton: {
-    width: 38,
-    height: 38,
-    border: "1px solid rgba(255,255,255,0.6)",
-    borderRadius: "50%",
-    background: "rgba(255,255,255,0.82)",
-    color: "var(--text-secondary)",
-    fontSize: "1.5rem",
-    lineHeight: 1,
-    cursor: "pointer",
+  modalTitleBlock: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    flex: 1,
+    minWidth: 0,
   },
   modalTitle: {
     margin: 0,
-    fontSize: "2rem",
+    fontSize: "1.5rem",
     fontWeight: 800,
-    lineHeight: 1.05,
-    color: "var(--text-primary)",
+    lineHeight: 1.15,
+    color: "#222",
   },
-  modalTitleOnImage: {
-    color: "#fff",
-    textShadow: "0 2px 14px rgba(0,0,0,0.32)",
+  modalMetaRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    flexWrap: "wrap",
   },
-  modalDistance: {
-    marginTop: 10,
-    fontSize: "0.92rem",
-    color: "var(--text-secondary)",
+  modalMetaText: {
+    fontSize: "0.9375rem",
+    color: "#848484",
   },
-  modalDistanceOnImage: {
-    color: "rgba(255,255,255,0.9)",
-    textShadow: "0 1px 8px rgba(0,0,0,0.32)",
+  modalMetaSep: {
+    fontSize: "0.875rem",
+    color: "#dadada",
+    margin: "0 1px",
   },
-  modalBody: {
-    padding: 22,
+  modalBookmarkBtn: {
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+    padding: 4,
+    flexShrink: 0,
+  },
+  photoGallery: {
+    display: "flex",
+    gap: 8,
+    overflowX: "auto",
+    padding: "0 16px 16px",
+    scrollbarWidth: "none",
+  },
+  galleryPhotoWrap: {
+    flexShrink: 0,
+    width: 200,
+    height: 240,
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+  galleryPhoto: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    display: "block",
+  },
+  modalTabBar: {
+    display: "flex",
+    borderBottom: "1px solid #dadada",
+  },
+  modalTabBtn: {
+    flex: 1,
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+    padding: 0,
     display: "flex",
     flexDirection: "column",
-    gap: 18,
+    alignItems: "center",
+    gap: 8,
+  },
+  modalTabLabel: {
+    padding: "10px 0",
+    fontSize: "0.9375rem",
+    fontWeight: 700,
+    color: "#dadada",
+  },
+  modalTabLabelActive: {
+    padding: "10px 0",
+    fontSize: "0.9375rem",
+    fontWeight: 700,
+    color: "#01c0c0",
+  },
+  modalTabUnderline: {
+    height: 2,
+    width: "100%",
+    background: "#dadada",
+    borderRadius: "5px 5px 0 0",
+  },
+  modalTabUnderlineActive: {
+    height: 2,
+    width: "100%",
+    background: "#01c0c0",
+    borderRadius: "5px 5px 0 0",
+  },
+  modalTabContent: {
+    padding: "16px 16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+  infoRow: {
+    display: "flex",
+    gap: 8,
+    alignItems: "flex-start",
+  },
+  infoIcon: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    paddingTop: 1,
+  },
+  infoText: {
+    fontSize: "0.9375rem",
+    color: "#222",
+    lineHeight: 1.5,
+    wordBreak: "break-all",
+  },
+  infoLink: {
+    color: "#008888",
+    textDecoration: "none",
+    fontSize: "0.9375rem",
+    wordBreak: "break-all",
   },
   modalDescription: {
     margin: 0,
     color: "var(--text-secondary)",
     lineHeight: 1.65,
-    fontSize: "0.98rem",
+    fontSize: "0.9375rem",
+  },
+  modalFooter: {
+    padding: "8px 16px 16px",
   },
   detailStack: {
     display: "flex",

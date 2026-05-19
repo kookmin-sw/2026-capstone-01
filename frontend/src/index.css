@@ -123,13 +123,11 @@ textarea:focus-visible {
 .interactive-card {
   transition:
     transform 220ms ease,
-    box-shadow 220ms ease,
     border-color 220ms ease;
 }
 
 .interactive-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 18px 32px rgba(33, 33, 33, 0.1);
+  transform: none;
 }
 
 .interactive-card:active {

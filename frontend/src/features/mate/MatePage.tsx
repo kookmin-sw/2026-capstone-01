@@ -1195,8 +1195,11 @@ export default function MatePage() {
                         />
                       )}
                       <span style={styles.recommendationText}>
-                        <strong style={styles.recommendationName}>
-                          {recommendation.user_name}
+                        <strong
+                          style={styles.recommendationName}
+                          title={recommendation.user_name}
+                        >
+                          {formatRecommendedFriendName(recommendation.user_name)}
                         </strong>
                         <span style={styles.recommendationScore}>
                           {(recommendation.similarity_score * 100).toFixed(0)}%
@@ -2207,6 +2210,18 @@ function getMatePreferenceTags(profile: {
   );
 }
 
+function formatRecommendedFriendName(name: string): string {
+  const normalizedName = name.trim();
+  const maxLength = /[가-힣]/.test(normalizedName) ? 4 : 6;
+  const characters = Array.from(normalizedName);
+
+  if (characters.length <= maxLength) {
+    return normalizedName;
+  }
+
+  return `${characters.slice(0, maxLength).join("")}...`;
+}
+
 function formatPreferenceLabel(value: string): string {
   const key = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
   const labelMap: Record<string, string> = {
@@ -3016,9 +3031,9 @@ const styles: Record<string, CSSProperties> = {
   recommendationName: {
     display: "block",
     color: "var(--text-primary)",
-    fontSize: "0.84rem",
+    fontSize: "0.8rem",
     overflow: "hidden",
-    textOverflow: "ellipsis",
+    textOverflow: "clip",
     whiteSpace: "nowrap",
   },
   recommendationScore: {

@@ -45,6 +45,8 @@ export interface OnboardingData {
 
 const MIN_AGE = 20;
 const MAX_AGE = 100;
+const KOREAN_NICKNAME_MAX_LENGTH = 10;
+const ENGLISH_NICKNAME_MAX_LENGTH = 20;
 
 const TRAVEL_STYLE_KEY: Record<string, string> = {
   Activity: "activity",
@@ -448,6 +450,24 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
   );
 }
 
+function normalizeSignupNickname(value: string): string {
+  const maxLength = getSignupNicknameMaxLength(value);
+  return Array.from(value).slice(0, maxLength).join("");
+}
+
+function getSignupNicknameMaxLength(value: string): number {
+  return /[가-힣]/.test(value) ? KOREAN_NICKNAME_MAX_LENGTH : ENGLISH_NICKNAME_MAX_LENGTH;
+}
+
+function getSignupNicknameError(value: string): string {
+  const maxLength = getSignupNicknameMaxLength(value);
+  if (Array.from(value.trim()).length <= maxLength) return "";
+
+  return /[가-힣]/.test(value)
+    ? `Nickname must be ${KOREAN_NICKNAME_MAX_LENGTH} Korean characters or fewer.`
+    : `Nickname must be ${ENGLISH_NICKNAME_MAX_LENGTH} English characters or fewer.`;
+}
+
 function PageShell({
   children,
   onBack,
@@ -797,7 +817,12 @@ function Page1({ data, setData, onNext, onBack, email }: PageProps) {
           </span>
         </div>
         {email ? <ReadOnlyField label="Email" value={email} /> : null}
-        <TextInput label="Nickname *" value={data.nickname} onChange={(v) => setData({ nickname: v })} placeholder="What should we call you?" />
+        <TextInput
+          label="Nickname *"
+          value={data.nickname}
+          onChange={(v) => setData({ nickname: normalizeSignupNickname(v) })}
+          placeholder="What should we call you?"
+        />
         <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
           <label
             style={{
@@ -1106,7 +1131,10 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [privacyAgreed, setPrivacyAgreed] = useState(false);
-  const [data, setDataState] = useState<OnboardingData>({ ...EMPTY, nickname: initialNickname });
+  const [data, setDataState] = useState<OnboardingData>({
+    ...EMPTY,
+    nickname: normalizeSignupNickname(initialNickname),
+  });
 
   const setData = (patch: Partial<OnboardingData>) =>
     setDataState((prev) => ({ ...prev, ...patch }));
@@ -1115,6 +1143,13 @@ export default function OnboardingPage() {
 
   async function handleComplete(): Promise<void> {
     if (!email) { setError("Email is missing. Please log in again."); return; }
+    const nicknameError = getSignupNicknameError(data.nickname);
+    if (nicknameError) {
+      setError(nicknameError);
+      setDone(false);
+      setStep(0);
+      return;
+    }
     const age = Number(data.age);
     if (!Number.isInteger(age) || age < MIN_AGE || age > MAX_AGE) {
       setError(`Age must be between ${MIN_AGE} and ${MAX_AGE}.`);
@@ -1127,7 +1162,7 @@ export default function OnboardingPage() {
     try {
       await registerUser({
         email,
-        user_name: data.nickname,
+        user_name: normalizeSignupNickname(data.nickname),
         phone_number: "",
         age: Number(data.age),
         gender: data.gender.toLowerCase(),
