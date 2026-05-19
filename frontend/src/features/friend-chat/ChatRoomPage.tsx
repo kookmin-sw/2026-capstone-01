@@ -463,6 +463,8 @@ export default function ChatRoomPage() {
   function handleSend(): void {
     const content = input.trim();
     if (!content || content.length > 2000) return;
+    const targetRoomId =
+      roomId || (!draftDirectUserId && id && !id.startsWith("USER_") ? id : "");
 
     // Draft mode: create the room on the backend first, then send
     if (draftDirectUserId) {
@@ -471,12 +473,12 @@ export default function ChatRoomPage() {
       return;
     }
 
-    if (!roomId) return;
-    if (isDuplicateComposerSend(`room:${roomId}:${content}`)) return;
+    if (!targetRoomId) return;
+    if (isDuplicateComposerSend(`room:${targetRoomId}:${content}`)) return;
 
     shouldForceScrollToBottomRef.current = true;
     setIncomingMessageNotice(null);
-    sendMessage(roomId, content);
+    sendMessage(targetRoomId, content);
     setInput("");
     window.requestAnimationFrame(() => composerInputRef.current?.focus());
   }
@@ -809,24 +811,34 @@ export default function ChatRoomPage() {
         </button>
       ) : null}
 
-      <footer style={styles.composer}>
+      <form
+        style={styles.composer}
+        onSubmit={(event) => {
+          event.preventDefault();
+          handleSend();
+        }}
+      >
         <input
           ref={composerInputRef}
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
-            if (event.key === "Enter") handleSend();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              handleSend();
+            }
           }}
           maxLength={2000}
+          enterKeyHint="send"
           placeholder="Type a message"
           style={styles.input}
         />
         <button
-          type="button"
+          type="submit"
           style={{
             ...styles.sendButton,
-            ...(!input.trim() || connectionState === "closed" || isCreatingDirectRoom
+            ...(!input.trim() || isCreatingDirectRoom
               ? styles.sendButtonDisabled
               : {}),
           }}
@@ -835,16 +847,15 @@ export default function ChatRoomPage() {
             event.preventDefault();
             handleSend();
           }}
-          onClick={handleSend}
-          disabled={!input.trim() || connectionState === "closed" || isCreatingDirectRoom}
-          aria-label={connectionState === "closed" ? "Offline" : "Send"}
-          title={connectionState === "ready" ? "Send" : connectionState === "closed" ? "Offline" : "Queued"}
+          disabled={!input.trim() || isCreatingDirectRoom}
+          aria-label="Send"
+          title={connectionState === "ready" ? "Send" : "Queued"}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
             <path d="M7 12V2M3 6l4-4 4 4" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-      </footer>
+      </form>
 
       {infoOpen ? (
         <div style={styles.infoBackdrop} onClick={() => setInfoOpen(false)}>

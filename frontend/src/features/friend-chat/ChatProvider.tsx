@@ -583,7 +583,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const trimmedContent = content.trim();
       if (!roomId || !trimmedContent || trimmedContent.length > 2000) return;
 
-      const clientMsgId = crypto.randomUUID();
+      const clientMsgId = createClientMessageId();
       const optimisticMessage: ChatMessage = {
         message_id: clientMsgId,
         chat_room_id: roomId,
@@ -779,7 +779,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           }
           mergeServerMessages(event.message.chat_room_id, [event.message]);
           updateRoomLastMessage(event.message);
-          if (event.message.sender_id !== currentUserIdRef.current) {
+          if (
+            event.message.sender_id !== currentUserIdRef.current &&
+            isNotifiableChatMessage(event.message)
+          ) {
             if (event.message.chat_room_id !== activeRoomIdRef.current) {
               const notificationKey = getChatMessageNotificationKey(event.message);
               if (!notifiedMessageIdsRef.current.has(notificationKey)) {
@@ -1121,6 +1124,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }
 
+function createClientMessageId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `client_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
 // eslint-disable-next-line react-refresh/only-export-components
 export function useChat(): ChatContextValue {
   const context = useContext(ChatContext);
@@ -1248,6 +1259,14 @@ function hasSeenChatMessage(
 function getChatMessageNotificationKey(message: ChatMessage): string {
   if (message.message_id) return message.message_id;
   return `${message.chat_room_id}:${message.server_seq}:${message.sender_id || ""}`;
+}
+
+function isNotifiableChatMessage(message: ChatMessage): boolean {
+  if (message.type !== "system") return true;
+  if (!message.content || typeof message.content !== "object") return false;
+
+  const action = (message.content as { action?: string }).action;
+  return action !== "created";
 }
 
 function trimNotifiedMessageIds(ids: Set<string>): void {

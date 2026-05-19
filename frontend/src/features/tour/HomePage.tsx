@@ -393,7 +393,7 @@ function mapTourPlace(item: TourPlaceApiItem): Place {
     "No description available yet.";
 
   return {
-    id: String(item.id || item.place_id || crypto.randomUUID()),
+    id: String(item.id || item.place_id || createFallbackPlaceId()),
     googlePlaceId: String(item.place_id || item.id || ""),
     initialIsFavorite: item.is_favorite === true,
     name: String(item.display_name || item.name || item.title || "Unnamed place"),
@@ -465,6 +465,14 @@ function mapTourPlace(item: TourPlaceApiItem): Place {
       label: "PLACE",
     },
   };
+}
+
+function createFallbackPlaceId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `place_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
 function mapFavoritePlace(item: FavoritePlaceApiItem): Place | null {
