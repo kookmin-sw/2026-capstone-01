@@ -293,7 +293,7 @@ export default function AiPlanDesignPage({
       <div style={styles.phoneFrame}>
         <div style={styles.headerRow}>
           <button type="button" onClick={onBack} style={styles.iconButton}>
-            {"<"}
+            <img src="/arrow.svg" alt="Back" style={styles.backIcon} />
           </button>
           <span style={styles.headerBadge}>AI Planner</span>
         </div>
@@ -649,13 +649,19 @@ const styles: Record<string, CSSProperties> = {
   iconButton: {
     width: 42,
     height: 42,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 14,
     border: "1px solid #d6eeee",
     background: "#ffffff",
-    color: "#204444",
-    fontSize: 18,
-    fontWeight: 800,
+    padding: 0,
     cursor: "pointer",
+  },
+  backIcon: {
+    width: 20,
+    height: 20,
+    display: "block",
   },
   headerBadge: {
     display: "inline-flex",
