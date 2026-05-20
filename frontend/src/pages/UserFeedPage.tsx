@@ -279,10 +279,9 @@ export default function UserFeedPage() {
   const profileMetaItems = [profile?.nationality, ...(profile?.travel_styles ?? [])]
     .filter((value): value is string => Boolean(value))
     .map(formatMeta);
-  const visibleProfileMetaItems = isMetaExpanded
-    ? profileMetaItems
-    : profileMetaItems.slice(0, 3);
-  const hiddenMetaCount = Math.max(0, profileMetaItems.length - visibleProfileMetaItems.length);
+  const previewChips = profileMetaItems.slice(0, 3);
+  const expandedChips = profileMetaItems.slice(3);
+  const canExpandChips = profileMetaItems.length > 3;
   const canShowProfileActions = Boolean(id && viewerUserId && id !== viewerUserId);
 
   return (
@@ -305,88 +304,115 @@ export default function UserFeedPage() {
         <div style={styles.statePanel}>{error}</div>
       ) : profile ? (
         <>
-          <section style={styles.profileSection}>
-            <div style={styles.profileGrid}>
+          <section style={styles.socialProfile}>
+            <div style={styles.avatarWrap}>
               <img
                 src={profile.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
                 alt=""
-                style={styles.avatar}
+                style={styles.avatarImage}
               />
-              <div style={styles.profileInfo}>
+            </div>
+            <div style={styles.socialProfileBody}>
+              <div style={styles.socialNameRow}>
                 <h1 style={styles.name}>{profile.user_name || "Unknown"}</h1>
-                <div style={styles.statsRow}>
-                  <div style={styles.statItem}>
-                    <span style={styles.statNumber}>{posts.length}</span>
-                    <span style={styles.statLabel}>Posts</span>
+              </div>
+              <div style={styles.profileStatsRow}>
+                <span style={styles.profileStat}>
+                  <strong style={styles.profileStatNumber}>{posts.length}</strong>
+                  <span>Posts</span>
+                </span>
+                <span style={styles.profileStat}>
+                  <strong style={styles.profileStatNumber}>
+                    {posts.reduce((sum, p) => sum + p.like_count, 0)}
+                  </strong>
+                  <span>Likes</span>
+                </span>
+              </div>
+              {previewChips.length ? (
+                <div style={styles.profileChipBlock}>
+                  <div style={styles.profileChipPreviewRow}>
+                    {previewChips.map((item) => (
+                      <span key={item} style={styles.profileChip}>{item}</span>
+                    ))}
+                    {canExpandChips ? (
+                      <button
+                        type="button"
+                        style={styles.profileChipToggle}
+                        onClick={() => setIsMetaExpanded((current) => !current)}
+                        aria-label={isMetaExpanded ? "Show fewer" : "Show all travel styles"}
+                        aria-expanded={isMetaExpanded}
+                      >
+                        <ChevronDownIcon flipped={isMetaExpanded} />
+                      </button>
+                    ) : null}
                   </div>
-                </div>
-                <div style={styles.chipsRow}>
-                  {visibleProfileMetaItems.map((item) => (
-                    <span key={item} style={styles.chip}>{item}</span>
-                  ))}
-                  {profileMetaItems.length > 3 ? (
-                    <button
-                      type="button"
-                      style={styles.chipMoreButton}
-                      onClick={() => setIsMetaExpanded((current) => !current)}
-                      aria-label={isMetaExpanded ? "Show fewer" : `Show ${hiddenMetaCount} more`}
+                  {canExpandChips ? (
+                    <div
+                      style={{
+                        ...styles.profileChipExpandedRow,
+                        ...(isMetaExpanded ? styles.profileChipExpandedRowOpen : {}),
+                      }}
                     >
-                      <ChevronDownIcon flipped={isMetaExpanded} />
-                    </button>
+                      {expandedChips.map((item) => (
+                        <span key={item} style={styles.profileChip}>{item}</span>
+                      ))}
+                    </div>
                   ) : null}
                 </div>
-              </div>
+              ) : null}
             </div>
+          </section>
 
-            {canShowProfileActions ? (
-              <div style={styles.actionBarWrap}>
-                <div style={styles.actionBar}>
+          {canShowProfileActions ? (
+            <section style={styles.profileActionBar}>
+              <button
+                type="button"
+                style={styles.profileActionButton}
+                onClick={() => void handleOpenChat()}
+                disabled={relationshipBusy}
+              >
+                <ChatSvg />
+                <span>Chat</span>
+              </button>
+              <span style={styles.profileActionDivider} />
+              <button
+                type="button"
+                style={styles.profileActionButton}
+                onClick={() => void handleAddFriend()}
+                disabled={relationshipBusy || friendshipStatus === "accepted" || friendshipStatus === "pending"}
+              >
+                <AddFriendSvg />
+                <span>
+                  {friendshipStatus === "accepted"
+                    ? "Friends"
+                    : friendshipStatus === "pending"
+                      ? isRequester ? "Requested" : "Pending"
+                      : "Add Friend"}
+                </span>
+              </button>
+            </section>
+          ) : null}
+          <div style={styles.profileActionDividerLine} />
+
+          <section style={styles.section}>
+            {posts.length > 0 ? (
+              <div style={styles.feedGrid}>
+                {posts.map((post) => (
                   <button
+                    key={post.post_id}
                     type="button"
-                    style={styles.actionBarBtn}
-                    onClick={() => void handleOpenChat()}
-                    disabled={relationshipBusy}
+                    style={styles.feedTile}
+                    onClick={() => void openPost(post)}
                   >
-                    <ChatSvg />
-                    Chat
+                    <img src={getFeedImageUrl(post)} alt="" style={styles.feedTileImage} />
+                    <span style={styles.feedTileMeta}>
+                      {post.like_count} likes · {post.comment_count} comments
+                    </span>
                   </button>
-                  <span style={styles.actionBarDivider} />
-                  <button
-                    type="button"
-                    style={styles.actionBarBtn}
-                    onClick={() => void handleAddFriend()}
-                    disabled={relationshipBusy || friendshipStatus === "accepted"}
-                  >
-                    <AddFriendSvg />
-                    {friendshipStatus === "accepted"
-                      ? "Friends"
-                      : friendshipStatus === "pending"
-                        ? isRequester ? "Requested" : "Pending"
-                        : "Add Friend"}
-                  </button>
-                </div>
+                ))}
               </div>
             ) : null}
           </section>
-
-          <div style={styles.sectionDivider} />
-
-          {posts.length > 0 ? (
-            <section style={styles.grid}>
-              {posts.map((post) => (
-                <button
-                  key={post.post_id}
-                  type="button"
-                  style={styles.tile}
-                  onClick={() => void openPost(post)}
-                >
-                  <img src={getFeedImageUrl(post)} alt="" style={styles.tileImage} />
-                </button>
-              ))}
-            </section>
-          ) : (
-            <div style={styles.statePanel}>No visible feed photos.</div>
-          )}
 
         </>
       ) : null}
@@ -631,18 +657,18 @@ function ChevronDownIcon({ flipped }: { flipped: boolean }) {
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
-    padding: "calc(18px + var(--app-safe-top)) 0 calc(78px + var(--app-bottom-nav-reserved))",
-    background: "#ffffff",
-    fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
+    padding: "calc(18px + var(--app-safe-top)) 12px calc(78px + var(--app-bottom-nav-reserved))",
+    background: "#f5f5f5",
+    fontFamily: "'Apple SD Gothic Neo', 'Pretendard Variable', 'Nunito', sans-serif",
   },
   topBar: {
-    width: "min(430px, 100%)",
+    width: "min(500px, 100%)",
     margin: "0 auto",
     minHeight: 48,
     display: "grid",
     gridTemplateColumns: "48px minmax(0, 1fr) 48px",
     alignItems: "center",
-    padding: "0 10px",
+    padding: "0 4px",
   },
   backButton: {
     border: "none",
@@ -660,145 +686,202 @@ const styles: Record<string, CSSProperties> = {
   topSpacer: {
     width: 48,
   },
-  profileSection: {
-    width: "min(430px, 100%)",
+  socialProfile: {
+    maxWidth: 500,
     margin: "0 auto",
-  },
-  profileGrid: {
     display: "grid",
-    gridTemplateColumns: "108px 1fr",
-    gap: 16,
-    alignItems: "flex-start",
-    padding: "14px 18px 16px",
+    gridTemplateColumns: "116px minmax(0, 1fr)",
+    gap: 8,
+    alignItems: "center",
+    padding: "0 4px 20px",
   },
-  avatar: {
-    width: 108,
-    height: 108,
-    borderRadius: "50%",
-    objectFit: "cover",
-    background: "#e8e8e8",
-    flexShrink: 0,
-  },
-  profileInfo: {
+  socialProfileBody: {
     minWidth: 0,
-    paddingTop: 2,
+  },
+  socialNameRow: {
+    display: "flex",
+    alignItems: "center",
+    minHeight: 32,
   },
   name: {
-    margin: "0 0 8px",
+    margin: 0,
     color: "#1a1a1a",
     fontSize: "1.25rem",
     fontWeight: 400,
-    letterSpacing: "-0.4px",
-    lineHeight: 1.2,
+    lineHeight: 1.15,
+    letterSpacing: "-0.02em",
   },
-  statsRow: {
+  profileStatsRow: {
     display: "flex",
-    gap: 20,
-    marginBottom: 10,
+    alignItems: "center",
+    gap: 22,
+    marginTop: 6,
+    marginBottom: 12,
   },
-  statItem: {
+  profileStat: {
+    minWidth: 56,
+    color: "#323232",
+    fontSize: "0.862rem",
+    fontWeight: 400,
+    lineHeight: 1.28,
+    letterSpacing: "-0.02em",
     display: "flex",
-    flexDirection: "column",
+    flexDirection: "column" as const,
     alignItems: "flex-start",
   },
-  statNumber: {
-    color: "#323232",
-    fontSize: "1rem",
-    fontWeight: 600,
-    letterSpacing: "-0.32px",
-    lineHeight: 1.2,
+  profileStatNumber: {
+    fontWeight: 400,
   },
-  statLabel: {
-    color: "#323232",
-    fontSize: "0.75rem",
-    letterSpacing: "-0.2px",
-    lineHeight: 1.3,
-  },
-  chipsRow: {
+  profileChipBlock: {
     display: "flex",
-    flexWrap: "wrap",
-    gap: 5,
+    flexDirection: "column" as const,
+    gap: 6,
+    maxWidth: 360,
+  },
+  profileChipPreviewRow: {
+    display: "flex",
     alignItems: "center",
-  },
-  chip: {
-    height: 22,
-    padding: "0 9px",
-    border: "0.7px solid #d7d7d7",
-    borderRadius: 24,
-    color: "#606060",
-    fontSize: "0.75rem",
-    letterSpacing: "-0.24px",
-    display: "inline-flex",
-    alignItems: "center",
-  },
-  chipMoreButton: {
-    border: "none",
-    background: "transparent",
-    cursor: "pointer",
-    padding: 0,
-    width: 24,
-    height: 24,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  actionBarWrap: {
-    background: "#f5f5f5",
-    padding: "10px 18px 12px",
-  },
-  actionBar: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1px 1fr",
-    background: "#ffffff",
-    border: "1px solid #bebebe",
-    borderRadius: 12,
-    boxShadow: "0 0 3px rgba(0,0,0,0.15)",
-    height: 50,
+    gap: 6,
+    flexWrap: "nowrap" as const,
+    maxWidth: "100%",
     overflow: "hidden",
   },
-  actionBarBtn: {
-    border: "none",
-    background: "transparent",
-    color: "#606060",
-    fontSize: "1rem",
-    letterSpacing: "-0.32px",
-    cursor: "pointer",
+  profileChipExpandedRow: {
     display: "flex",
     alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap" as const,
+    maxHeight: 0,
+    opacity: 0,
+    overflow: "hidden",
+    transform: "translateY(-6px)",
+    transition: "max-height 260ms ease, opacity 220ms ease, transform 260ms ease",
+  },
+  profileChipExpandedRowOpen: {
+    maxHeight: 120,
+    opacity: 1,
+    transform: "translateY(0)",
+  },
+  profileChip: {
+    height: 22,
+    maxWidth: 116,
+    minWidth: 0,
+    padding: "0 10px",
+    border: "0.7px solid #d7d7d7",
+    borderRadius: 24,
+    display: "inline-flex",
+    alignItems: "center",
     justifyContent: "center",
-    gap: 7,
+    color: "#606060",
+    fontSize: "0.68rem",
+    fontWeight: 400,
+    lineHeight: 1,
+    letterSpacing: "-0.02em",
+    whiteSpace: "nowrap" as const,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
-  actionBarDivider: {
-    background: "#bebebe",
-    width: 1,
-    alignSelf: "stretch",
-  },
-  sectionDivider: {
-    height: 1,
-    background: "#e8e8e8",
-    margin: "0 0 4px",
-  },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 3,
-    width: "min(430px, 100%)",
-    margin: "0 auto",
-  },
-  tile: {
-    width: "100%",
-    aspectRatio: "1 / 1",
-    padding: 0,
+  profileChipToggle: {
+    width: 24,
+    height: 24,
+    flex: "0 0 24px",
     border: "none",
-    background: "#050608",
+    borderRadius: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "transparent",
+    cursor: "pointer",
+    padding: 0,
+  },
+  avatarWrap: {
+    position: "relative",
+  },
+  avatarImage: {
+    width: 108,
+    height: 108,
+    borderRadius: "50%",
+    objectFit: "cover" as const,
+    border: "4px solid #ffffff",
+    background: "var(--neutral-100)",
+    boxShadow: "0 8px 18px rgba(33,33,33,0.1)",
+    display: "block",
+  },
+  profileActionBar: {
+    maxWidth: 525,
+    minHeight: 50,
+    margin: "6px auto 0",
+    border: "1px solid #bebebe",
+    borderRadius: 12,
+    background: "#ffffff",
+    boxShadow: "0 1px 8px rgba(0,0,0,0.04)",
+    display: "grid",
+    gridTemplateColumns: "1fr 1px 1fr",
+    alignItems: "center",
+  },
+  profileActionButton: {
+    height: 50,
+    border: "none",
+    padding: 0,
+    background: "transparent",
+    color: "#606060",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    fontSize: "1rem",
+    fontWeight: 400,
+    letterSpacing: "-0.02em",
     cursor: "pointer",
   },
-  tileImage: {
+  profileActionDivider: {
+    width: 1,
+    height: 31,
+    background: "#bebebe",
+  },
+  profileActionDividerLine: {
+    width: "calc(100% + 24px)",
+    height: 1,
+    margin: "16px -12px 10px",
+    background: "#d7d7d7",
+  },
+  section: {
+    width: "calc(100% + 24px)",
+    maxWidth: "none",
+    margin: "0 -12px",
+  },
+  feedGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 2,
+  },
+  feedTile: {
+    position: "relative",
+    padding: 0,
+    border: "none",
+    borderRadius: 0,
+    overflow: "hidden",
+    background: "#050608",
+    aspectRatio: "1 / 1",
+    cursor: "pointer",
+  },
+  feedTileImage: {
     width: "100%",
     height: "100%",
-    objectFit: "cover",
+    objectFit: "cover" as const,
     display: "block",
-    background: "#050608",
+  },
+  feedTileMeta: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: "18px 8px 8px",
+    background: "linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,0.62))",
+    color: "#ffffff",
+    fontSize: "0.72rem",
+    fontWeight: 900,
+    textAlign: "left",
   },
   statePanel: {
     width: "min(394px, calc(100% - 32px))",

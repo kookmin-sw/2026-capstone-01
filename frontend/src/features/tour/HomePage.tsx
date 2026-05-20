@@ -1244,6 +1244,8 @@ function animateClosePlaceDetail(): void {
     bodyScrollerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  const isModalOpen = Boolean(selectedPlace) || isSearchOpen;
+
   function getCollapsedY(): number {
     return Math.round(window.innerHeight * 0.2);
   }
@@ -1263,7 +1265,10 @@ function animateClosePlaceDetail(): void {
       <div style={styles.shell}>
         <div
           ref={bodyScrollerRef}
-          style={styles.bodyScroller}
+          style={{
+            ...styles.bodyScroller,
+            ...(isModalOpen ? styles.bodyScrollerLocked : {}),
+          }}
           onScroll={handleBodyScroll}
         >
           <HomeHeader
@@ -2052,6 +2057,9 @@ const styles: Record<string, CSSProperties> = {
     background: "#f5f5f5",
     transition: "padding-top 220ms ease",
   },
+  bodyScrollerLocked: {
+    overflowY: "hidden",
+  },
 
   /* ── Header ─────────────────────────────── */
   homeHeader: {
@@ -2447,6 +2455,7 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: "center",
     zIndex: 20,
     animation: "fadeInOverlay 220ms ease-out",
+    overscrollBehavior: "contain",
   },
   modalCard: {
     position: "fixed",
@@ -2455,7 +2464,10 @@ const styles: Record<string, CSSProperties> = {
     background: "#fff",
     height: "100dvh",
     boxShadow: "0 -12px 40px rgba(15, 23, 42, 0.10)",
-    overflow: "hidden",
+    overflowY: "auto",
+    overflowX: "hidden",
+    overscrollBehavior: "contain",
+    WebkitOverflowScrolling: "touch",
 
     willChange: "transform",
     transform: "translate3d(0, 100vh, 0)",
@@ -2910,6 +2922,10 @@ const styles: Record<string, CSSProperties> = {
     width: "100%",
     maxWidth: 760,
     minHeight: "56dvh",
+    maxHeight: "88dvh",
+    overflowY: "auto",
+    overscrollBehavior: "contain",
+    WebkitOverflowScrolling: "touch",
     borderRadius: "30px 30px 0 0",
     background: "var(--surface-panel)",
     boxShadow: "0 28px 72px rgba(24, 26, 32, 0.18)",

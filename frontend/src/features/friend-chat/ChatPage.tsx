@@ -1225,7 +1225,7 @@ const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
     padding: "calc(20px + var(--app-safe-top)) 0 34px",
-    background: "#ffffff",
+    background: "#f5f5f5",
     fontFamily: "'Pretendard Variable', 'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   shell: {
@@ -1427,7 +1427,7 @@ const styles: Record<string, CSSProperties> = {
   panel: {
     padding: "8px 0",
     borderRadius: 0,
-    background: "#ffffff",
+    background: "#f5f5f5",
     border: "none",
     borderTop: "1px solid #f0f0f0",
   },
@@ -1472,7 +1472,7 @@ const styles: Record<string, CSSProperties> = {
     gap: 8,
     padding: "10px 16px",
     borderRadius: 0,
-    background: "#ffffff",
+    background: "#f5f5f5",
     border: "none",
     borderBottom: "1px solid #f0f0f0",
     minWidth: 0,
@@ -1493,7 +1493,7 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 76,
     padding: "12px 10px",
     borderRadius: 0,
-    background: "#ffffff",
+    background: "#f5f5f5",
     border: "none",
     cursor: "pointer",
     textAlign: "left",
