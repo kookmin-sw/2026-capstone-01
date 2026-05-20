@@ -1302,21 +1302,17 @@ export default function ManualPlanPage({
       <div style={styles.phoneFrame}>
         <div style={styles.topBar}>
           <button type="button" onClick={goBack} style={styles.iconButton}>
-            <img src="/icon-back.svg" alt="Back" style={styles.backIcon} />
+            <img src="/arrow.svg" alt="Back" style={styles.backIcon} />
           </button>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <strong style={styles.title}>
-              {isComplete ? "Plan created" : "Manual Planner"}
-            </strong>
-          </div>
-          {isComplete ? (
-            <button type="button" onClick={onHome} style={styles.shareButton}>
-              Home
-            </button>
-          ) : (
+          <button type="button" onClick={onHome} style={styles.logoButton}>
+            <img src="/kripInAppLogo.svg" alt="KRIP" style={styles.headerLogo} />
+          </button>
+          {!isComplete ? (
             <button type="button" onClick={() => setShowShare(true)} style={styles.shareButton}>
               Invite
             </button>
+          ) : (
+            <span style={styles.headerSpacer} />
           )}
         </div>
 
@@ -1324,7 +1320,7 @@ export default function ManualPlanPage({
 
         {isComplete ? (
           <section style={{ ...styles.card, ...styles.completeCard }}>
-            <div style={styles.completeImage}>✓</div>
+            <img src="/map_success.svg" alt="" style={styles.completeImage} />
             <h1 style={styles.sectionTitle}>Plan creation complete</h1>
             <p style={styles.sectionCopy}>
               {saveMessage || `Saved to My Page (${buildPlanTitle("manual", tripTitle)})`}
@@ -1807,7 +1803,7 @@ const styles: Record<string, CSSProperties> = {
   },
   topBar: {
     display: "grid",
-    gridTemplateColumns: "42px 1fr auto",
+    gridTemplateColumns: "42px 1fr 72px",
     alignItems: "center",
   },
   iconButton: {
@@ -1824,6 +1820,23 @@ const styles: Record<string, CSSProperties> = {
   backIcon: {
     width: 20,
     height: 20,
+    display: "block",
+  },
+  logoButton: {
+    justifySelf: "center",
+    border: "none",
+    background: "transparent",
+    padding: 0,
+    cursor: "pointer",
+  },
+  headerLogo: {
+    width: 92,
+    height: "auto",
+    display: "block",
+  },
+  headerSpacer: {
+    width: 72,
+    height: 42,
     display: "block",
   },
   shareButton: {
@@ -2482,14 +2495,8 @@ const styles: Record<string, CSSProperties> = {
   completeImage: {
     width: 118,
     height: 118,
-    borderRadius: "50%",
-    background: `linear-gradient(135deg, ${BRAND} 0%, ${ACCENT} 100%)`,
-    color: "#ffffff",
-    display: "grid",
-    placeItems: "center",
-    fontSize: 56,
-    fontWeight: 900,
-    boxShadow: "0 18px 34px rgba(1, 192, 192, 0.22)",
+    objectFit: "contain",
+    display: "block",
   },
   overlay: {
     position: "fixed",
