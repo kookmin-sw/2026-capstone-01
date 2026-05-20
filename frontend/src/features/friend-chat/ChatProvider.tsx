@@ -9,8 +9,12 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { App as CapacitorApp } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 import { getMyProfile } from "../../api/auth";
 import { getFriendDetail } from "../../api/friend";
+import { readAccessToken } from "../../api/client";
+import { notifyUnauthorized } from "../../utils/tokens";
 import {
   createDirectChatRoom,
   getChatMessages,
@@ -19,6 +23,8 @@ import {
   getChatWebSocketUrl,
   type ChatMessage,
   type ChatRoom,
+  type LastMessageContent,
+  type SystemContent,
 } from "../../api/chat";
 import { reportChatNetworkError } from "../../utils/chatDiagnostics";
 
@@ -74,7 +80,7 @@ interface ChatContextValue {
   messagesByRoom: Record<string, ChatMessage[]>;
   roomPageStateByRoom: Record<string, RoomPageState>;
   refreshRooms: () => Promise<void>;
-  openDirectChat: (userId: string) => Promise<ChatRoom>;
+  openDirectChat: (userId: string) => ChatRoom | null;
   ensureRoom: (roomId: string) => Promise<ChatRoom>;
   setActiveRoomId: (roomId: string) => void;
   loadInitialMessages: (roomId: string) => Promise<void>;
@@ -93,6 +99,29 @@ const DEFAULT_ROOM_PAGE_STATE: RoomPageState = {
   isLoadingOlderMessages: false,
 };
 
+function normalizeLastMessageContent(
+  content: unknown,
+  type: ChatMessage["type"]
+): LastMessageContent {
+  if (content === null) return null;
+  if (typeof content === "string") return content;
+  if (type === "system" && isSystemContent(content)) return content;
+  return "";
+}
+
+function isSystemContent(content: unknown): content is SystemContent {
+  if (!content || typeof content !== "object") return false;
+
+  const value = content as Partial<SystemContent>;
+  if (value.action === "created" || value.action === "leave") {
+    return "actor_id" in value;
+  }
+  if (value.action === "join" || value.action === "kick") {
+    return "actor_id" in value && Array.isArray(value.target_ids);
+  }
+  return false;
+}
+
 const ChatContext = createContext<ChatContextValue | null>(null);
 
 export function ChatProvider({ children }: { children: ReactNode }) {
@@ -105,6 +134,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
+  const socketLifecycleRef = useRef(0);
   const sessionIdRef = useRef("");
   const shouldReconnectRef = useRef(false);
   const currentUserIdRef = useRef<string | null>(null);
@@ -131,6 +161,42 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [roomPageStateByRoom, setRoomPageStateByRoom] = useState<
     Record<string, RoomPageState>
   >({});
+
+  const clearReconnectTimer = useCallback((): void => {
+    if (reconnectTimerRef.current) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
+
+  const closeCurrentSocket = useCallback((code = 1000): void => {
+    const socket = socketRef.current;
+    socketRef.current = null;
+    socketLifecycleRef.current += 1;
+
+    if (!socket) return;
+
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+
+    if (socket.readyState === WebSocket.CONNECTING) {
+      socket.onopen = () => socket.close(code);
+      return;
+    }
+
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.close(code);
+    }
+  }, []);
+
+  const cleanupChatConnection = useCallback((): void => {
+    shouldReconnectRef.current = false;
+    clearReconnectTimer();
+    closeCurrentSocket();
+    clearAllPendingSends();
+    setConnectionState("closed");
+  }, [clearReconnectTimer, closeCurrentSocket]);
 
   useEffect(() => {
     messagesByRoomRef.current = messagesByRoom;
@@ -191,7 +257,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setRoomsLoading(true);
     try {
       const response = await getChatRooms();
-      setRooms(await enrichRoomProfileImages(response.items));
+      const visibleRooms = response.items.filter(isVisibleChatRoom);
+      setRooms(await enrichRoomProfileImages(visibleRooms));
     } finally {
       setRoomsLoading(false);
     }
@@ -269,7 +336,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                   server_seq: message.server_seq,
                   sender_id: message.sender_id,
                   type: message.type,
-                  content: message.content,
+                  content: normalizeLastMessageContent(message.content, message.type),
                   created_at: message.created_at,
                 },
                 last_message_at: message.created_at,
@@ -459,11 +526,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return room;
   }, [enrichRoomProfileImages]);
 
-  const openDirectChat = useCallback(async (userId: string): Promise<ChatRoom> => {
-    const [room] = await enrichRoomProfileImages([await createDirectChatRoom(userId)]);
-    setRooms((current) => moveRoomToTop(upsertRoom(current, room), room.chat_room_id));
-    return room;
-  }, [enrichRoomProfileImages]);
+  // Returns an existing real direct-chat room for the given peer, or null if none exists yet.
+  // Rooms with no last_message are treated as non-existent so draft mode is preserved.
+  // Room creation is handled lazily in ChatRoomPage when the first message is sent.
+  const openDirectChat = useCallback((userId: string): ChatRoom | null => {
+    return (
+      roomsRef.current.find(
+        (room) =>
+          room.type === "direct" &&
+          room.peer?.user_id === userId &&
+          Boolean(room.last_message)
+      ) ?? null
+    );
+  }, []);
 
   const sendMessagePayload = useCallback(
     (clientMsgId: string): void => {
@@ -508,7 +583,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const trimmedContent = content.trim();
       if (!roomId || !trimmedContent || trimmedContent.length > 2000) return;
 
-      const clientMsgId = crypto.randomUUID();
+      const clientMsgId = createClientMessageId();
       const optimisticMessage: ChatMessage = {
         message_id: clientMsgId,
         chat_room_id: roomId,
@@ -614,6 +689,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     async (roomId: string): Promise<void> => {
       try {
         const [room] = await enrichRoomProfileImages([await getChatRoom(roomId)]);
+        // Skip empty direct rooms — they should not appear in the room list
+        if (!isVisibleChatRoom(room)) return;
         setRooms((current) => moveRoomToTop(upsertRoom(current, room), room.chat_room_id));
       } catch {
         reportChatNetworkError({
@@ -702,7 +779,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           }
           mergeServerMessages(event.message.chat_room_id, [event.message]);
           updateRoomLastMessage(event.message);
-          if (event.message.sender_id !== currentUserIdRef.current) {
+          if (
+            event.message.sender_id !== currentUserIdRef.current &&
+            isNotifiableChatMessage(event.message)
+          ) {
             if (event.message.chat_room_id !== activeRoomIdRef.current) {
               const notificationKey = getChatMessageNotificationKey(event.message);
               if (!notifiedMessageIdsRef.current.has(notificationKey)) {
@@ -730,7 +810,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           setRooms((current) =>
             current.map((room) =>
               room.last_message?.message_id === event.message_id
-                ? { ...room, last_message: { ...room.last_message, content: event.content } }
+                ? {
+                    ...room,
+                    last_message: {
+                      ...room.last_message,
+                      content: normalizeLastMessageContent(
+                        event.content,
+                        room.last_message.type
+                      ),
+                    },
+                  }
                 : room
             )
           );
@@ -792,12 +881,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         case "session_revoked":
           if (event.session_id === sessionIdRef.current) {
             shouldReconnectRef.current = false;
-            navigate("/login", { replace: true });
+            setConnectionState("closed");
+            notifyUnauthorized();
           }
           return;
         case "auth_expired":
           shouldReconnectRef.current = false;
-          navigate("/login", { replace: true });
+          setConnectionState("closed");
+          notifyUnauthorized();
           return;
         case "server_error":
           markSendingMessagesFailed(event.reason || "", event.client_msg_id || undefined);
@@ -834,19 +925,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!shouldConnectChatSocket) {
-      shouldReconnectRef.current = false;
-      if (reconnectTimerRef.current) {
-        window.clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-      socketRef.current?.close(1000);
-      socketRef.current = null;
-      clearAllPendingSends();
-      setConnectionState("closed");
+      cleanupChatConnection();
       return;
     }
 
     let cancelled = false;
+    const lifecycleId = socketLifecycleRef.current + 1;
+    socketLifecycleRef.current = lifecycleId;
     shouldReconnectRef.current = true;
 
     void getMyProfile()
@@ -859,26 +944,48 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     void refreshRooms();
 
     function scheduleReconnect(): void {
+      if (!shouldReconnectRef.current || reconnectTimerRef.current) return;
+
       const base = Math.min(60000, 1000 * 2 ** reconnectAttemptRef.current);
       const jitter = Math.random() * 500;
 
-      if (reconnectTimerRef.current) {
-        window.clearTimeout(reconnectTimerRef.current);
-      }
-      reconnectTimerRef.current = window.setTimeout(connect, base + jitter);
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connect();
+      }, base + jitter);
       reconnectAttemptRef.current += 1;
     }
 
     function connect(): void {
+      if (cancelled || !shouldReconnectRef.current) return;
+
+      const currentSocket = socketRef.current;
+      if (
+        currentSocket &&
+        (currentSocket.readyState === WebSocket.OPEN ||
+          currentSocket.readyState === WebSocket.CONNECTING)
+      ) {
+        return;
+      }
+
       setConnectionState(reconnectAttemptRef.current > 0 ? "reconnecting" : "connecting");
-      const ws = new WebSocket(getChatWebSocketUrl());
+      const token = readAccessToken();
+      const ws =
+        Capacitor.isNativePlatform() && token
+          ? new WebSocket(getChatWebSocketUrl(), ["krip.chat.v1", `auth.${token}`])
+          : new WebSocket(getChatWebSocketUrl());
       socketRef.current = ws;
 
       ws.onopen = () => {
+        if (cancelled || socketLifecycleRef.current !== lifecycleId || socketRef.current !== ws) {
+          ws.close(1000);
+          return;
+        }
         reconnectAttemptRef.current = 0;
       };
 
       ws.onmessage = (socketEvent) => {
+        if (socketLifecycleRef.current !== lifecycleId || socketRef.current !== ws) return;
         handleSocketEventRef.current(parseSocketEvent(socketEvent.data));
       };
 
@@ -891,6 +998,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       };
 
       ws.onclose = (socketEvent) => {
+        if (socketLifecycleRef.current !== lifecycleId || socketRef.current !== ws) return;
         if (socketRef.current === ws) socketRef.current = null;
 
         if (!shouldReconnectRef.current || socketEvent.code === 1000) {
@@ -898,10 +1006,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (socketEvent.code === 4001 || socketEvent.code === 4403) {
+        if (socketEvent.code === 4001) {
           shouldReconnectRef.current = false;
           setConnectionState("closed");
-          navigate("/login", { replace: true });
+          notifyUnauthorized();
+          return;
+        }
+
+        if (socketEvent.code === 4019) {
+          shouldReconnectRef.current = false;
+          setConnectionState("closed");
+          navigate("/register", { replace: true });
+          return;
+        }
+
+        if (socketEvent.code === 4403) {
+          shouldReconnectRef.current = false;
+          setConnectionState("closed");
+          reportChatNetworkError({
+            action: "websocket_origin_rejected",
+            detail: "WebSocket origin rejected.",
+            extra: socketEvent.reason,
+          });
           return;
         }
 
@@ -916,27 +1042,38 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
 
     connect();
+    let removeAppStateListener = (): void => {};
+    void CapacitorApp.addListener("appStateChange", ({ isActive }) => {
+      if (!isActive || cancelled || !shouldReconnectRef.current) return;
+
+      if (!socketRef.current && !reconnectTimerRef.current && readAccessToken()) {
+        connect();
+      }
+    }).then((listener) => {
+      if (cancelled) {
+        void listener.remove();
+        return;
+      }
+
+      removeAppStateListener = () => {
+        void listener.remove();
+      };
+    });
 
     return () => {
       cancelled = true;
-      shouldReconnectRef.current = false;
-      if (reconnectTimerRef.current) {
-        window.clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-      const socket = socketRef.current;
-      if (socket) {
-        if (socket.readyState === WebSocket.CONNECTING) {
-          socket.onopen = () => socket.close(1000);
-          socket.onmessage = null;
-          socket.onclose = null;
-        } else {
-          socket.close(1000);
-        }
-      }
-      socketRef.current = null;
+      removeAppStateListener();
+      cleanupChatConnection();
     };
-  }, [navigate, refreshRooms, shouldConnectChatSocket]);
+  }, [cleanupChatConnection, navigate, refreshRooms, shouldConnectChatSocket]);
+
+  useEffect(() => {
+    window.addEventListener("krip:unauthorized", cleanupChatConnection);
+
+    return () => {
+      window.removeEventListener("krip:unauthorized", cleanupChatConnection);
+    };
+  }, [cleanupChatConnection]);
 
   useEffect(() => {
     return () => {
@@ -985,6 +1122,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+}
+
+function createClientMessageId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `client_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -1114,6 +1259,14 @@ function hasSeenChatMessage(
 function getChatMessageNotificationKey(message: ChatMessage): string {
   if (message.message_id) return message.message_id;
   return `${message.chat_room_id}:${message.server_seq}:${message.sender_id || ""}`;
+}
+
+function isNotifiableChatMessage(message: ChatMessage): boolean {
+  if (message.type !== "system") return true;
+  if (!message.content || typeof message.content !== "object") return false;
+
+  const action = (message.content as { action?: string }).action;
+  return action !== "created";
 }
 
 function trimNotifiedMessageIds(ids: Set<string>): void {
@@ -1275,6 +1428,13 @@ function clearRetryTimer(
 
   window.clearTimeout(timerId);
   delete retryTimers[clientMsgId];
+}
+
+// A direct room with no last_message is considered a ghost room (created but never used).
+// These should not appear in the room list; they are hidden until the first message is sent.
+function isVisibleChatRoom(room: ChatRoom): boolean {
+  if (room.type !== "direct") return true;
+  return Boolean(room.last_message);
 }
 
 function isPermanentSendFailure(reason: string): boolean {

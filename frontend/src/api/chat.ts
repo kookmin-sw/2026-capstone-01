@@ -45,6 +45,7 @@ export interface ChatRoom {
   members?: ChatRoomMember[];
   last_message: LastMessagePreview | null;
   unread_count: number;
+  notification_muted?: boolean;
   last_message_at: string | null;
   effective_last_at: string;
 }

@@ -4,9 +4,11 @@ import { useNavigate } from "react-router-dom";
 import { getMyProfile } from "../../api/auth";
 import {
   createGroupChatRoom,
+  leaveChatRoom,
   type ChatRoom,
   type SystemContent,
 } from "../../api/chat";
+import { setChatRoomNotificationMuted } from "../../api/notification";
 import {
   acceptFriendRequest,
   blockUser,
@@ -28,7 +30,6 @@ import {
 import { useChat } from "./ChatProvider";
 import { reportChatNetworkError } from "../../utils/chatDiagnostics";
 import ConfirmToast from "../../components/ConfirmToast";
-import FeedPopup from "../../components/FeedPopup";
 import { navigateBackOrFallback } from "../../utils/navigation";
 
 type FriendManagerTab = "friend" | "request";
@@ -42,12 +43,14 @@ export default function ChatPage({
   hideSearch = false,
   searchQuery: controlledSearchQuery,
   onSearchQueryChange,
+  initialFriendManagerTab,
 }: {
   embedded?: boolean;
   hideHeader?: boolean;
   hideSearch?: boolean;
   searchQuery?: string;
   onSearchQueryChange?: (value: string) => void;
+  initialFriendManagerTab?: FriendManagerTab;
 }) {
   const navigate = useNavigate();
   const {
@@ -78,10 +81,11 @@ export default function ChatPage({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [currentUserName, setCurrentUserName] = useState<string | null>(null);
-  const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
   const [internalSearchQuery, setInternalSearchQuery] = useState("");
   const [isFriendManagerOpen, setIsFriendManagerOpen] = useState(false);
-  const [friendManagerTab, setFriendManagerTab] = useState<FriendManagerTab>("friend");
+  const [friendManagerTab, setFriendManagerTab] = useState<FriendManagerTab>(
+    initialFriendManagerTab ?? "friend"
+  );
   const [friendSearchQuery, setFriendSearchQuery] = useState("");
   const [friendSearchResults, setFriendSearchResults] = useState<FriendSearchUser[]>([]);
   const [friendSearchLoading, setFriendSearchLoading] = useState(false);
@@ -90,6 +94,8 @@ export default function ChatPage({
   const [groupTitle, setGroupTitle] = useState("");
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
   const [isGroupCreateConfirmOpen, setIsGroupCreateConfirmOpen] = useState(false);
+  const [openActionRoomId, setOpenActionRoomId] = useState("");
+  const [leaveConfirmRoom, setLeaveConfirmRoom] = useState<ChatRoom | null>(null);
 
   const pendingCount = receivedRequests.length;
   const displayNamesById = useMemo(() => {
@@ -122,6 +128,10 @@ export default function ChatPage({
       userId === null ? "Unknown user" : displayNamesById.get(userId) || "Unknown user",
     [displayNamesById]
   );
+  const roomById = useMemo(
+    () => new Map(chatRooms.map((room) => [room.chat_room_id, room])),
+    [chatRooms]
+  );
   const chatRows = useMemo(
     () => chatRooms.map((room) => toChatRow(room, resolveDisplayName)),
     [chatRooms, resolveDisplayName]
@@ -136,6 +146,13 @@ export default function ChatPage({
         : chatRows,
     [chatRows, normalizedSearchQuery]
   );
+  useEffect(() => {
+    if (initialFriendManagerTab) {
+      setFriendManagerTab(initialFriendManagerTab);
+      setIsFriendManagerOpen(true);
+    }
+  }, [initialFriendManagerTab]);
+
   useEffect(() => {
     void refreshAll();
   }, []);
@@ -264,6 +281,9 @@ export default function ChatPage({
 
     try {
       const room = await openDirectChat(userId);
+      if (!room?.chat_room_id) {
+        throw new Error("Failed to open chat room.");
+      }
       navigate(`/chat/${room.chat_room_id}`);
     } catch (chatError) {
       reportChatNetworkError({
@@ -306,6 +326,9 @@ export default function ChatPage({
     setError("");
     try {
       const room = await createGroupChatRoom(title, selectedGroupMemberIds);
+      if (!room?.chat_room_id) {
+        throw new Error("Failed to create group chat.");
+      }
       setIsGroupCreateOpen(false);
       setGroupTitle("");
       setSelectedGroupMemberIds([]);
@@ -322,6 +345,40 @@ export default function ChatPage({
   function requestCreateGroupChat(): void {
     if (!groupTitle.trim() || selectedGroupMemberIds.length === 0 || actionId) return;
     setIsGroupCreateConfirmOpen(true);
+  }
+
+  async function handleToggleRoomMute(room: ChatRoom): Promise<void> {
+    const nextMuted = room.notification_muted !== true;
+    setActionId(`mute:${room.chat_room_id}`);
+    try {
+      await setChatRoomNotificationMuted(room.chat_room_id, nextMuted);
+      await refreshRooms();
+      setNotice(nextMuted ? "Chat notifications muted." : "Chat notifications enabled.");
+      setOpenActionRoomId("");
+    } catch (muteError) {
+      setError(toErrorMessage(muteError, "Failed to update chat notifications."));
+    } finally {
+      setActionId("");
+    }
+  }
+
+  function requestLeaveRoom(room: ChatRoom): void {
+    setLeaveConfirmRoom(room);
+  }
+
+  async function handleLeaveRoom(room: ChatRoom): Promise<void> {
+    setActionId(`leave:${room.chat_room_id}`);
+    try {
+      await leaveChatRoom(room.chat_room_id);
+      await refreshRooms();
+      setNotice("Left chat room.");
+      setOpenActionRoomId("");
+      setLeaveConfirmRoom(null);
+    } catch (leaveError) {
+      setError(toErrorMessage(leaveError, "Failed to leave chat room."));
+    } finally {
+      setActionId("");
+    }
   }
 
   function toggleGroupMember(userId: string): void {
@@ -419,33 +476,24 @@ export default function ChatPage({
           {chatLoading && filteredChatRows.length === 0 ? (
             <p style={styles.mutedText}>Loading chats...</p>
           ) : filteredChatRows.length > 0 ? (
-            filteredChatRows.map((chat) => (
-              <button
-                key={chat.id}
-                type="button"
-                style={styles.chatRow}
-                onClick={() => navigate(`/chat/${chat.id}`)}
-              >
-                <Avatar name={chat.name} imageUrl={chat.imageUrl} />
-                <span style={styles.rowMain}>
-                  <strong style={styles.rowTitle}>
-                    {chat.name}
-                    {chat.memberCount ? (
-                      <span style={styles.rowTitleMeta}>{chat.memberCount}</span>
-                    ) : null}
-                  </strong>
-                  <span style={styles.rowSubtitle}>{chat.preview}</span>
-                </span>
-                <span style={styles.chatRowMeta}>
-                  <span style={styles.chatRowTime}>{chat.time}</span>
-                  {chat.unreadCount > 0 ? (
-                    <span style={styles.unreadBadge}>
-                      {chat.unreadCount >= 999 ? "999+" : chat.unreadCount}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
-            ))
+            filteredChatRows.map((chat) => {
+              const room = roomById.get(chat.id);
+              if (!room) return null;
+              return (
+                <SwipeChatRow
+                  key={chat.id}
+                  chat={chat}
+                  room={room}
+                  isOpen={openActionRoomId === chat.id}
+                  busy={actionId.endsWith(`:${chat.id}`)}
+                  onOpenActions={() => setOpenActionRoomId(chat.id)}
+                  onCloseActions={() => setOpenActionRoomId("")}
+                  onNavigate={() => navigate(`/chat/${chat.id}`)}
+                  onMute={() => void handleToggleRoomMute(room)}
+                  onLeave={() => requestLeaveRoom(room)}
+                />
+              );
+            })
           ) : (
             <EmptyCard
               title={searchQuery.trim() ? "No matching chats" : "No chats yet"}
@@ -793,13 +841,21 @@ export default function ChatPage({
           />
         ) : null}
 
-        {feedPopupUserId ? (
-          <FeedPopup
-            key={feedPopupUserId}
-            userId={feedPopupUserId}
-            onClose={() => setFeedPopupUserId(null)}
+        {leaveConfirmRoom ? (
+          <ConfirmToast
+            title="Leave this chat?"
+            message={`You will leave "${getRoomDisplayName(
+              leaveConfirmRoom,
+              resolveDisplayName
+            )}".`}
+            confirmLabel="Leave"
+            destructive
+            busy={actionId === `leave:${leaveConfirmRoom.chat_room_id}`}
+            onConfirm={() => void handleLeaveRoom(leaveConfirmRoom)}
+            onCancel={() => setLeaveConfirmRoom(null)}
           />
         ) : null}
+
       </div>
     </div>
   );
@@ -849,6 +905,83 @@ function RequestSection({
       ) : (
         <EmptyCard title={emptyTitle} copy={emptyCopy} />
       )}
+    </div>
+  );
+}
+
+type ChatRowView = ReturnType<typeof toChatRow>;
+
+function SwipeChatRow({
+  chat,
+  room,
+  isOpen,
+  busy,
+  onOpenActions,
+  onCloseActions,
+  onNavigate,
+  onMute,
+  onLeave,
+}: {
+  chat: ChatRowView;
+  room: ChatRoom;
+  isOpen: boolean;
+  busy: boolean;
+  onOpenActions: () => void;
+  onCloseActions: () => void;
+  onNavigate: () => void;
+  onMute: () => void;
+  onLeave: () => void;
+}) {
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+  return (
+    <div
+      style={styles.chatSwipeWrap}
+      onTouchStart={(event) => setTouchStartX(event.touches[0]?.clientX ?? null)}
+      onTouchEnd={(event) => {
+        if (touchStartX === null) return;
+        const deltaX = event.changedTouches[0].clientX - touchStartX;
+        setTouchStartX(null);
+        if (deltaX < -44) onOpenActions();
+        if (deltaX > 44) onCloseActions();
+      }}
+    >
+      {isOpen ? (
+        <div style={styles.chatSwipeActions}>
+          <button type="button" style={styles.muteRoomButton} disabled={busy} onClick={onMute}>
+            {room.notification_muted ? "Unmute" : "Mute"}
+          </button>
+          <button type="button" style={styles.leaveRoomButton} disabled={busy} onClick={onLeave}>
+            Leave
+          </button>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        style={{ ...styles.chatRow, ...(isOpen ? styles.chatRowShifted : {}) }}
+        onClick={() => {
+          if (isOpen) onCloseActions();
+          else onNavigate();
+        }}
+      >
+        <Avatar name={chat.name} imageUrl={chat.imageUrl} />
+        <span style={styles.rowMain}>
+          <strong style={styles.rowTitle}>
+            {chat.name}
+            {chat.memberCount ? <span style={styles.rowTitleMeta}>{chat.memberCount}</span> : null}
+          </strong>
+          <span style={styles.rowSubtitle}>{chat.preview}</span>
+        </span>
+        <span style={styles.chatRowMeta}>
+          <span style={styles.chatRowTime}>{chat.time}</span>
+          {room.notification_muted ? <span style={styles.mutedBadge}>Muted</span> : null}
+          {chat.unreadCount > 0 ? (
+            <span style={styles.unreadBadge}>
+              {chat.unreadCount >= 999 ? "999+" : chat.unreadCount}
+            </span>
+          ) : null}
+        </span>
+      </button>
     </div>
   );
 }
@@ -973,6 +1106,27 @@ function toChatRow(
   };
 }
 
+function getRoomDisplayName(
+  room: ChatRoom,
+  resolveDisplayName: (userId: string | null) => string
+): string {
+  if (room.type === "direct") {
+    return room.peer?.user_name || "Deleted User";
+  }
+
+  if (room.title) {
+    return room.title;
+  }
+
+  const memberNames =
+    room.members
+      ?.filter((member) => member.user_id)
+      .map((member) => member.user_name || resolveDisplayName(member.user_id))
+      .filter(Boolean) ?? [];
+
+  return memberNames.length > 0 ? memberNames.join(", ") : "Group Chat";
+}
+
 function renderLastMessage(
   lastMessage: ChatRoom["last_message"],
   resolveDisplayName: (userId: string | null) => string
@@ -1054,6 +1208,19 @@ function getErrorStatus(error: unknown): number | undefined {
   return apiError.response?.status;
 }
 
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error) return error;
+
+  const apiError = error as {
+    response?: { data?: { detail?: unknown; message?: unknown } };
+  };
+  const detail = apiError.response?.data?.detail || apiError.response?.data?.message;
+  if (typeof detail === "string" && detail) return detail;
+
+  return fallback;
+}
+
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
@@ -1063,7 +1230,7 @@ const styles: Record<string, CSSProperties> = {
   },
   shell: {
     width: "100%",
-    maxWidth: 393,
+    maxWidth: 430,
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
@@ -1324,12 +1491,48 @@ const styles: Record<string, CSSProperties> = {
     gap: 12,
     width: "100%",
     minHeight: 76,
-    padding: "10px 17px",
+    padding: "12px 10px",
     borderRadius: 0,
     background: "#ffffff",
     border: "none",
     cursor: "pointer",
     textAlign: "left",
+    transition: "transform 180ms ease",
+    position: "relative",
+    zIndex: 1,
+  },
+  chatRowShifted: {
+    transform: "translateX(-148px)",
+  },
+  chatSwipeWrap: {
+    position: "relative",
+    overflow: "hidden",
+    borderBottom: "1px solid #f0f0f0",
+  },
+  chatSwipeActions: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    display: "flex",
+    width: 148,
+    zIndex: 0,
+  },
+  muteRoomButton: {
+    width: 74,
+    border: "none",
+    background: "#f6c453",
+    color: "#222",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  leaveRoomButton: {
+    width: 74,
+    border: "none",
+    background: "#ef4444",
+    color: "#fff",
+    fontWeight: 900,
+    cursor: "pointer",
   },
   avatar: {
     width: 56,
@@ -1339,7 +1542,7 @@ const styles: Record<string, CSSProperties> = {
     placeItems: "center",
     flexShrink: 0,
     background: "linear-gradient(135deg, var(--brand-primary), var(--brand-primary-deep))",
-    color: "#ffffff",
+    color: "#ffffffff",
     fontWeight: 800,
     overflow: "hidden",
   },
@@ -1391,6 +1594,14 @@ const styles: Record<string, CSSProperties> = {
     color: "#848484",
     fontSize: "0.688rem",
     whiteSpace: "nowrap",
+  },
+  mutedBadge: {
+    padding: "2px 6px",
+    borderRadius: 999,
+    background: "#ededed",
+    color: "#777",
+    fontSize: "0.62rem",
+    fontWeight: 900,
   },
   userId: {
     color: "var(--neutral-500)",
@@ -1505,17 +1716,17 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     justifyContent: "center",
     alignItems: "flex-end",
-    padding: "18px 14px 0",
+    padding: "18px 0 0",
     background: "rgba(15,23,42,0.36)",
   },
   managerPanel: {
-    width: "min(760px, 100%)",
+    width: "min(430px, 100%)",
     maxHeight: "88dvh",
     overflowY: "auto",
     display: "flex",
     flexDirection: "column",
     gap: 14,
-    padding: "0 18px 18px",
+    padding: "0 10px 18px",
     borderRadius: "26px 26px 0 0",
     background: "#ffffff",
     boxShadow: "0 22px 70px rgba(15,23,42,0.22)",
@@ -1595,7 +1806,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 12,
-    padding: 16,
+    padding: "14px 10px",
     borderRadius: 20,
     border: "1px solid #eeeeee",
     background: "#ffffff",
@@ -1629,7 +1840,7 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    padding: 12,
+    padding: "12px 10px",
     borderRadius: 16,
     background: "#ffffff",
     border: "1px solid #eeeeee",

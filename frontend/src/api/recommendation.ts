@@ -16,9 +16,14 @@ export async function getRecommendationCandidates(): Promise<RecommendationCandi
     return { items: normalizeRecommendationCandidates(data) };
   }
 
+  const payload = data as Partial<RecommendationCandidatesResponse> & {
+    users?: RecommendationCandidate[];
+    profiles?: RecommendationCandidate[];
+  };
+
   return {
     items: normalizeRecommendationCandidates(
-      data.items ?? data.users ?? data.profiles ?? []
+      payload.items ?? payload.users ?? payload.profiles ?? []
     ),
   };
 }

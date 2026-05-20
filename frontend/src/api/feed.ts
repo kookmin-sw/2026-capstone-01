@@ -13,6 +13,7 @@ export interface FeedPost {
   thumbnail_medium_url: string;
   like_count: number;
   comment_count: number;
+  is_liked: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -97,7 +98,7 @@ export async function createFeedPost({
       onUploadProgress?.(progress);
     },
   });
-  return data;
+  return normalizeFeedPost(data);
 }
 
 export async function getMyFeedPosts(cursor?: string): Promise<FeedPostListResponse> {
@@ -105,7 +106,7 @@ export async function getMyFeedPosts(cursor?: string): Promise<FeedPostListRespo
     params: cursorParams(cursor),
   });
   return {
-    posts: Array.isArray(data.posts) ? data.posts : [],
+    posts: Array.isArray(data.posts) ? data.posts.map(normalizeFeedPost) : [],
     next_cursor: data.next_cursor ?? null,
   };
 }
@@ -119,7 +120,7 @@ export async function getUserFeedPosts(
     { params: cursorParams(cursor) }
   );
   return {
-    posts: Array.isArray(data.posts) ? data.posts : [],
+    posts: Array.isArray(data.posts) ? data.posts.map(normalizeFeedPost) : [],
     next_cursor: data.next_cursor ?? null,
   };
 }
@@ -128,7 +129,7 @@ export async function getFeedPost(postId: string): Promise<FeedPost> {
   const { data } = await client.get<FeedPost>(
     `/api/feed/posts/${encodeURIComponent(postId)}`
   );
-  return data;
+  return normalizeFeedPost(data);
 }
 
 export async function updateFeedPostVisibility(
@@ -139,7 +140,7 @@ export async function updateFeedPostVisibility(
 
   try {
     const { data } = await client.patch<FeedPost>(path, { visibility });
-    return data;
+    return normalizeFeedPost(data);
   } catch (error) {
     const status = getApiStatus(error);
     if (status && ![400, 422, 500].includes(status)) {
@@ -149,7 +150,7 @@ export async function updateFeedPostVisibility(
     const { data } = await client.patch<FeedPost>(path, null, {
       params: { visibility },
     });
-    return data;
+    return normalizeFeedPost(data);
   }
 }
 
@@ -161,7 +162,7 @@ export async function updateFeedPostCaption(
     `/api/feed/posts/${encodeURIComponent(postId)}/caption`,
     { caption }
   );
-  return data;
+  return normalizeFeedPost(data);
 }
 
 export async function deleteFeedPost(postId: string): Promise<void> {
@@ -229,8 +230,17 @@ export async function getFeedPopup(userId: string): Promise<FeedPopupResponse> {
     ...data,
     travel_styles: Array.isArray(data.travel_styles) ? data.travel_styles : [],
     feed: {
-      items: Array.isArray(data.feed?.items) ? data.feed.items : [],
+      items: Array.isArray(data.feed?.items)
+        ? data.feed.items.map(normalizeFeedPost)
+        : [],
     },
+  };
+}
+
+function normalizeFeedPost(post: FeedPost): FeedPost {
+  return {
+    ...post,
+    is_liked: Boolean(post.is_liked),
   };
 }
 

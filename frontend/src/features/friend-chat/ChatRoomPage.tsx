@@ -2,17 +2,19 @@ import type { CSSProperties } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
+  createDirectChatRoom,
   getChatRoomMembers,
   getInvitableChatRoomFriends,
   inviteChatRoomMembers,
   leaveChatRoom,
   type ChatMessage,
+  type ChatPeer,
   type ChatRoom,
   type ChatUserProfile,
 } from "../../api/chat";
 import { getMyProfile } from "../../api/auth/auth";
+import { getFriendDetail } from "../../api/friend";
 import ConfirmToast from "../../components/ConfirmToast";
-import FeedPopup from "../../components/FeedPopup";
 import { useChat } from "./ChatProvider";
 
 const BOTTOM_THRESHOLD_PX = 160;
@@ -23,12 +25,16 @@ export default function ChatRoomPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const messageListRef = useRef<HTMLElement>(null);
+  const composerInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollModeRef = useRef<"bottom" | "preserve">("bottom");
+  const pendingNewRoomSendRef = useRef<string | null>(null);
+  const recentComposerSendRef = useRef<{ key: string; expiresAt: number } | null>(null);
   const shouldForceScrollToBottomRef = useRef(true);
   const scrollSnapshotRef = useRef<{ height: number; top: number } | null>(null);
   const latestMessageKeyRef = useRef("");
   const {
+    rooms,
     connectionState,
     currentUserId,
     messagesByRoom,
@@ -42,7 +48,12 @@ export default function ChatRoomPage() {
     sendRead,
   } = useChat();
   const [room, setRoom] = useState<ChatRoom | null>(null);
+  // Draft state: set when the user opens a 1:1 chat to a peer with no existing room yet.
+  // The actual room is created on the backend only when the first message is sent.
+  const [draftDirectUserId, setDraftDirectUserId] = useState<string | null>(null);
+  const [draftPeer, setDraftPeer] = useState<ChatPeer | null>(null);
   const [input, setInput] = useState("");
+  const [isCreatingDirectRoom, setIsCreatingDirectRoom] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [members, setMembers] = useState<ChatUserProfile[]>([]);
   const [invitableFriends, setInvitableFriends] = useState<ChatUserProfile[]>([]);
@@ -53,7 +64,6 @@ export default function ChatRoomPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
-  const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
   const [isLeaveConfirmOpen, setIsLeaveConfirmOpen] = useState(false);
   const [isInviteConfirmOpen, setIsInviteConfirmOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -70,13 +80,23 @@ export default function ChatRoomPage() {
     ? roomPageStateByRoom[roomId]
     : undefined;
   const roomName = useMemo(() => {
-    if (!room) return "Chat";
-    if (room.type === "direct") return room.peer?.user_name || "Deleted User";
-    return room.title || "Group Chat";
-  }, [room]);
+    if (room?.type === "direct") return room.peer?.user_name || "Deleted User";
+    if (room?.type === "group") return room.title || "Group Chat";
+    if (draftPeer) return draftPeer.user_name || "Chat";
+    return "Chat";
+  }, [room, draftPeer]);
   const roomProfileImageUrl =
-    room?.type === "direct" ? room.peer?.profile_image_url || DEFAULT_PROFILE_IMAGE_URL : DEFAULT_PROFILE_IMAGE_URL;
-  const roomProfileUserId = room?.type === "direct" ? room.peer?.user_id || "" : "";
+    room?.type === "direct"
+      ? room.peer?.profile_image_url || DEFAULT_PROFILE_IMAGE_URL
+      : draftPeer
+      ? draftPeer.profile_image_url || DEFAULT_PROFILE_IMAGE_URL
+      : DEFAULT_PROFILE_IMAGE_URL;
+  const roomProfileUserId =
+    room?.type === "direct"
+      ? room.peer?.user_id || ""
+      : draftPeer
+      ? draftPeer.user_id || ""
+      : "";
   const memberProfilesById = useMemo(() => {
     const profiles = new Map<string, ChatUserProfile>();
     members.forEach((member) => profiles.set(member.user_id, member));
@@ -90,20 +110,94 @@ export default function ChatRoomPage() {
       renderMessageContent(message).toLowerCase().includes(query)
     ).length;
   }, [messageSearchQuery, messages]);
+
+  useEffect(() => {
+    function handleAndroidBack(event: Event): void {
+      if (isLeaveConfirmOpen) {
+        event.preventDefault();
+        setIsLeaveConfirmOpen(false);
+        return;
+      }
+      if (isInviteConfirmOpen) {
+        event.preventDefault();
+        setIsInviteConfirmOpen(false);
+        return;
+      }
+      if (inviteOpen) {
+        event.preventDefault();
+        setInviteOpen(false);
+        return;
+      }
+      if (infoOpen) {
+        event.preventDefault();
+        setInfoOpen(false);
+        return;
+      }
+      if (isSearchOpen) {
+        event.preventDefault();
+        setIsSearchOpen(false);
+      }
+    }
+
+    window.addEventListener("krip:android-back", handleAndroidBack);
+
+    return () => {
+      window.removeEventListener("krip:android-back", handleAndroidBack);
+    };
+  }, [
+    infoOpen,
+    inviteOpen,
+    isInviteConfirmOpen,
+    isLeaveConfirmOpen,
+    isSearchOpen,
+  ]);
+
   useEffect(() => {
     let cancelled = false;
 
     async function loadRoom(): Promise<void> {
       if (!id) return;
 
-      try {
-        const nextRoom = id.startsWith("USER_")
-          ? await openDirectChat(id)
-          : await ensureRoom(id);
-
+      if (id.startsWith("USER_")) {
+        // Check if a real direct room already exists with this peer
+        const existingRoom = openDirectChat(id);
         if (cancelled) return;
 
+        if (existingRoom) {
+          setRoom(existingRoom);
+          setDraftDirectUserId(null);
+          setDraftPeer(null);
+          navigate(`/chat/${existingRoom.chat_room_id}`, { replace: true });
+        } else {
+          // No room yet — enter draft mode.
+          // The actual room is created on the backend when the first message is sent.
+          setRoom(null);
+          setDraftDirectUserId(id);
+          try {
+            const detail = await getFriendDetail(id);
+            if (!cancelled) {
+              setDraftPeer({
+                user_id: detail.user_id,
+                user_name: detail.user_name,
+                profile_image_url: detail.profile_image_url,
+              });
+            }
+          } catch {
+            if (!cancelled) {
+              setDraftPeer({ user_id: id, user_name: null, profile_image_url: null });
+            }
+          }
+        }
+        return;
+      }
+
+      // Real room ID — fetch or find from cache
+      try {
+        const nextRoom = await ensureRoom(id);
+        if (cancelled) return;
         setRoom(nextRoom);
+        setDraftDirectUserId(null);
+        setDraftPeer(null);
         if (id !== nextRoom.chat_room_id) {
           navigate(`/chat/${nextRoom.chat_room_id}`, { replace: true });
         }
@@ -120,6 +214,19 @@ export default function ChatRoomPage() {
       cancelled = true;
     };
   }, [ensureRoom, id, navigate, openDirectChat]);
+
+  // When rooms list updates while in draft mode, check if the room was created elsewhere
+  // (e.g., the peer sent the first message) and transition to the real room if found.
+  useEffect(() => {
+    if (!draftDirectUserId) return;
+    const existingRoom = openDirectChat(draftDirectUserId);
+    if (existingRoom) {
+      setRoom(existingRoom);
+      setDraftDirectUserId(null);
+      setDraftPeer(null);
+      navigate(`/chat/${existingRoom.chat_room_id}`, { replace: true });
+    }
+  }, [rooms, draftDirectUserId, openDirectChat, navigate]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -148,7 +255,43 @@ export default function ChatRoomPage() {
     let cancelled = false;
 
     async function loadMembers(): Promise<void> {
-      if (!roomId || !room) {
+      if (!room) {
+        // Draft mode: show the peer and self without any room API call
+        if (draftPeer?.user_id) {
+          const peerMember: ChatUserProfile = {
+            user_id: draftPeer.user_id,
+            user_name: draftPeer.user_name || "",
+            profile_image_url: draftPeer.profile_image_url,
+          };
+          if (!cancelled) setMembers([peerMember]);
+          setMembersLoading(true);
+          try {
+            const myProfile = await getMyProfile();
+            if (!cancelled && myProfile) {
+              const selfMember: ChatUserProfile = {
+                user_id: myProfile.user_id || currentUserId || "",
+                user_name: myProfile.user_name || "Me",
+                profile_image_url:
+                  myProfile.profile_image_url ||
+                  myProfile.profileImageUrl ||
+                  myProfile.image_url ||
+                  myProfile.imageUrl ||
+                  DEFAULT_PROFILE_IMAGE_URL,
+              };
+              setMembers([peerMember, selfMember]);
+            }
+          } catch {
+            // Non-fatal: peer is already shown
+          } finally {
+            if (!cancelled) setMembersLoading(false);
+          }
+        } else {
+          if (!cancelled) setMembers([]);
+        }
+        return;
+      }
+
+      if (!roomId) {
         setMembers([]);
         return;
       }
@@ -212,7 +355,7 @@ export default function ChatRoomPage() {
     return () => {
       cancelled = true;
     };
-  }, [room, roomId]);
+  }, [room, roomId, draftPeer, currentUserId]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -259,7 +402,7 @@ export default function ChatRoomPage() {
       return;
     }
 
-    const latestMessage = messages.at(-1);
+    const latestMessage = messages[messages.length - 1];
     const latestMessageKey = latestMessage ? getMessageKey(latestMessage) : "";
     const previousLatestMessageKey = latestMessageKeyRef.current;
     const hasNewLatestMessage =
@@ -311,12 +454,61 @@ export default function ChatRoomPage() {
 
   function handleSend(): void {
     const content = input.trim();
-    if (!content || !roomId || content.length > 2000) return;
+    if (!content || content.length > 2000) return;
+    const targetRoomId =
+      roomId || (!draftDirectUserId && id && !id.startsWith("USER_") ? id : "");
+
+    // Draft mode: create the room on the backend first, then send
+    if (draftDirectUserId) {
+      if (isDuplicateComposerSend(`draft:${draftDirectUserId}:${content}`)) return;
+      void handleSendToNewRoom(draftDirectUserId, content);
+      return;
+    }
+
+    if (!targetRoomId) return;
+    if (isDuplicateComposerSend(`room:${targetRoomId}:${content}`)) return;
 
     shouldForceScrollToBottomRef.current = true;
     setIncomingMessageNotice(null);
-    sendMessage(roomId, content);
+    sendMessage(targetRoomId, content);
     setInput("");
+    window.requestAnimationFrame(() => composerInputRef.current?.focus());
+  }
+
+  function isDuplicateComposerSend(key: string): boolean {
+    const now = Date.now();
+    const recent = recentComposerSendRef.current;
+    if (recent?.key === key && recent.expiresAt > now) return true;
+
+    recentComposerSendRef.current = { key, expiresAt: now + 300 };
+    return false;
+  }
+
+  async function handleSendToNewRoom(userId: string, content: string): Promise<void> {
+    if (pendingNewRoomSendRef.current === userId) return;
+
+    pendingNewRoomSendRef.current = userId;
+    setIsCreatingDirectRoom(true);
+    try {
+      // TODO: backend must enforce direct-room uniqueness and reuse existing rooms.
+      const newRoom = await createDirectChatRoom(userId);
+      if (!newRoom?.chat_room_id) {
+        throw new Error("Failed to open chat room.");
+      }
+      setDraftDirectUserId(null);
+      setDraftPeer(null);
+      setInput("");
+      shouldForceScrollToBottomRef.current = true;
+      setIncomingMessageNotice(null);
+      // Send the message using the now-real room ID, then navigate there
+      sendMessage(newRoom.chat_room_id, content);
+      navigate(`/chat/${newRoom.chat_room_id}`, { replace: true });
+    } catch (error) {
+      setErrorMessage(toErrorMessage(error, "Failed to create chat room."));
+    } finally {
+      pendingNewRoomSendRef.current = null;
+      setIsCreatingDirectRoom(false);
+    }
   }
 
   async function openInvitePanel(): Promise<void> {
@@ -398,7 +590,7 @@ export default function ChatRoomPage() {
   function openFeedPopup(userId?: string | null): void {
     if (userId) {
       setInfoOpen(false);
-      setFeedPopupUserId(userId);
+      navigate(`/profile/${userId}`);
     }
   }
 
@@ -469,12 +661,6 @@ export default function ChatRoomPage() {
         </label>
       ) : null}
 
-      <div style={styles.dateDivider}>
-        <span style={styles.dateLine} />
-        <span style={styles.dateText}>{formatChatDate(messages[0]?.created_at)}</span>
-        <span style={styles.dateLine} />
-      </div>
-
       <main ref={messageListRef} style={styles.messageList}>
         {errorMessage ? <div style={styles.error}>{errorMessage}</div> : null}
         {actionMessage ? <div style={styles.notice}>{actionMessage}</div> : null}
@@ -492,21 +678,25 @@ export default function ChatRoomPage() {
           </button>
         ) : null}
         {messages.map((message, messageIndex) => {
+          const previousMessage = messages[messageIndex - 1];
+          const showDateDivider =
+            messageIndex === 0 ||
+            !isSameChatDate(previousMessage?.created_at, message.created_at);
+
           if (isRoomNoticeMessage(message)) {
             return (
-              <div
-                key={message.client_msg_id || message.message_id}
-                style={styles.roomNoticeRow}
-              >
-                <span style={styles.roomNoticeText}>
-                  {renderMessageContent(message)}
-                </span>
+              <div key={message.client_msg_id || message.message_id}>
+                {showDateDivider ? <DateDivider value={message.created_at} /> : null}
+                <div style={styles.roomNoticeRow}>
+                  <span style={styles.roomNoticeText}>
+                    {renderMessageContent(message)}
+                  </span>
+                </div>
               </div>
             );
           }
 
           const mine = Boolean(currentUserId && message.sender_id === currentUserId);
-          const previousMessage = messages[messageIndex - 1];
           const showAvatar =
             !mine &&
             (!previousMessage ||
@@ -518,75 +708,77 @@ export default function ChatRoomPage() {
               .toLowerCase()
               .includes(messageSearchQuery.trim().toLowerCase());
           return (
-            <div
-              key={message.client_msg_id || message.message_id}
-              style={{
-                ...styles.messageRow,
-                ...(mine ? styles.messageRowMine : {}),
-              }}
-            >
-              {!mine ? (
-                <button
-                  type="button"
-                  style={styles.messageAvatarButton}
-                  onClick={() => openFeedPopup(message.sender_id)}
-                  disabled={!message.sender_id}
-                  aria-label={`${getMessageSenderName(message)} feed`}
-                >
-                  <img
-                    src={getMessageAvatarUrl(message)}
-                    alt={getMessageSenderName(message)}
-                    style={{
-                      ...styles.messageAvatar,
-                      ...(showAvatar ? {} : styles.hiddenMessageAvatar),
-                    }}
-                  />
-                </button>
-              ) : null}
-              <span style={styles.messageContentGroup}>
-                {!mine && showAvatar ? (
-                  <span style={styles.senderName}>{getMessageSenderName(message)}</span>
-                ) : null}
-                <span style={styles.bubbleLine}>
-                  {!mine ? (
-                    <div
+            <div key={message.client_msg_id || message.message_id}>
+              {showDateDivider ? <DateDivider value={message.created_at} /> : null}
+              <div
+                style={{
+                  ...styles.messageRow,
+                  ...(mine ? styles.messageRowMine : {}),
+                }}
+              >
+                {!mine ? (
+                  <button
+                    type="button"
+                    style={styles.messageAvatarButton}
+                    onClick={() => openFeedPopup(message.sender_id)}
+                    disabled={!message.sender_id}
+                    aria-label={`${getMessageSenderName(message)} feed`}
+                  >
+                    <img
+                      src={getMessageAvatarUrl(message)}
+                      alt={getMessageSenderName(message)}
                       style={{
-                        ...styles.bubble,
-                        ...(room?.type === "group" ? styles.groupReceivedBubble : {}),
-                        ...(isSearchMatch ? styles.searchMatchedBubble : {}),
+                        ...styles.messageAvatar,
+                        ...(showAvatar ? {} : styles.hiddenMessageAvatar),
                       }}
-                    >
-                      {renderMessageContent(message)}
-                    </div>
-                  ) : (
-                    <>
+                    />
+                  </button>
+                ) : null}
+                <span style={styles.messageContentGroup}>
+                  {!mine && showAvatar ? (
+                    <span style={styles.senderName}>{getMessageSenderName(message)}</span>
+                  ) : null}
+                  <span style={styles.bubbleLine}>
+                    {!mine ? (
+                      <div
+                        style={{
+                          ...styles.bubble,
+                          ...(room?.type === "group" ? styles.groupReceivedBubble : {}),
+                          ...(isSearchMatch ? styles.searchMatchedBubble : {}),
+                        }}
+                      >
+                        {renderMessageContent(message)}
+                      </div>
+                    ) : (
+                      <>
+                        <span style={styles.time}>
+                          {formatTime(message.created_at)}
+                          {message.status === "sending" ? " - sending" : ""}
+                          {message.status === "failed" ? " - failed" : ""}
+                          {message.edited_at && !message.deleted_at ? " - edited" : ""}
+                        </span>
+                        <div
+                          style={{
+                            ...styles.bubble,
+                            ...styles.bubbleMine,
+                            ...(isSearchMatch ? styles.searchMatchedBubbleMine : {}),
+                          }}
+                        >
+                          {renderMessageContent(message)}
+                        </div>
+                      </>
+                    )}
+                    {!mine ? (
                       <span style={styles.time}>
                         {formatTime(message.created_at)}
                         {message.status === "sending" ? " - sending" : ""}
                         {message.status === "failed" ? " - failed" : ""}
                         {message.edited_at && !message.deleted_at ? " - edited" : ""}
                       </span>
-                      <div
-                        style={{
-                          ...styles.bubble,
-                          ...styles.bubbleMine,
-                          ...(isSearchMatch ? styles.searchMatchedBubbleMine : {}),
-                        }}
-                      >
-                        {renderMessageContent(message)}
-                      </div>
-                    </>
-                  )}
-                  {!mine ? (
-                    <span style={styles.time}>
-                      {formatTime(message.created_at)}
-                      {message.status === "sending" ? " - sending" : ""}
-                      {message.status === "failed" ? " - failed" : ""}
-                      {message.edited_at && !message.deleted_at ? " - edited" : ""}
-                    </span>
-                  ) : null}
+                    ) : null}
+                  </span>
                 </span>
-              </span>
+              </div>
             </div>
           );
         })}
@@ -611,34 +803,51 @@ export default function ChatRoomPage() {
         </button>
       ) : null}
 
-      <footer style={styles.composer}>
+      <form
+        style={styles.composer}
+        onSubmit={(event) => {
+          event.preventDefault();
+          handleSend();
+        }}
+      >
         <input
+          ref={composerInputRef}
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
-            if (event.key === "Enter") handleSend();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              handleSend();
+            }
           }}
           maxLength={2000}
+          enterKeyHint="send"
           placeholder="Type a message"
           style={styles.input}
         />
         <button
-          type="button"
+          type="submit"
           style={{
             ...styles.sendButton,
-            ...(!input.trim() || connectionState === "closed" ? styles.sendButtonDisabled : {}),
+            ...(!input.trim() || isCreatingDirectRoom
+              ? styles.sendButtonDisabled
+              : {}),
           }}
-          onClick={handleSend}
-          disabled={!input.trim() || connectionState === "closed"}
-          aria-label={connectionState === "closed" ? "Offline" : "Send"}
-          title={connectionState === "ready" ? "Send" : connectionState === "closed" ? "Offline" : "Queued"}
+          onMouseDown={(event) => event.preventDefault()}
+          onTouchEnd={(event) => {
+            event.preventDefault();
+            handleSend();
+          }}
+          disabled={!input.trim() || isCreatingDirectRoom}
+          aria-label="Send"
+          title={connectionState === "ready" ? "Send" : "Queued"}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
             <path d="M7 12V2M3 6l4-4 4 4" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-      </footer>
+      </form>
 
       {infoOpen ? (
         <div style={styles.infoBackdrop} onClick={() => setInfoOpen(false)}>
@@ -778,14 +987,6 @@ export default function ChatRoomPage() {
         </div>
       ) : null}
 
-      {feedPopupUserId ? (
-        <FeedPopup
-          userId={feedPopupUserId}
-          side="left"
-          onClose={() => setFeedPopupUserId(null)}
-        />
-      ) : null}
-
       {isLeaveConfirmOpen ? (
         <ConfirmToast
           title="Leave this group chat?"
@@ -912,6 +1113,32 @@ function formatChatDate(value?: string): string {
     day: "2-digit",
     weekday: "short",
   });
+}
+
+function isSameChatDate(left?: string, right?: string): boolean {
+  if (!left || !right) return false;
+
+  const leftDate = new Date(left);
+  const rightDate = new Date(right);
+  if (Number.isNaN(leftDate.getTime()) || Number.isNaN(rightDate.getTime())) {
+    return false;
+  }
+
+  return (
+    leftDate.getFullYear() === rightDate.getFullYear() &&
+    leftDate.getMonth() === rightDate.getMonth() &&
+    leftDate.getDate() === rightDate.getDate()
+  );
+}
+
+function DateDivider({ value }: { value?: string }) {
+  return (
+    <div style={styles.dateDivider}>
+      <span style={styles.dateLine} />
+      <span style={styles.dateText}>{formatChatDate(value)}</span>
+      <span style={styles.dateLine} />
+    </div>
+  );
 }
 
 function BackIcon() {

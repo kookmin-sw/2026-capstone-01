@@ -10,17 +10,12 @@ type NavIconSize = {
   height: number;
 };
 
-const DEFAULT_NAV_ICON_SIZE: NavIconSize = {
-  width: 28,
-  height: 28,
-};
-
 const TAB_ITEMS = [
-  { to: "/home", label: "Home", icon: "home", iconSize: { width: 24, height: 24 } },
-  { to: "/plan", label: "Plan", icon: "calendar", iconSize: DEFAULT_NAV_ICON_SIZE },
-  { to: "/menu", label: "Menu", icon: "menu", iconSize: { width: 24, height: 24 } },
-  { to: "/mate", label: "Mate", icon: "mate", iconSize: { width: 24, height: 24 } },
-  { to: "/my", label: "My Page", icon: "my", iconSize: DEFAULT_NAV_ICON_SIZE },
+  { to: "/home", label: "Home", icon: "home", iconSize: { width: 29, height: 30 } },
+  { to: "/plan", label: "Plan", icon: "plan", iconSize: { width: 27, height: 31 } },
+  { to: "/menu", label: "Menu", icon: "menu", iconSize: { width: 26, height: 31 } },
+  { to: "/mate", label: "Mate", icon: "mate", iconSize: { width: 27, height: 30 } },
+  { to: "/my", label: "My Page", icon: "my", iconSize: { width: 26, height: 30 } },
 ] as const;
 
 const TAB_ROOT_PATHS = TAB_ITEMS.map((item) => item.to);
@@ -78,6 +73,14 @@ export default function AppShell() {
               <span style={styles.navIconWrap}>
                 <NavIcon name={item.icon} active={active} size={item.iconSize} />
               </span>
+              {active && (
+                <img
+                  src="/CurrentNavBar.svg"
+                  alt=""
+                  aria-hidden="true"
+                  style={styles.navActiveBar}
+                />
+              )}
             </NavLink>
           );
         })}
@@ -112,7 +115,7 @@ function NavIcon({
       {name === "home" ? (
         <path d="M10 30.5 32 11l22 19.5V55a4 4 0 0 1-4 4H39V43a4 4 0 0 0-4-4h-6a4 4 0 0 0-4 4v16H14a4 4 0 0 1-4-4V30.5Z" />
       ) : null}
-      {name === "calendar" ? (
+      {name === "plan" ? (
         <>
           <rect x="11" y="14" width="42" height="42" rx="8" />
           <rect x="11" y="22" width="42" height="5" />
@@ -153,9 +156,11 @@ function getNavIconAsset(
   name: (typeof TAB_ITEMS)[number]["icon"],
   active: boolean
 ): string | null {
-  if (name === "home") return active ? "/home_active.svg" : "/home.svg";
-  if (name === "menu") return active ? "/menu_active.svg" : "/menu.svg";
-  if (name === "mate") return active ? "/mate_active.svg" : "/mate.svg";
+  if (name === "home") return active ? "/HomeIcon_active.svg" : "/HomeIcon.svg";
+  if (name === "plan") return active ? "/PlanIcon_active.svg" : "/PlanIcon.svg";
+  if (name === "menu") return active ? "/MenuIcon_active.svg" : "/MenuIcon.svg";
+  if (name === "mate") return active ? "/MateChatIcon_active.svg" : "/MateChatIcon.svg";
+  if (name === "my") return active ? "/MyPageIcon_active.svg" : "/MyPageIcon.svg";
   return null;
 }
 
@@ -199,7 +204,8 @@ const styles: Record<string, CSSProperties> = {
     left: 0,
     right: 0,
     bottom: 0,
-    width: "auto",
+    width: "100%",
+    boxSizing: "border-box",
     display: "grid",
     gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
     gap: 8,
@@ -207,14 +213,16 @@ const styles: Record<string, CSSProperties> = {
     paddingRight: "var(--app-safe-right)",
     paddingBottom: "var(--app-safe-bottom)",
     background: "rgba(255,255,255,0.94)",
-    border: "1px solid var(--border-soft)",
+    borderTop: "1px solid var(--border-soft)",
     backdropFilter: "blur(16px)",
     zIndex: 15,
   },
   navItem: {
+    position: "relative",
     textDecoration: "none",
     color: "#a9a9a9",
     display: "flex",
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
     minHeight: "var(--app-bottom-nav-height)",
@@ -232,6 +240,15 @@ const styles: Record<string, CSSProperties> = {
     height: 40,
     display: "block",
     fill: "currentColor",
+  },
+  navActiveBar: {
+    position: "absolute",
+    bottom: 0,
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: 40,
+    height: 8,
+    display: "block",
   },
   notificationBadge: {
     position: "absolute",

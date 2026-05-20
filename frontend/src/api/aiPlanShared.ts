@@ -2,6 +2,9 @@ import {
   API_BASE_URL,
   TOUR_PLACES_AUTHORIZATION_BEARER,
 } from "./auth/config";
+import { Capacitor } from "@capacitor/core";
+
+import { readToken } from "../utils/tokens";
 
 export const BRAND = "#01C0C0";
 export const ACCENT = "#FFBE0F";
@@ -12,6 +15,22 @@ export const DEFAULT_MAP_CENTER = { lat: 37.5665, lng: 126.978 };
 export const INCHEON_AIRPORT_CENTER = { lat: 37.4602, lng: 126.4407 };
 export const SEOUL_SHILLA_HOTEL_CENTER = { lat: 37.5564, lng: 127.0056 };
 export const TOUR_RECOMMEND_TIMEOUT_MS = 120000;
+
+type RequestHeaders = Record<string, string>;
+
+function getTourApiHeaders(headers: RequestHeaders = {}): RequestHeaders {
+  const result: RequestHeaders = {
+    ...headers,
+    Authorization: TOUR_PLACES_AUTHORIZATION_BEARER,
+  };
+
+  const rawToken = readToken();
+  if (Capacitor.isNativePlatform() && rawToken) {
+    result["X-Auth-Token"] = rawToken;
+  }
+
+  return result;
+}
 
 export type PaceOption = "Slow" | "Balanced" | "Packed";
 export type TransportOption = "Public Transit" | "Taxi" | "Walk";
@@ -110,6 +129,7 @@ export interface PlanItemResponse {
   address: string;
   visit_time: string | null;
   rating: number | null;
+  photos: string[];
 }
 
 export interface PlanDetailResponse extends PlanSummaryResponse {
@@ -163,6 +183,7 @@ export interface TourRecommendPlace {
   rating?: number | null;
   description?: string;
   tip?: string;
+  photos?: string[];
 }
 
 export interface TourRecommendDayPlan {
@@ -238,6 +259,7 @@ export interface PlaceDetailV2 {
   reason: string;
   estimated_cost_krw: number;
   stay_minutes: number;
+  photos: string[];
 }
 
 export interface MovementHopV2 {
@@ -461,10 +483,9 @@ export async function getTourRecommendationsV2(
       method: "POST",
       credentials: "include",
       signal: controller.signal,
-      headers: {
-        Authorization: TOUR_PLACES_AUTHORIZATION_BEARER,
+      headers: getTourApiHeaders({
         "Content-Type": "application/json",
-      },
+      }),
       body: JSON.stringify(toRecommendRequestV2(preferences)),
     });
 
@@ -720,11 +741,10 @@ async function planApiFetch<T>(
   const response = await fetch(`${API_BASE_URL}${path}`, {
     credentials: "include",
     ...options,
-    headers: {
-      Authorization: TOUR_PLACES_AUTHORIZATION_BEARER,
+    headers: getTourApiHeaders({
       "Content-Type": "application/json",
       ...options.headers,
-    },
+    } as RequestHeaders),
   });
 
   if (!response.ok) {
@@ -1004,10 +1024,9 @@ export async function postTourRecommend(
   const response = await fetch(`${API_BASE_URL}/api/tour/recommend`, {
     method: "POST",
     credentials: "include",
-    headers: {
-      Authorization: TOUR_PLACES_AUTHORIZATION_BEARER,
+    headers: getTourApiHeaders({
       "Content-Type": "application/json",
-    },
+    }),
     body: JSON.stringify(payload),
   });
 

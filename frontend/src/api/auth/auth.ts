@@ -1,9 +1,12 @@
-import { notifyUnauthorized, removeToken } from "../../utils/tokens";
+import { Capacitor } from "@capacitor/core";
+import { notifyForbidden, notifyUnauthorized, readToken, removeToken } from "../../utils/tokens";
+import { unregisterFcmToken } from "../../lib/fcm";
 import { getUserAuthorizationBearer } from "../client";
 import {
   API_BASE_URL,
   AUTHORIZATION_BEARER,
-  TOUR_PLACES_AUTHORIZATION_BEARER,
+  getRequiredAuthorizationBearer,
+  getTourPlacesAuthorizationBearer,
 } from "./config";
 
 export interface UserProfile {
@@ -22,16 +25,39 @@ export interface UserProfile {
   profile_image_url?: string | null;
   profileImageUrl?: string;
   avatar_url?: string;
+  food_preferences?: string[];
+  density_preference?: string;
+  budget_preference?: string;
+  walking_preference?: string;
+  transport_preferences?: string[];
+  companion_preference?: string;
+  time_preferences?: string[];
+  communication_preference?: string;
+  planning_preference?: string;
+  notification_muted?: boolean;
+}
+
+export interface MyProfileStats {
+  total_feed_likes: number;
+  total_friends: number;
 }
 
 export interface ProfileImageResponse {
   profile_image_url: string | null;
 }
 
-export type ProfilePreferencesPayload = Pick<
-  RegisterPayload,
-  | "travel_styles"
->;
+export interface ProfilePreferencesPayload {
+  travel_styles: string[];
+  food_preferences?: string[];
+  density_preference?: string;
+  budget_preference?: string;
+  walking_preference?: string;
+  transport_preferences?: string[];
+  companion_preference?: string;
+  time_preferences?: string[];
+  communication_preference?: string;
+  planning_preference?: string;
+}
 
 export type ProfileUpdatePayload = Partial<
   Pick<
@@ -133,6 +159,7 @@ export interface TourPlaceApiItem {
   image_url?: string;
   imageUrl?: string;
   thumbnail?: string;
+  photos?: string[];
   [key: string]: unknown;
 }
 
@@ -178,6 +205,8 @@ interface ApiError extends Error {
   status?: number;
 }
 
+let myProfileRequest: Promise<UserProfile | null> | null = null;
+
 function toErrorMessage(value: unknown, fallback: string): string {
   if (!value) return fallback;
 
@@ -208,22 +237,40 @@ function toErrorMessage(value: unknown, fallback: string): string {
 }
 
 function getAuthHeaders(headers: RequestHeaders = {}): RequestHeaders {
-  const authorization = getUserAuthorizationBearer() || AUTHORIZATION_BEARER;
+  const rawToken = readToken();
+
+  const authorization = Capacitor.isNativePlatform()
+    ? getRequiredAuthorizationBearer()
+    : getUserAuthorizationBearer() || AUTHORIZATION_BEARER;
+
   if (!authorization) return headers;
 
-  return {
+  const result: RequestHeaders = {
     ...headers,
     Authorization: authorization,
   };
+
+  if (Capacitor.isNativePlatform() && rawToken) {
+    result["X-Auth-Token"] = rawToken;
+  }
+
+  return result;
 }
 
 function getTourPlacesHeaders(headers: RequestHeaders = {}): RequestHeaders {
-  if (!TOUR_PLACES_AUTHORIZATION_BEARER) return headers;
+  const authorization = getTourPlacesAuthorizationBearer();
 
-  return {
+  const result: RequestHeaders = {
     ...headers,
-    Authorization: TOUR_PLACES_AUTHORIZATION_BEARER,
+    Authorization: authorization,
   };
+
+  const rawToken = readToken();
+  if (Capacitor.isNativePlatform() && rawToken) {
+    result["X-Auth-Token"] = rawToken;
+  }
+
+  return result;
 }
 
 function buildQueryString(params: TourPlacesParams = {}): string {
@@ -279,10 +326,13 @@ async function authRequest<T>(
   if (response.status === 401) {
     console.warn("Unauthorized request", {
       path,
-      authorization: getUserAuthorizationBearer() || AUTHORIZATION_BEARER,
+      hasStoredToken: Boolean(readToken()),
     });
-    removeToken();
     notifyUnauthorized();
+  }
+
+  if (response.status === 403) {
+    notifyForbidden();
   }
 
   if (response.status === 419) {
@@ -295,20 +345,32 @@ async function authRequest<T>(
 }
 
 export function createLoginUrl(platform?: "android"): string {
+  if (platform === "android") {
+    // Native app uses a dedicated endpoint that returns a JWT deep link
+    // (krip://auth/callback?utk=...&status=...) instead of a session cookie.
+    const url = new URL("/api/auth/login/app", API_BASE_URL);
+    url.searchParams.set("type", "google");
+    return url.toString();
+  }
+
   const url = new URL("/api/auth/login", API_BASE_URL);
   url.searchParams.set("type", "google");
 
-  const shouldUseLocalLogin = import.meta.env.VITE_AUTH_IS_LOCAL === "true";
-
-  if (shouldUseLocalLogin) {
+  if (isLocalAuthRedirectEnabled()) {
     url.searchParams.set("is_local", "true");
   }
 
-  if (platform) {
-    url.searchParams.set("platform", platform);
-  }
-
   return url.toString();
+}
+
+function isLocalAuthRedirectEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+
+  const isLocalHost = ["localhost", "127.0.0.1", "::1"].includes(
+    window.location.hostname
+  );
+
+  return isLocalHost && import.meta.env.VITE_AUTH_IS_LOCAL !== "false";
 }
 
 export function registerUser(
@@ -323,20 +385,26 @@ export function registerUser(
   });
 }
 
-export function logoutUser(): Promise<Record<string, unknown> | null> {
-  return authRequest("/api/auth/logout", {
-    method: "POST",
-  });
+export async function logoutUser(): Promise<Record<string, unknown> | null> {
+  try {
+    return await authRequest("/api/auth/logout", {
+      method: "POST",
+    });
+  } finally {
+    await unregisterFcmToken();
+    removeToken();
+  }
 }
 
 export async function withdrawUser(): Promise<Record<string, unknown> | string | null> {
-  const result = await authRequest<Record<string, unknown> | string>("/api/auth/withdraw", {
-    method: "DELETE",
-  });
-
-  removeToken();
-
-  return result;
+  try {
+    return await authRequest<Record<string, unknown> | string>("/api/auth/withdraw", {
+      method: "DELETE",
+    });
+  } finally {
+    await unregisterFcmToken();
+    removeToken();
+  }
 }
 
 export function cancelWithdrawUser(): Promise<Record<string, unknown> | null> {
@@ -346,8 +414,20 @@ export function cancelWithdrawUser(): Promise<Record<string, unknown> | null> {
 }
 
 export async function getMyProfile(): Promise<UserProfile | null> {
-  const data = await authRequest<unknown>("/api/auth/profile/me");
-  return normalizeUserProfile(data);
+  if (!myProfileRequest) {
+    myProfileRequest = authRequest<unknown>("/api/auth/profile/me")
+      .then((data) => normalizeUserProfile(data))
+      .finally(() => {
+        myProfileRequest = null;
+      });
+  }
+
+  return myProfileRequest;
+}
+
+export async function getMyProfileStats(): Promise<MyProfileStats> {
+  const data = await authRequest<unknown>("/api/auth/profile/me/stats");
+  return normalizeMyProfileStats(data);
 }
 
 export async function updateMyProfile(
@@ -371,6 +451,22 @@ function buildProfileImageFormData(file: File): FormData {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeMyProfileStats(value: unknown): MyProfileStats {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    total_feed_likes: normalizeNonNegativeInteger(source.total_feed_likes),
+    total_friends: normalizeNonNegativeInteger(source.total_friends),
+  };
+}
+
+function normalizeNonNegativeInteger(value: unknown): number {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numberValue) || numberValue < 0) return 0;
+
+  return Math.trunc(numberValue);
 }
 
 function unwrapProfileResponse(value: unknown): Record<string, unknown> | null {
@@ -400,13 +496,30 @@ function readStringList(
   return undefined;
 }
 
+function readStringValue(
+  source: Record<string, unknown>,
+  key: string
+): string | undefined {
+  const value = source[key];
+  return typeof value === "string" ? value : undefined;
+}
+
 function normalizeUserProfile(value: unknown): UserProfile | null {
   const profile = unwrapProfileResponse(value);
   if (!profile) return null;
 
   return {
-    ...(profile as UserProfile),
+    ...(profile as unknown as UserProfile),
     travel_styles: readStringList(profile, "travel_styles"),
+    food_preferences: readStringList(profile, "food_preferences"),
+    density_preference: readStringValue(profile, "density_preference"),
+    budget_preference: readStringValue(profile, "budget_preference"),
+    walking_preference: readStringValue(profile, "walking_preference"),
+    transport_preferences: readStringList(profile, "transport_preferences"),
+    companion_preference: readStringValue(profile, "companion_preference"),
+    time_preferences: readStringList(profile, "time_preferences"),
+    communication_preference: readStringValue(profile, "communication_preference"),
+    planning_preference: readStringValue(profile, "planning_preference"),
   };
 }
 

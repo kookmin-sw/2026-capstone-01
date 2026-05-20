@@ -9,8 +9,6 @@ import {
   type InboxNotification,
 } from "../api/notification";
 
-type NotificationTab = "activity" | "friends";
-
 type NotificationRealtimeEventDetail = {
   toastHandled?: boolean;
   notification?: InboxNotification;
@@ -24,7 +22,6 @@ export default function NotificationBell({
   const navigate = useNavigate();
 
   const [isOpen, setIsOpen] = useState(false);
-  const [tab, setTab] = useState<NotificationTab>("activity");
   const [notifications, setNotifications] = useState<InboxNotification[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -34,6 +31,7 @@ export default function NotificationBell({
   const [actionId, setActionId] = useState("");
 
   const previousUnreadCountRef = useRef<number | null>(null);
+  const knownFriendRequestIdsRef = useRef<Set<string> | null>(null);
 
   async function refreshUnreadAndFriends(): Promise<void> {
     const [count, friendRequests] = await Promise.all([
@@ -41,7 +39,21 @@ export default function NotificationBell({
       getReceivedFriendRequests().catch(() => ({ items: [] as Friendship[] })),
     ]);
 
+    const nextFriendRequestIds = new Set(
+      friendRequests.items.map((item) => item.friendship_id).filter(Boolean)
+    );
+    const knownFriendRequestIds = knownFriendRequestIdsRef.current;
+    if (knownFriendRequestIds) {
+      const newRequest = friendRequests.items.find(
+        (item) => item.friendship_id && !knownFriendRequestIds.has(item.friendship_id)
+      );
+      if (newRequest) {
+        showFriendRequestToast(newRequest);
+      }
+    }
+
     previousUnreadCountRef.current = count;
+    knownFriendRequestIdsRef.current = nextFriendRequestIds;
     setUnreadCount(count);
     setFriendNotifications(friendRequests.items);
   }
@@ -55,6 +67,20 @@ export default function NotificationBell({
           variant: "info",
           path: getNotificationPath(item),
           imageUrl: item.actor_profile_image_url || item.target_preview,
+        },
+      })
+    );
+  }
+
+  function showFriendRequestToast(item: Friendship): void {
+    window.dispatchEvent(
+      new CustomEvent("krip:app-toast", {
+        detail: {
+          title: "New friend request",
+          message: `${item.peer.user_name || "Someone"} sent you a friend request.`,
+          variant: "info",
+          path: "/mate?friendRequests=1",
+          imageUrl: item.peer.profile_image_url,
         },
       })
     );
@@ -185,70 +211,66 @@ export default function NotificationBell({
           </button>
         </div>
 
-        <div style={styles.notificationTabs}>
-          <button
-            type="button"
-            style={{
-              ...styles.notificationTab,
-              ...(tab === "activity" ? styles.notificationTabActive : {}),
-            }}
-            onClick={() => setTab("activity")}
-          >
-            Activity
-            {unreadCount > 0 ? (
-              <span style={styles.notificationTabBadge}>
-                {unreadCount >= 999 ? "999+" : unreadCount}
-              </span>
-            ) : null}
-          </button>
-
-          <button
-            type="button"
-            style={{
-              ...styles.notificationTab,
-              ...(tab === "friends" ? styles.notificationTabActive : {}),
-            }}
-            onClick={() => setTab("friends")}
-          >
-            Friends
-            {friendNotifications.length > 0 ? (
-              <span style={styles.notificationTabBadge}>
-                {friendNotifications.length}
-              </span>
-            ) : null}
-          </button>
-        </div>
-
         <div style={styles.notificationList}>
           {isLoading ? (
             <div style={styles.notificationEmpty}>
               <span style={styles.spinner} />
               <p style={styles.emptyCopy}>Loading notifications...</p>
             </div>
-          ) : tab === "activity" ? (
+          ) : (
             <>
-              {notifications.length > 0 ? (
-                notifications.map((item, index) => (
-                  <NotificationItem
-                    key={
-                      item.notification_id || `${item.type}-${item.target_id}-${item.created_at}-${index}`}
-                    item={item}
-                    hiding={actionId === item.notification_id}
-                    onHide={() => void handleHideNotification(item.notification_id)}
-                    onOpen={() => {
-                      setIsOpen(false);
-                      navigate(getNotificationPath(item));
-                    }}
+              {friendNotifications.map((request, index) => (
+                <button
+                  key={request.friendship_id || `${request.peer.user_id}-${request.created_at}-${index}`}
+                  type="button"
+                  style={{ ...styles.notificationItem, ...styles.unreadItem }}
+                  onClick={() => {
+                    setIsOpen(false);
+                    navigate("/mate", {
+                      state: { mainTab: "chat", friendManagerTab: "request" },
+                    });
+                  }}
+                >
+                  <img
+                    src={request.peer.profile_image_url || "/default-profile.png"}
+                    alt=""
+                    style={styles.notificationAvatar}
                   />
-                ))
-              ) : (
+                  <span style={{ ...styles.notificationItemText, ...styles.unreadItemText }}>
+                    <strong style={styles.notificationItemTitle}>
+                      <span style={styles.unreadDot} />
+                      {request.peer.user_name} sent you a friend request.
+                    </strong>
+                    <span>
+                      {request.peer.nationality} /{" "}
+                      {formatGenderLabel(request.peer.gender)}
+                    </span>
+                    <small>{formatNotificationDate(request.created_at)}</small>
+                  </span>
+                </button>
+              ))}
+
+              {notifications.map((item, index) => (
+                <NotificationItem
+                  key={item.notification_id || `${item.type}-${item.target_id}-${item.created_at}-${index}`}
+                  item={item}
+                  hiding={actionId === item.notification_id}
+                  onHide={() => void handleHideNotification(item.notification_id)}
+                  onOpen={() => {
+                    setIsOpen(false);
+                    navigate(getNotificationPath(item));
+                  }}
+                />
+              ))}
+
+              {friendNotifications.length === 0 && notifications.length === 0 ? (
                 <div style={styles.notificationEmpty}>
-                  <p style={styles.emptyTitle}>No activity notifications yet.</p>
+                  <p style={styles.emptyTitle}>No notifications yet.</p>
                   <p style={styles.emptyCopy}>
-                    Likes and comments from other users will appear here.
+                    Friend requests, likes, and comments will appear here.
                   </p>
                 </div>
-              )}
+              ) : null}
 
               {nextCursor ? (
                 <button
@@ -261,42 +283,6 @@ export default function NotificationBell({
                 </button>
               ) : null}
             </>
-          ) : friendNotifications.length > 0 ? (
-            friendNotifications.map((request, index) => (
-              <button
-                key={request.friendship_id || `${request.peer.user_id}-${request.created_at}-${index}`}
-                type="button"
-                style={styles.notificationItem}
-                onClick={() => {
-                  setIsOpen(false);
-                  navigate("/chat");
-                }}
-              >
-                <img
-                  src={request.peer.profile_image_url || "/default-profile.png"}
-                  alt=""
-                  style={styles.notificationAvatar}
-                />
-
-                <span style={styles.notificationItemText}>
-                  <strong>
-                    {request.peer.user_name} sent you a friend request.
-                  </strong>
-                  <span>
-                    {request.peer.nationality} /{" "}
-                    {formatGenderLabel(request.peer.gender)}
-                  </span>
-                  <small>{formatNotificationDate(request.created_at)}</small>
-                </span>
-              </button>
-            ))
-          ) : (
-            <div style={styles.notificationEmpty}>
-              <p style={styles.emptyTitle}>No friend notifications yet.</p>
-              <p style={styles.emptyCopy}>
-                New friend requests will appear here.
-              </p>
-            </div>
           )}
         </div>
       </aside>
@@ -310,7 +296,6 @@ export default function NotificationBell({
         style={{ ...styles.notificationButton, ...buttonStyle }}
         onClick={() => {
           setIsOpen(true);
-          setTab("activity");
           void fetchFirstPage();
         }}
         aria-label="Open notifications"
@@ -393,21 +378,14 @@ function NotificationItem({
 
 function BellIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M18 8.8a6 6 0 0 0-12 0c0 7.2-3 7.2-3 7.2h18s-3 0-3-7.2Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M13.73 20a2 2 0 0 1-3.46 0"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
+    <img
+      src="/NotificationBellIcon.svg"
+      alt=""
+      aria-hidden="true"
+      width={24}
+      height={24}
+      style={{ display: "block" }}
+    />
   );
 }
 
@@ -430,6 +408,9 @@ function getNotificationSubtitle(item: InboxNotification): string {
 
 function getNotificationPath(item: InboxNotification): string {
   if (item.target_type === "tripmate_post") return "/mate";
+  if (item.target_type === "feed_post" && item.target_id) {
+    return `/my?feedPost=${encodeURIComponent(item.target_id)}`;
+  }
   if (item.target_type === "feed_post") return "/my";
 
   return "/home";
@@ -457,8 +438,8 @@ function formatGenderLabel(gender: string): string {
 const styles: Record<string, CSSProperties> = {
   notificationButton: {
     position: "relative",
-    width: 48,
-    height: 48,
+    width: 32,
+    height: 32,
     border: "1px solid rgba(5,181,187,0.18)",
     borderRadius: "50%",
     display: "grid",
@@ -535,40 +516,6 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--text-secondary)",
     fontWeight: 900,
     cursor: "pointer",
-  },
-  notificationTabs: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 8,
-    padding: 6,
-    borderRadius: 18,
-    background: "var(--surface-muted)",
-  },
-  notificationTab: {
-    minHeight: 42,
-    border: "none",
-    borderRadius: 14,
-    background: "transparent",
-    color: "var(--neutral-700)",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  notificationTabActive: {
-    background: "#ffffff",
-    color: "var(--text-primary)",
-    boxShadow: "0 8px 20px rgba(24,26,32,0.08)",
-  },
-  notificationTabBadge: {
-    display: "inline-grid",
-    placeItems: "center",
-    minWidth: 18,
-    height: 18,
-    marginLeft: 6,
-    padding: "0 5px",
-    borderRadius: 999,
-    background: "var(--brand-secondary)",
-    color: "var(--text-primary)",
-    fontSize: "0.68rem",
   },
   notificationList: {
     minHeight: 0,

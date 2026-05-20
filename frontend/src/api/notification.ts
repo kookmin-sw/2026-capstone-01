@@ -37,6 +37,57 @@ type HiddenNotificationRecord = {
 type RawInboxNotification = Partial<InboxNotification> & {
   id?: string;
   _id?: string;
+  actor?: {
+    id?: string;
+    user_id?: string;
+    userId?: string;
+    name?: string;
+    user_name?: string;
+    userName?: string;
+    profile_image_url?: string | null;
+    profileImageUrl?: string | null;
+  };
+  target?: {
+    id?: string;
+    post_id?: string;
+    postId?: string;
+    type?: NotificationTargetType;
+    preview?: string | null;
+    preview_url?: string | null;
+    previewUrl?: string | null;
+    thumbnail_url?: string | null;
+    thumbnailUrl?: string | null;
+  };
+  comment?: {
+    id?: string;
+    comment_id?: string;
+    commentId?: string;
+    content?: string | null;
+    preview?: string | null;
+  };
+  actorId?: string;
+  actorName?: string;
+  actorProfileImageUrl?: string | null;
+  actor_profile_url?: string | null;
+  actorProfileUrl?: string | null;
+  actor_image_url?: string | null;
+  actorImageUrl?: string | null;
+  targetType?: NotificationTargetType;
+  targetId?: string;
+  targetPreview?: string | null;
+  target_preview_url?: string | null;
+  targetPreviewUrl?: string | null;
+  thumbnail_url?: string | null;
+  thumbnailUrl?: string | null;
+  commentId?: string;
+  commentPreview?: string | null;
+  comment_content?: string | null;
+  commentContent?: string | null;
+  content?: string | null;
+  message?: string | null;
+  body?: string | null;
+  isRead?: boolean;
+  createdAt?: string;
   inbox_item_id?: string;
   inboxItemId?: string;
   notificationId?: string;
@@ -86,6 +137,25 @@ export async function hideNotification(notificationId: string): Promise<void> {
   rememberHiddenNotification(notificationId);
 }
 
+export async function setGlobalNotificationMuted(muted: boolean): Promise<void> {
+  await client.put(
+    "/api/notification/mute/global",
+    { muted },
+    { useConfiguredBearer: true }
+  );
+}
+
+export async function setChatRoomNotificationMuted(
+  chatRoomId: string,
+  muted: boolean
+): Promise<void> {
+  await client.put(
+    `/api/notification/mute/rooms/${encodeURIComponent(chatRoomId)}`,
+    { muted },
+    { useConfiguredBearer: true }
+  );
+}
+
 function normalizeInboxNotification(notification: RawInboxNotification): InboxNotification {
   return {
     notification_id:
@@ -97,16 +167,75 @@ function normalizeInboxNotification(notification: RawInboxNotification): InboxNo
       notification._id ||
       "",
     type: notification.type || "feed_like",
-    actor_id: notification.actor_id || "",
-    actor_name: notification.actor_name || "",
-    actor_profile_image_url: notification.actor_profile_image_url ?? null,
-    target_type: notification.target_type || "feed_post",
-    target_id: notification.target_id || "",
-    comment_id: notification.comment_id ?? null,
-    target_preview: notification.target_preview ?? null,
-    comment_preview: notification.comment_preview ?? null,
-    is_read: Boolean(notification.is_read),
-    created_at: notification.created_at || "",
+    actor_id:
+      notification.actor_id ||
+      notification.actorId ||
+      notification.actor?.user_id ||
+      notification.actor?.userId ||
+      notification.actor?.id ||
+      "",
+    actor_name:
+      notification.actor_name ||
+      notification.actorName ||
+      notification.actor?.user_name ||
+      notification.actor?.userName ||
+      notification.actor?.name ||
+      "",
+    actor_profile_image_url:
+      notification.actor_profile_image_url ??
+      notification.actorProfileImageUrl ??
+      notification.actor_profile_url ??
+      notification.actorProfileUrl ??
+      notification.actor_image_url ??
+      notification.actorImageUrl ??
+      notification.actor?.profile_image_url ??
+      notification.actor?.profileImageUrl ??
+      null,
+    target_type:
+      notification.target_type ||
+      notification.targetType ||
+      notification.target?.type ||
+      "feed_post",
+    target_id:
+      notification.target_id ||
+      notification.targetId ||
+      notification.target?.post_id ||
+      notification.target?.postId ||
+      notification.target?.id ||
+      "",
+    comment_id:
+      notification.comment_id ??
+      notification.commentId ??
+      notification.comment?.comment_id ??
+      notification.comment?.commentId ??
+      notification.comment?.id ??
+      null,
+    target_preview:
+      notification.target_preview ??
+      notification.targetPreview ??
+      notification.target_preview_url ??
+      notification.targetPreviewUrl ??
+      notification.thumbnail_url ??
+      notification.thumbnailUrl ??
+      notification.target?.preview ??
+      notification.target?.preview_url ??
+      notification.target?.previewUrl ??
+      notification.target?.thumbnail_url ??
+      notification.target?.thumbnailUrl ??
+      null,
+    comment_preview:
+      notification.comment_preview ??
+      notification.commentPreview ??
+      notification.comment_content ??
+      notification.commentContent ??
+      notification.comment?.content ??
+      notification.comment?.preview ??
+      notification.content ??
+      notification.message ??
+      notification.body ??
+      null,
+    is_read: Boolean(notification.is_read ?? notification.isRead),
+    created_at: notification.created_at || notification.createdAt || "",
   };
 }
 
