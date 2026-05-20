@@ -9,12 +9,7 @@ from app.domain.feed.model.feed_post_comment import COMMENT_MAX_LENGTH
 # ──────────────────── Request ────────────────────
 
 class CreateCommentRequest(BaseModel):
-    """댓글 작성 요청.
-
-    `content` 는 1자 이상 — Pydantic `min_length` + 서비스의 strip 검증 두 단계로 빈 문자열 /
-    공백만 입력을 차단. DB CHECK (`char_length(content) >= 1`) 가 마지막 방어선.
-    캡션과 의미가 다름: 캡션 = "있음/없음" (빈→None 정규화), 댓글 = "추가 액션" (빈→400 reject).
-    """
+    """댓글 작성. min_length 1차, 서비스 strip 2차, DB CHECK 가 마지막 방어선."""
     content: str = Field(
         ...,
         min_length=1,
@@ -26,11 +21,7 @@ class CreateCommentRequest(BaseModel):
 # ──────────────────── Response ────────────────────
 
 class CommentResponse(BaseModel):
-    """댓글 단건 응답 — 작성자 프로필 정보 포함.
-
-    `user_name` / `profile_image_url` 은 repository 의 단일 JOIN 쿼리 (`feed_post_comment
-    ⨝ users ⨝ user_detail_inform`) 결과로 채움. 클라이언트가 별도 batch 조회 없이 즉시 표시.
-    """
+    """댓글 단건 — 작성자 프로필 포함 (단일 JOIN 쿼리 결과)."""
     comment_id: str = Field(..., description="댓글 고유 ID")
     post_id: str = Field(..., description="대상 게시물 ID")
     user_id: str = Field(..., description="작성자 유저 ID")

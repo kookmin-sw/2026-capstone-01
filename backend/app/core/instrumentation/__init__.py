@@ -1,19 +1,6 @@
-"""워커 / 도메인 코드용 메트릭 instrumentation 패키지.
+"""메트릭 instrumentation 패키지 — 데코레이터/컨텍스트 매니저로 도메인 코드에 한 줄 부착.
 
-도메인 코드에 메트릭 코드를 직접 박지 않고 데코레이터 / 컨텍스트 매니저로 한 줄 부착
-가능하도록 한다. 메트릭 정의 자체는 `app.core.metric` 에 모은다.
-
-서브모듈:
-  - worker        : worker_tick / withdraw_purge_run / prime_worker_gauges
-  - chat          : WS / fan-out / reconcile / unread recover
-  - fcm           : FCM multicast / 토큰 정리
-  - ai            : inference / external_call / token usage / Gemini callback
-  - db            : route / transaction / SQLAlchemy 이벤트 부착
-  - redis_client  : Redis 명령 / Lua script
-  - mongo         : measure_mongo_op 데코레이터
-  - event_loop    : lag loop / asyncio tasks / pool gauge 폴링
-
-외부에선 `from app.core.instrumentation import X` 형태로 그대로 접근한다.
+메트릭 정의 자체는 `app.core.metric`. 외부에선 `from app.core.instrumentation import X`.
 """
 from app.core.instrumentation.worker import (
     WORKER_NAMES,

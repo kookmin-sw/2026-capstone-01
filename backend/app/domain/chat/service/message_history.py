@@ -1,12 +1,6 @@
-"""방 리스트 / 메시지 히스토리 조회 서비스.
+"""방 리스트 / 메시지 히스토리 조회 (REST 읽기 전용).
 
-REST 로 제공되는 읽기 경로 3개:
-    GET /chat/rooms                                  — 방 리스트
-    GET /chat/rooms/{id}/messages?before_server_seq= — 위로 스크롤
-    GET /chat/rooms/{id}/messages?after_server_seq=  — catch-up
-
-공통 규약:
-    `next_cursor = messages[-1].server_seq`  (정렬 방향 무관, 클라는 그대로 다음 호출에 전달)
+`next_cursor = messages[-1].server_seq` — 정렬 방향과 무관하게 클라가 그대로 다음 호출에 전달.
 """
 from typing import Optional
 
@@ -37,43 +31,28 @@ logger = get_logger("chat.history")
 
 
 class MessageHistoryService:
-    """읽기 전용 서비스 — 방 리스트 / 메시지 히스토리 페이징.
-
-    모든 메서드가 `@transactional` — RDB 읽기에 세션 필요. Mongo/Redis 는 트랜잭션 외부.
-    """
+    """읽기 전용 — 방 리스트 / 메시지 히스토리 페이징."""
 
     def __init__(self, uow: UnitOfWork):
         self.uow = uow
 
 
-    # ──────────────────── 방 리스트 ────────────────────
-
     @transactional
     async def list_rooms(self, me_id: str) -> ChatRoomListData:
-        """ 내가 속한 활성 방을 effective_last_at DESC 로 LIMIT PAGE_SIZE (500).
-
-        1. RDB: chat_room + chat_room_member JOIN + peer_user_id 파생
-        2. RDB: 1:1 방의 peer 프로필 배치 조회 (`find_by_ids_with_profile` 1 쿼리)
-        3. Redis: HGETALL unread:{me}
-        4. Mongo: last_message_id 배치 조회 (미리보기)
-        """
+        """내가 속한 활성 방을 effective_last_at DESC 로 PAGE_SIZE 까지."""
         chat_room_repo = ChatRoomRepository(self._session)
         user_repo = UserRepository(self._session)
         message_repo = ChatMessageRepository(mongodb.database)
         redis_hot = await get_redis_client()
 
-        # 1. 방 + peer_user_id 파생
         rows = await chat_room_repo.find_rooms_of_user(me_id)
 
-        # 2. peer 프로필 배치 조회 — 탈퇴한 유저(=결과에 없음)는 호출측 .get 으로 None fallback
         peer_ids = [pid for _, pid, _ in rows if pid is not None]
         peer_map = await user_repo.find_by_ids_with_profile(peer_ids)
 
-        # 3. unread
         unread_raw = await redis_hot.hgetall(unread_key(me_id))
         unread_map = {k: int(v) for k, v in unread_raw.items()}
 
-        # 4. last_message 본문 배치
         message_ids = [r.last_message_id for r, _, _ in rows if r.last_message_id]
         messages_by_id = await message_repo.find_by_ids(message_ids)
 
@@ -94,17 +73,9 @@ class MessageHistoryService:
         return ChatRoomListData(items=items, next_cursor=None)
 
 
-    # ──────────────────── 단건 방 조회 ────────────────────
-
     @transactional
     async def get_room(self, *, me_id: str, room_id: str) -> ChatRoomData:
-        """방 1건 상세 조회 — `room_joined` 이벤트 수신 후 메타 fetch 등에 사용.
-
-        list_rooms 와 동일한 응답 스키마를 단건으로 반환한다 (peer / unread / last_message
-        모두 채움). 권한 체크 우선순위:
-            1. 방 존재 여부 → 404
-            2. 활성 멤버 여부 → 403  (탈퇴자는 방을 못 봄)
-        """
+        """방 1건 상세. 권한: 방 존재 → 404, 활성 멤버 → 403 (탈퇴자는 방을 못 봄)."""
         chat_room_repo = ChatRoomRepository(self._session)
         member_repo = ChatRoomMemberRepository(self._session)
         user_repo = UserRepository(self._session)
@@ -115,18 +86,17 @@ class MessageHistoryService:
         if room is None:
             raise ChatRoomNotFoundError("존재하지 않는 방입니다.")
 
-        # 권한 체크 + mute 상태를 한 번의 조회로 — is_active_member 별도 호출 불필요.
+        # 권한 + mute 를 한 번에 — is_active_member 별도 호출 불필요.
         member = await member_repo.find(room_id, me_id)
         if member is None or member.is_left:
             raise PermissionError("이 방의 멤버가 아닙니다.")
 
-        # peer_user_id 파생 — 1:1 방의 상대방 (그룹은 None)
         peer_user_id: Optional[str] = None
         if room.type == ChatRoomType.DIRECT:
-            if room.direct_user_a_id == me_id:
-                peer_user_id = room.direct_user_b_id
-            else:
-                peer_user_id = room.direct_user_a_id
+            peer_user_id = (
+                room.direct_user_b_id if room.direct_user_a_id == me_id
+                else room.direct_user_a_id
+            )
 
         peer_user = (
             await user_repo.find_by_id_with_profile(peer_user_id)
@@ -150,19 +120,11 @@ class MessageHistoryService:
         )
 
 
-    # ──────────────────── 그룹 방 참여자 목록 ────────────────────
-
     @transactional
     async def list_room_members(
         self, *, me_id: str, room_id: str,
     ) -> RoomMemberListData:
-        """그룹 방의 활성 참여자 목록 (joined_at 오름차순).
-
-        권한: 활성 멤버만 조회 가능. direct 방은 `peer` 필드로 충분하므로 거절.
-            1. 방 존재 → 404
-            2. 활성 멤버 여부 → 403
-            3. group 타입만 허용 → 400
-        """
+        """그룹 방 활성 참여자 (joined_at ASC). 활성 멤버만 조회 가능, direct 방은 400."""
         chat_room_repo = ChatRoomRepository(self._session)
         member_repo = ChatRoomMemberRepository(self._session)
 
@@ -178,17 +140,11 @@ class MessageHistoryService:
         return RoomMemberListData(items=[self._user_to_member_dto(u) for u in users])
 
 
-    # ──────────────────── 그룹 방 초대 가능 친구 목록 ────────────────────
-
     @transactional
     async def list_invitable_friends(
         self, *, me_id: str, room_id: str,
     ) -> RoomMemberListData:
-        """방에 아직 들어오지 않은 내 친구 목록 — 그룹 방 초대 UI 용.
-
-        권한 체크는 참여자 목록과 동일 (활성 멤버 + group 타입). 친구 ID 전체에서
-        활성 멤버 ID 를 차집합 — 재초대 가능한 탈퇴자(`is_left=true`) 도 후보에 포함된다.
-        """
+        """방에 안 들어온 내 친구 목록 — 그룹 방 초대 UI 용. 재초대 가능한 탈퇴자 포함."""
         chat_room_repo = ChatRoomRepository(self._session)
         member_repo = ChatRoomMemberRepository(self._session)
         friendship_repo = FriendshipRepository(self._session)
@@ -220,8 +176,6 @@ class MessageHistoryService:
         return RoomMemberListData(items=items)
 
 
-    # ──────────────────── 히스토리 페이징 ────────────────────
-
     @transactional
     async def find_messages_before(
         self,
@@ -231,7 +185,7 @@ class MessageHistoryService:
         before_server_seq: int,
         limit: int,
     ) -> MessageListData:
-        """`server_seq < before` 인 메시지를 DESC 로 limit 건 + has_more 판정."""
+        """`server_seq < before` 인 메시지 DESC limit 건 + has_more."""
         await self._assert_room_member(room_id, me_id)
 
         message_repo = ChatMessageRepository(mongodb.database)
@@ -248,7 +202,7 @@ class MessageHistoryService:
         after_server_seq: int,
         limit: int,
     ) -> MessageListData:
-        """`server_seq > after` 인 메시지를 ASC 로 limit 건 + has_more 판정."""
+        """`server_seq > after` 인 메시지 ASC limit 건 + has_more."""
         await self._assert_room_member(room_id, me_id)
 
         message_repo = ChatMessageRepository(mongodb.database)
@@ -256,26 +210,14 @@ class MessageHistoryService:
         return self._to_message_list_dto(raw, limit=limit)
 
 
-    # ──────────────────── Unread 카운트 스냅샷 ────────────────────
-
     async def get_unread_counts(self, me_id: str) -> dict[str, int]:
-        """Redis `unread:{user_id}` HASH 를 그대로 dict 로 반환.
-
-        WS 연결 직후 `unread_synced` 이벤트 송신용. Redis 가 비어 있으면 빈 dict 를
-        돌려주는데, Phase 3 에서 이 자리에 `recover_unread_for_user` 백그라운드 복구를
-        연결할 예정.
-
-        @transactional 미적용: RDB 터치 없음.
-        """
+        """Redis `unread:{user_id}` HASH 를 dict 로 반환. WS 연결 직후 동기화 송신용."""
         redis_hot = await get_redis_client()
         raw = await redis_hot.hgetall(unread_key(me_id))
         return {k: int(v) for k, v in raw.items()}
 
 
-    # ──────────────────── 내부 유틸 ────────────────────
-
     async def _assert_room_member(self, room_id: str, user_id: str) -> None:
-        """권한 체크 — 방의 활성 멤버가 아니면 PermissionError."""
         member_repo = ChatRoomMemberRepository(self._session)
         if not await member_repo.is_active_member(room_id, user_id):
             raise PermissionError("이 방의 멤버가 아닙니다.")
@@ -283,11 +225,7 @@ class MessageHistoryService:
 
     @staticmethod
     def _user_to_member_dto(user: User) -> RoomMemberData:
-        """User + detail → RoomMemberData. detail 없는 케이스는 닉네임을 빈 문자열 fallback.
-
-        활성 멤버는 정상 가입자만 들어오므로 detail 결손은 사실상 발생 안 하지만
-        join 결과 누락 방어용으로 한 단계 안전 장치를 둔다.
-        """
+        """detail 결손 시 닉네임 빈 문자열 fallback — join 누락 방어."""
         detail = user.detail
         return RoomMemberData(
             user_id=user.user_id,
@@ -306,12 +244,11 @@ class MessageHistoryService:
         last_message_doc: Optional[dict],
         notification_muted: bool,
     ) -> ChatRoomData:
-        """방 1건을 DTO 로 변환. 탈퇴한 peer 는 user_id/user_name 모두 None."""
+        """방 1건 → DTO. 탈퇴한 peer 는 필드 모두 None."""
         peer_dto: Optional[ChatRoomPeerData] = None
         if peer_user_id is not None:
             if peer_user is None:
-                # 탈퇴한 사용자 — user_id 는 아직 있지만 User row 자체가 사라진 경우는
-                # SET NULL 로 이미 peer_user_id=None 이 되므로 여기 진입하지 않지만, 방어.
+                # 탈퇴자의 SET NULL 로 보통 peer_user_id 가 이미 None 이라 여기 진입 안 함 — 방어.
                 peer_dto = ChatRoomPeerData(
                     user_id=peer_user_id, user_name=None, profile_image_url=None,
                 )
@@ -323,7 +260,6 @@ class MessageHistoryService:
                     profile_image_url=detail.profile_image_url if detail else None,
                 )
         elif room.type.value == "direct":
-            # 1:1 방인데 peer 가 탈퇴로 NULL 된 상태
             peer_dto = ChatRoomPeerData(
                 user_id=None, user_name=None, profile_image_url=None,
             )
@@ -354,7 +290,7 @@ class MessageHistoryService:
 
     @staticmethod
     def _to_message_list_dto(raw: list[dict], *, limit: int) -> MessageListData:
-        """`find_before`/`find_after` 가 `limit+1` 로 조회했으므로 넘치면 has_more=True."""
+        """repo 가 `limit+1` 로 조회 → 넘치면 has_more=True."""
         has_more = len(raw) > limit
         items_raw = raw[:limit]
         items = [

@@ -1,8 +1,4 @@
-"""메시지 편집 / 삭제 REST 엔드포인트
-
-방 관리(`/chat/rooms/*`) 와 별개로 `/chat/messages/{id}` 경로를 쓴다 — 방 id 를 몰라도
-메시지 id 만으로 접근할 수 있게 하고, 클라가 검색/알림 링크에서 바로 진입하는 케이스도 고려.
-"""
+"""메시지 편집 / 삭제 REST. 방 id 없이 메시지 id 만으로 접근 가능하도록 별도 경로."""
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from dependency_injector.wiring import Provide, inject
@@ -27,7 +23,7 @@ async def edit_message(
 ) -> EditMessageResponse:
     """본인 메시지 5분 이내 편집. 편집 후 방 전체에 `message.updated` 발행."""
     user_id: str = request.state.user_id
-    # REST 요청에는 WS session_id 가 없음 — fan-out 에서 본인 에코 스킵 대상 없음.
+    # REST 에는 WS session_id 가 없어 fan-out 자기 에코 skip 대상 없음.
     editor_session_id = ""
 
     try:

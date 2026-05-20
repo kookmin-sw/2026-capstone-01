@@ -251,7 +251,6 @@ async def get_messages(
     """방의 메시지 히스토리. `before_server_seq` / `after_server_seq` 중 정확히 하나만 지정."""
     user_id: str = request.state.user_id
 
-    # 둘 중 하나만 필수
     if (before_server_seq is None) == (after_server_seq is None):
         raise HTTPException(
             status_code=400,

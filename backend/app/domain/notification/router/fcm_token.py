@@ -21,12 +21,7 @@ async def register_fcm_token(
     body: RegisterFcmTokenBody,
     service: FcmService = Depends(Provide[Container.fcm_service]),
 ) -> FcmTokenResponse:
-    """FCM 디바이스 토큰 등록.
-
-    - 신규 토큰: 등록
-    - 동일 토큰이 다른 user 로 등록되어 있으면 owner 교체 (계정 전환 케이스)
-    - 동일 (user, token) 재등록: no-op
-    """
+    """FCM 토큰 등록. 동일 token 의 owner 가 다르면 교체, 동일 (user, token) 은 no-op."""
     user_id: str = request.state.user_id
 
     result = await service.register_token(user_id=user_id, token=body.token)
@@ -43,8 +38,7 @@ async def unregister_fcm_token(
     body: UnregisterFcmTokenBody,
     service: FcmService = Depends(Provide[Container.fcm_service]),
 ) -> MessageResponse:
-    """FCM 디바이스 토큰 해제 — 클라이언트 로그아웃 시점에 호출.
-    본인 소유 토큰만 삭제. 존재하지 않거나 타인 소유 토큰이어도 idempotent 하게 200."""
+    """FCM 토큰 해제. 본인 소유만 삭제, 없거나 타인 소유여도 idempotent (200)."""
     user_id: str = request.state.user_id
 
     await service.unregister_token(user_id=user_id, token=body.token)

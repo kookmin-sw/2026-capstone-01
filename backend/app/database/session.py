@@ -7,11 +7,11 @@ from app.core.instrumentation import db_transaction_inc
 from app.core.context import db_route_var
 
 
-"""
-RDB
-"""
+# ──────────────────── RDB ────────────────────
 
-_current_session: ContextVar = ContextVar('_current_session', default=None) # 트랜잭션 전파 관리
+# 트랜잭션 전파용 — `@transactional` 이 nested 호출 시 같은 session 재사용 여부 판정.
+_current_session: ContextVar = ContextVar('_current_session', default=None)
+
 
 class UnitOfWork:
     def __init__(self, session: async_sessionmaker):
@@ -24,8 +24,7 @@ class UnitOfWork:
 
 
     async def __aexit__(self, exc_type, exc, tb):
-        # 트랜잭션 결과 카운트 — route 라벨은 contextvar 에서 회수.
-        # commit 자체가 실패할 수 있어 try/except 로 'other' 를 분리한다.
+        # commit 자체가 실패할 수 있어 try/except 로 'other' 라벨을 분리.
         route = db_route_var.get()
         try:
             if exc:
@@ -43,15 +42,14 @@ class UnitOfWork:
 
 
 def transactional(fn):
+    """nested 호출은 기존 트랜잭션에 참여, 최상위 호출만 새 UoW 를 연다."""
     @wraps(fn)
     async def wrapper(self, *args, **kwargs):
         existing = _current_session.get()
         if existing is not None:
-            # 이미 트랜잭션이 열려 있으면 기존 세션에 참여
             self._session = existing
             return await fn(self, *args, **kwargs)
 
-        # 새 트랜잭션 시작
         async with self.uow as session:
             token = _current_session.set(session)
             self._session = session
@@ -64,9 +62,8 @@ def transactional(fn):
 
 Base = declarative_base()
 
-"""
-NoSQL
-"""
+
+# ──────────────────── NoSQL ────────────────────
 
 from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
@@ -84,37 +81,29 @@ from app.domain.notification.model.inbox import InboxItem
 from app.config.setting import settings
 
 
-# Mongo socket-level timeout 정책 — Mongo hang 시 코루틴이 영구 stuck 되는 것을 차단.
+# Mongo socket-level timeout — Mongo hang 시 코루틴 영구 stuck 차단.
 #
-# Motor 기본값 (socketTimeoutMS=None) 은 무한 대기라, replica set primary step-down /
-# mongod disk sync / 네트워크 partition 시 호출 코루틴이 영원히 await 상태로 머문다.
-# measure_mongo_op 의 try/finally 조차 도달 못 해 MONGO_OP_DURATION / MONGO_OP_ERRORS_TOTAL
-# 모두 침묵 — 장애 났는데 메트릭에 안 보이는 무관측 상태.
+# Motor 기본값 (socketTimeoutMS=None) 은 무한 대기 → primary step-down / disk sync /
+# 네트워크 partition 시 await 영원히 정지. measure_mongo_op 의 try/finally 도 도달 못 해
+# 메트릭 침묵 (장애인데 안 보이는 무관측 상태) → 명시 cap 필수.
 #
-# Redis 측 (core/redis.py:_REDIS_SOCKET_TIMEOUT_SEC=5.0) 과 평행하지만 Mongo 는 query
-# 가 더 길 수 있어 (aggregate, 복잡한 find) socketTimeoutMS 만 10s 로 더 보수적.
-# 그보다 긴 query 가 필요한 케이스는 호출처에서 query-level maxTimeMS 옵션으로 별도 제어.
-#
-# serverSelectionTimeoutMS 30s 기본은 failover 중 사용자 트래픽 30초 hang 을 의미해
-# 너무 길다. 5s 면 빠른 fail 후 retry / alert 흐름이 정상 작동. 정상 failover 는 ms
-# 단위라 5s 안에 충분히 끝남.
-#
-# health.py 의 _mongo_ping 은 asyncio.wait_for(2s) 로 더 짧게 감싸 항상 health 측이
-# 먼저 발화 — 두 timeout 이 충돌 없이 layer 별로 동작한다.
+# socketTimeoutMS 10s — aggregate / 복잡한 find 까지 여유. 그보다 긴 query 는 호출처에서
+# maxTimeMS 로 별도 제어.
+# serverSelectionTimeoutMS 5s — 기본 30s 는 failover 중 사용자 30초 hang. 정상 failover 는
+# ms 단위라 5s 면 빠른 fail + retry.
+# health.py 의 _mongo_ping (asyncio.wait_for 2s) 가 항상 먼저 발화 — 두 timeout 이 layer 별로 동작.
 _MONGO_SERVER_SELECTION_TIMEOUT_MS = 5000
 _MONGO_CONNECT_TIMEOUT_MS = 5000
 _MONGO_SOCKET_TIMEOUT_MS = 10000
 
 
 class MongoDB:
-    """MongoDB 클라이언트 및 데이터베이스 관리"""
     def __init__(self):
         self.client: Optional[AsyncIOMotorClient] = None # type: ignore
         self.database: Optional[AsyncIOMotorDatabase] = None # type: ignore
 
 
     async def connect(self):
-        """MongoDB 연결 및 초기화"""
         self.client = AsyncIOMotorClient(
             settings.MONGODB_URL,
             maxPoolSize=100,
@@ -125,7 +114,7 @@ class MongoDB:
             socketTimeoutMS=_MONGO_SOCKET_TIMEOUT_MS,
         )
         self.database = self.client[settings.MONGODB_NAME]
-        
+
         await init_beanie(
             database=self.database,
             document_models=[
@@ -140,23 +129,20 @@ class MongoDB:
             ]
         )
 
-        # 채팅 메시지는 motor 네이티브로 다루므로 beanie document 대신 인덱스만 초기화
+        # 채팅 메시지는 motor 네이티브 — beanie document 대신 인덱스만 초기화.
         await create_chat_message_indexes(self.database)
 
 
     async def disconnect(self):
-        """MongoDB 연결 종료"""
         if self.client:
             self.client.close()
-            
+
 mongodb = MongoDB()
 
 
 async def init_mongodb():
-    """MongoDB 초기화 (앱 시작 시 호출)"""
     await mongodb.connect()
-    
+
 
 async def close_mongodb():
-    """MongoDB 종료 (앱 종료 시 호출)"""
     await mongodb.disconnect()

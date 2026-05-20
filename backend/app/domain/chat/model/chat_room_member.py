@@ -8,14 +8,11 @@ from app.database.session import Base
 
 
 class ChatRoomMember(Base):
-    """채팅방 ↔ 유저 매핑
+    """채팅방 ↔ 유저 매핑 (복합 PK).
 
-    - `(chat_room_id, user_id)` 복합 PK — 같은 유저는 한 방에 최대 1 row.
-    - 퇴장 시 물리 삭제하지 않고 `is_left=true` 로 soft delete — 재초대 시 `last_read_*`
-      포인터가 그대로 유지되어 "나간 동안 쌓인 메시지" 가 정상적으로 미읽음 표기됨.
-    - `last_read_message_server_seq` 는 읽음 표시(카톡 숫자 뱃지) 계산의 유일한 소스.
-      `GREATEST(COALESCE(last_read_message_server_seq, 0), :new_seq)` 로 regress 방지.
-    - 퇴장 플로우는 반드시 Redis `room:members:{R}` SREM → RDB UPDATE 순서 (fail-safe).
+    - 퇴장은 `is_left=true` soft delete — 재초대 시 `last_read_*` 유지로 미읽음 표기 보존.
+    - `last_read_message_server_seq` 는 읽음 뱃지의 유일한 소스 (GREATEST 로 regress 방지).
+    - 퇴장 플로우 순서: Redis `room:members:{R}` SREM → RDB UPDATE.
     """
 
     __tablename__ = "chat_room_member"
@@ -26,14 +23,14 @@ class ChatRoomMember(Base):
     last_read_message_server_seq = Column(BigInteger, nullable=True)  # NULL = 아직 한 건도 안 읽음
     last_read_at = Column(DateTime(timezone=True), nullable=True)
     is_left = Column(Boolean, nullable=False, server_default="false")
-    # 이 방에 한정된 알림 차단 — True 면 차단, NULL = 기본(허용). 본인이 끈 방만 row 에 True.
+    # True=차단, NULL=기본(허용). 본인이 끈 방만 True.
     notification_muted = Column(Boolean, nullable=True)
 
     chat_room = relationship("ChatRoom", backref="members")
     user = relationship("User", backref="chat_room_memberships")
 
     __table_args__ = (
-        # 유저 기준 활성 방 목록 조회용 — is_left=false 부분 인덱스로 크기 최소화
+        # 유저별 활성 방 조회용 — is_left=false 부분 인덱스로 크기 최소화.
         Index(
             "ix_chat_room_member_user_active",
             "user_id",

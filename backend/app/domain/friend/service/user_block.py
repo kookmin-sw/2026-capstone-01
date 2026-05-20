@@ -63,9 +63,8 @@ class UserBlockService:
                 raise ValueError("이미 차단한 유저입니다.")
             raise ValueError("차단을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.")
 
-        # PHASE_2 #6 — DB INSERT 뒤 chat 의 stale 캐시 제거. fail-closed:
-        # 캐시 무효화 실패해도 DB 상태(차단 확정) 가 최종 진실이므로 다음 송신 miss 시
-        # 자연히 올바른 상태로 재구성된다.
+        # DB INSERT 뒤 chat 의 stale 캐시 제거. fail-closed:
+        # 캐시 무효화 실패해도 DB 상태(차단 확정) 가 최종 진실이므로 다음 송신 miss 시 자연히 올바른 상태로 재구성된다.
         await self._block_cache.invalidate_block_cache(user_id, target_user_id)
 
         return self._to_dto(block, target)
@@ -84,7 +83,7 @@ class UserBlockService:
         if block is None:
             raise ValueError("차단 상태가 아닙니다.")
 
-        # PHASE_2 #6 — fail-open: 캐시 먼저 지우고 DB DELETE. 캐시 무효화 실패는
+        # fail-open: 캐시 먼저 지우고 DB DELETE. 캐시 무효화 실패는
         # 최대 `ROOM_BLOCKS_TTL` 후 자연 만료되므로 사용자 의도(해제) 를 막지 않는다.
         await self._block_cache.invalidate_block_cache(user_id, target_user_id)
 
