@@ -1182,12 +1182,12 @@ const styles: Record<string, CSSProperties> = {
     height: "var(--app-viewport-height)",
     display: "flex",
     flexDirection: "column",
-    background: "linear-gradient(to bottom, #f2ffff 0%, #f2ffff 66%, #fffbf1 100%)",
+    background: "#f5f5f5",
     fontFamily: "'Pretendard Variable', 'Nunito', 'Apple SD Gothic Neo', sans-serif",
     overflow: "hidden",
   },
   groupPage: {
-    background: "#ffffff",
+    background: "#f5f5f5",
   },
   header: {
     zIndex: 5,

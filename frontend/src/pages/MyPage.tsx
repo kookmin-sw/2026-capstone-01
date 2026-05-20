@@ -31,6 +31,7 @@ import {
   getFeedPost,
   getFeedPostLikes,
   getMyFeedPosts,
+  isPossiblyCommittedFeedMutationError,
   likeFeedPost,
   unlikeFeedPost,
   updateFeedPostCaption,
@@ -207,6 +208,7 @@ export default function MyPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isNotificationMuteSaving, setIsNotificationMuteSaving] = useState(false);
+  const [isProfileChipsExpanded, setIsProfileChipsExpanded] = useState(false);
   const [preferenceDraft, setPreferenceDraft] =
     useState<ProfilePreferencesPayload>(EMPTY_PREFERENCES);
   const [isPreferenceEditing, setIsPreferenceEditing] = useState(false);
@@ -324,6 +326,23 @@ export default function MyPage() {
     } finally {
       setIsFeedLoading(false);
     }
+  }
+
+  async function refreshFeedPosts(options: { minCount?: number } = {}): Promise<FeedPost[]> {
+    const posts: FeedPost[] = [];
+    let cursor: string | undefined;
+    let nextCursor: string | null = null;
+
+    do {
+      const response = await getMyFeedPosts(cursor);
+      posts.push(...response.posts);
+      nextCursor = response.next_cursor;
+      cursor = nextCursor || undefined;
+    } while (nextCursor && options.minCount && posts.length < options.minCount);
+
+    setFeedPosts(posts);
+    setFeedNextCursor(nextCursor);
+    return posts;
   }
 
   function refreshPlans(): void {
@@ -448,6 +467,7 @@ export default function MyPage() {
     const uploadVisibility = feedVisibility;
     const uploadPreviewUrl = URL.createObjectURL(uploadFile);
     const temporaryPostId = `upload-${Date.now()}`;
+    const uploadStartedAt = Date.now();
 
     setFeedPosts((current) =>
       [
@@ -479,6 +499,47 @@ export default function MyPage() {
         current.map((item) => (item.post_id === temporaryPostId ? post : item))
       );
     } catch (error) {
+      if (isPossiblyCommittedFeedMutationError(error)) {
+        try {
+          const refreshedPosts = await refreshFeedPosts();
+          const createdPost = findLikelyUploadedPost(refreshedPosts, {
+            caption: uploadCaption,
+            visibility: uploadVisibility,
+            startedAt: uploadStartedAt,
+          });
+
+          URL.revokeObjectURL(uploadPreviewUrl);
+
+          if (createdPost) {
+            setFeedError("");
+            showAppToast({
+              title: "Upload status checked",
+              message: "The response was delayed, so we checked your upload status.",
+              variant: "success",
+              placement: "center",
+            });
+          } else {
+            setFeedError("");
+            showAppToast({
+              title: "Feed refreshed",
+              message: "The response was delayed, so we refreshed your feed. Please check whether the post appears.",
+              variant: "info",
+              placement: "center",
+            });
+          }
+          return;
+        } catch (refreshError) {
+          updateOptimisticFeedPost(temporaryPostId, {
+            uploadStatus: "failed",
+            uploadError: toErrorMessage(
+              refreshError,
+              "Upload response was delayed and feed status could not be checked."
+            ),
+          });
+          return;
+        }
+      }
+
       updateOptimisticFeedPost(temporaryPostId, {
         uploadStatus: "failed",
         uploadError: toErrorMessage(error, "Feed upload failed. Please try again."),
@@ -500,6 +561,8 @@ export default function MyPage() {
   async function retryFeedUpload(post: FeedPostItem): Promise<void> {
     if (!post.uploadFile || isFeedUploading) return;
 
+    const uploadStartedAt = Date.now();
+
     updateOptimisticFeedPost(post.post_id, {
       uploadStatus: "uploading",
       uploadProgress: 0,
@@ -520,6 +583,47 @@ export default function MyPage() {
         current.map((item) => (item.post_id === post.post_id ? createdPost : item))
       );
     } catch (error) {
+      if (isPossiblyCommittedFeedMutationError(error)) {
+        try {
+          const refreshedPosts = await refreshFeedPosts();
+          const createdPost = findLikelyUploadedPost(refreshedPosts, {
+            caption: post.uploadCaption ?? "",
+            visibility: post.uploadVisibility ?? "public",
+            startedAt: uploadStartedAt,
+          });
+
+          if (post.uploadPreviewUrl) URL.revokeObjectURL(post.uploadPreviewUrl);
+
+          if (createdPost) {
+            setFeedError("");
+            showAppToast({
+              title: "Upload status checked",
+              message: "The response was delayed, so we checked your upload status.",
+              variant: "success",
+              placement: "center",
+            });
+          } else {
+            setFeedError("");
+            showAppToast({
+              title: "Feed refreshed",
+              message: "The response was delayed, so we refreshed your feed. Please check whether the post appears.",
+              variant: "info",
+              placement: "center",
+            });
+          }
+          return;
+        } catch (refreshError) {
+          updateOptimisticFeedPost(post.post_id, {
+            uploadStatus: "failed",
+            uploadError: toErrorMessage(
+              refreshError,
+              "Upload response was delayed and feed status could not be checked."
+            ),
+          });
+          return;
+        }
+      }
+
       updateOptimisticFeedPost(post.post_id, {
         uploadStatus: "failed",
         uploadError: toErrorMessage(error, "Feed upload failed. Please try again."),
@@ -619,22 +723,60 @@ export default function MyPage() {
   async function confirmSelectedDelete(): Promise<void> {
     if (!selectedFeedPost || isFeedActionRunning) return;
 
+    const deletingPost = selectedFeedPost;
+    const previousFeedCount = feedPosts.length;
     setIsFeedActionRunning(true);
     try {
-      await deleteFeedPost(selectedFeedPost.post_id);
+      await deleteFeedPost(deletingPost.post_id);
       setFeedPosts((current) =>
-        current.filter((item) => item.post_id !== selectedFeedPost.post_id)
+        current.filter((item) => item.post_id !== deletingPost.post_id)
       );
       setProfileStats((current) => ({
         ...current,
         total_feed_likes: Math.max(
           0,
-          current.total_feed_likes - safeCount(selectedFeedPost.like_count)
+          current.total_feed_likes - safeCount(deletingPost.like_count)
         ),
       }));
       setSelectedFeedPost(null);
       setFeedConfirm(null);
     } catch (error) {
+      if (isPossiblyCommittedFeedMutationError(error)) {
+        try {
+          const refreshedPosts = await refreshFeedPosts({ minCount: previousFeedCount });
+          const stillExists = refreshedPosts.some(
+            (post) => post.post_id === deletingPost.post_id
+          );
+
+          if (!stillExists) {
+            setProfileStats((current) => ({
+              ...current,
+              total_feed_likes: Math.max(
+                0,
+                current.total_feed_likes - safeCount(deletingPost.like_count)
+              ),
+            }));
+            setSelectedFeedPost(null);
+            setFeedConfirm(null);
+            setFeedError("");
+            showAppToast({
+              title: "Post deleted",
+              message: "The delete request was processed, but the response was delayed.",
+              variant: "success",
+              placement: "center",
+            });
+            return;
+          }
+        } catch {
+          // Fall through to the delayed-response message below.
+        }
+
+        window.alert(
+          "The delete response was delayed and the post is still visible. Please try again."
+        );
+        return;
+      }
+
       window.alert(toErrorMessage(error, "Failed to delete feed photo."));
     } finally {
       setIsFeedActionRunning(false);
@@ -1017,12 +1159,13 @@ export default function MyPage() {
     Boolean(getProfileImageUrl(profile)) && !profileImagePreview;
   const nameText = profile?.user_name ?? "";
   const isNotificationMuted = profile?.notification_muted === true;
-  const profileChips = [
+  const allProfileChips = [
     profile?.nationality,
     ...(profile?.travel_styles ?? []),
-  ]
-    .filter((value): value is string => Boolean(value))
-    .slice(0, 3);
+  ].filter((value): value is string => Boolean(value));
+  const previewProfileChips = allProfileChips.slice(0, 3);
+  const expandedProfileChips = allProfileChips.slice(3);
+  const canExpandProfileChips = allProfileChips.length > 3;
   const infoItems = [
     { label: "Name", value: profile?.user_name ?? "" },
     { label: "Email", value: profile?.email ?? "" },
@@ -1099,13 +1242,44 @@ export default function MyPage() {
               <span>Friends</span>
             </span>
           </div>
-          {profileChips.length ? (
-            <div style={styles.profileChipRow}>
-              {profileChips.map((chip) => (
-                <span key={chip} style={styles.profileChip}>
-                  {formatProfileChip(chip)}
-                </span>
-              ))}
+          {previewProfileChips.length ? (
+            <div style={styles.profileChipBlock}>
+              <div style={styles.profileChipPreviewRow}>
+                {previewProfileChips.map((chip) => (
+                  <span key={chip} style={styles.profileChip}>
+                    {formatProfileChip(chip)}
+                  </span>
+                ))}
+                {canExpandProfileChips ? (
+                  <button
+                    type="button"
+                    style={styles.profileChipToggle}
+                    onClick={() => setIsProfileChipsExpanded((current) => !current)}
+                    aria-label={
+                      isProfileChipsExpanded
+                        ? "Show fewer travel styles"
+                        : "Show all travel styles"
+                    }
+                    aria-expanded={isProfileChipsExpanded}
+                  >
+                    <ChevronDownIcon flipped={isProfileChipsExpanded} />
+                  </button>
+                ) : null}
+              </div>
+              {canExpandProfileChips ? (
+                <div
+                  style={{
+                    ...styles.profileChipExpandedRow,
+                    ...(isProfileChipsExpanded ? styles.profileChipExpandedRowOpen : {}),
+                  }}
+                >
+                  {expandedProfileChips.map((chip) => (
+                    <span key={chip} style={styles.profileChip}>
+                      {formatProfileChip(chip)}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -1123,14 +1297,19 @@ export default function MyPage() {
         <span style={styles.profileActionDivider} />
         <button
           type="button"
-          style={styles.profileActionButton}
+          style={{
+            ...styles.profileActionButton,
+            ...(isFeedUploading ? styles.buttonDisabled : {}),
+          }}
           onClick={() => {
+            if (isFeedUploading) return;
             if (feedPosts.length >= 100) {
               window.alert("The maximum feed photo limit is 100.");
               return;
             }
             feedImageInputRef.current?.click();
           }}
+          disabled={isFeedUploading}
         >
           <img src="/PostIcon.svg" alt="" style={styles.profileActionIcon} />
           <span>new post</span>
@@ -2252,6 +2431,28 @@ function CommentIcon() {
   );
 }
 
+function ChevronDownIcon({ flipped }: { flipped: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      stroke="#606060"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{
+        transform: flipped ? "rotate(180deg)" : "none",
+        transition: "transform 200ms",
+      }}
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
@@ -2260,13 +2461,13 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: "'Apple SD Gothic Neo', 'Pretendard Variable', 'Nunito', sans-serif",
   },
   socialProfile: {
-    maxWidth: 540,
+    maxWidth: 500,
     margin: "0 auto",
     display: "grid",
-    gridTemplateColumns: "132px minmax(0, 1fr)",
-    gap: 14,
+    gridTemplateColumns: "116px minmax(0, 1fr)",
+    gap: 8,
     alignItems: "center",
-    padding: "0 6px 20px",
+    padding: "0 4px 20px",
   },
   socialProfileBody: {
     minWidth: 0,
@@ -2285,7 +2486,7 @@ const styles: Record<string, CSSProperties> = {
   profileStat: {
     minWidth: 56,
     color: "#323232",
-    fontSize: "0.98rem",
+    fontSize: "0.862rem",
     fontWeight: 400,
     lineHeight: 1.28,
     letterSpacing: "-0.02em",
@@ -2299,19 +2500,44 @@ const styles: Record<string, CSSProperties> = {
   profileStatsRow: {
     display: "flex",
     alignItems: "center",
-    gap: 26,
+    gap: 22,
     marginTop: 6,
     marginBottom: 12,
   },
-  profileChipRow: {
+  profileChipBlock: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    maxWidth: 360,
+  },
+  profileChipPreviewRow: {
     display: "flex",
     alignItems: "center",
     gap: 6,
+    flexWrap: "nowrap",
+    maxWidth: "100%",
     overflow: "hidden",
+  },
+  profileChipExpandedRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+    maxHeight: 0,
+    opacity: 0,
+    overflow: "hidden",
+    transform: "translateY(-6px)",
+    transition: "max-height 260ms ease, opacity 220ms ease, transform 260ms ease",
+  },
+  profileChipExpandedRowOpen: {
+    maxHeight: 120,
+    opacity: 1,
+    transform: "translateY(0)",
   },
   profileChip: {
     height: 22,
     maxWidth: 116,
+    minWidth: 0,
     padding: "0 10px",
     border: "0.7px solid #d7d7d7",
     borderRadius: 24,
@@ -2326,6 +2552,19 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
+  },
+  profileChipToggle: {
+    width: 24,
+    height: 24,
+    flex: "0 0 24px",
+    border: "none",
+    borderRadius: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "transparent",
+    cursor: "pointer",
+    padding: 0,
   },
   avatarWrap: {
     position: "relative",
@@ -3686,6 +3925,28 @@ function mergeFeedPost<T extends FeedPost>(current: T, next: FeedPost): T {
     is_liked:
       typeof next.is_liked === "boolean" ? next.is_liked : current.is_liked,
   };
+}
+
+function findLikelyUploadedPost(
+  posts: FeedPost[],
+  upload: { caption: string; visibility: FeedVisibility; startedAt: number }
+): FeedPost | null {
+  const normalizedCaption = upload.caption.trim();
+  const uploadWindowStart = upload.startedAt - 10000;
+
+  return (
+    posts.find((post) => {
+      const createdAt = Date.parse(post.created_at);
+      const postCaption = (post.caption || "").trim();
+
+      return (
+        post.visibility === upload.visibility &&
+        postCaption === normalizedCaption &&
+        Number.isFinite(createdAt) &&
+        createdAt >= uploadWindowStart
+      );
+    }) || null
+  );
 }
 
 async function isAnimatedFeedImage(file: File): Promise<boolean> {

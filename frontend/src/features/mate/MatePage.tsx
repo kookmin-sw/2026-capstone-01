@@ -924,7 +924,7 @@ export default function MatePage() {
           onMouseDown={() => handleSearch(searchInput)}
           aria-label="Search"
         >
-          <SearchIcon />
+          <img src="/SearchIcon.svg" alt="" aria-hidden="true" width="18" height="18" />
         </button>
       </div>
 
@@ -1010,7 +1010,7 @@ export default function MatePage() {
           />
         </span>
         <span style={styles.searchAction} aria-hidden="true">
-          <SearchIcon />
+          <img src="/SearchIcon.svg" alt="" aria-hidden="true" width="18" height="18" />
         </span>
       </label>
     </section>
@@ -1064,10 +1064,12 @@ export default function MatePage() {
             style={{
               ...styles.tabButton,
               ...(mainTab === item ? styles.tabButtonActive : {}),
+              ...(item === "mate" ? { borderRight: "1px solid #e0e0e0" } : {}),
             }}
             onClick={() => handleMainTabChange(item)}
           >
             {item === "mate" ? "Mate" : "Chat"}
+            {mainTab === item && <span style={styles.tabActiveIndicator} />}
           </button>
         ))}
       </section>
@@ -2257,19 +2259,6 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   );
 }
 
-function SearchIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M10.5 18a7.5 7.5 0 1 1 5.303-12.803A7.5 7.5 0 0 1 10.5 18Zm0-13a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11Zm10 15l-4.35-4.35"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  );
-}
 
 function MapMarkerIcon() {
   return (
@@ -2618,32 +2607,45 @@ const styles: Record<string, CSSProperties> = {
     width: "100vw",
     marginLeft: "calc(50% - 50vw)",
     marginRight: "calc(50% - 50vw)",
-    borderRadius: "22px 22px 0 0",
-    background: "#f1f8f6",
+    background: "#ffffff",
     border: "none",
-    boxShadow: "0 -4px 16px rgba(0,0,0,0.06)",
-    overflow: "hidden",
+    borderBottom: "1px solid #e0e0e0",
   },
   tabButton: {
-    minHeight: 46,
+    position: "relative",
+    minHeight: 54,
     border: "none",
-    borderRadius: "22px 22px 0 0",
-    background: "#f1f8f6",
-    color: "var(--neutral-500)",
-    fontWeight: 800,
+    background: "transparent",
+    color: "#747474",
+    fontSize: "clamp(11px, 3.15vw, 14px)",
+    fontWeight: 600,
     cursor: "pointer",
+    display: "flex",
+    flexDirection: "column" as const,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingBottom: 6,
   },
   tabButtonActive: {
-    background: "#f5f5f5",
-    color: "var(--text-primary)",
-    boxShadow: "inset 0 3px 8px rgba(0,0,0,0.06)",
+    color: "#212121",
+    fontWeight: 700,
+  },
+  tabActiveIndicator: {
+    position: "absolute",
+    bottom: 0,
+    left: "8%",
+    right: "8%",
+    height: 4,
+    borderRadius: 50,
+    background: "#53d7d7",
+    display: "block",
   },
   chatEmbed: {
     margin: "-18px -16px calc(-40px - var(--app-bottom-nav-reserved))",
   },
   searchPanel: {
     position: "relative",
-    width: "100%",
+    width: "95%",
     maxWidth: 760,
     margin: "0 auto",
     padding: 0,
