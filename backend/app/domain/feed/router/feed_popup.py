@@ -80,6 +80,7 @@ def _to_feed_item(p: FeedPostData) -> FeedPostResponse:
         thumbnail_medium_url=p.thumbnail_medium_url,
         like_count=p.like_count,
         comment_count=p.comment_count,
+        is_liked=p.is_liked,
         created_at=p.created_at,
         updated_at=p.updated_at,
     )
