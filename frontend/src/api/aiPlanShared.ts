@@ -6,8 +6,8 @@ import { Capacitor } from "@capacitor/core";
 
 import { readToken } from "../utils/tokens";
 
-export const BRAND = "#01C0C0";
-export const ACCENT = "#FFBE0F";
+export const BRAND = "#58C9D4";
+export const ACCENT = "#FFB765";
 export const AI_PLAN_STORAGE_KEY = "krip-ai-trip-preferences";
 export const SAVED_PLANS_STORAGE_KEY = "krip-saved-trip-plans";
 export const SAVED_PLANS_EVENT = "krip:saved-plans-updated";
@@ -130,6 +130,13 @@ export interface PlanItemResponse {
   visit_time: string | null;
   rating: number | null;
   photos: string[];
+  category?: string;
+  latitude?: number;
+  longitude?: number;
+  location?: {
+    lat?: number;
+    lng?: number;
+  } | null;
 }
 
 export interface PlanDetailResponse extends PlanSummaryResponse {
@@ -139,6 +146,25 @@ export interface PlanDetailResponse extends PlanSummaryResponse {
 
 export interface PlanListResponse {
   plans: PlanSummaryResponse[];
+}
+
+interface TourPlacesLookupItem {
+  place_id?: string;
+  display_name?: string;
+  category?: string;
+  address?: string;
+  short_address?: string | null;
+  location?: {
+    lat?: number;
+    lng?: number;
+  } | null;
+  rating?: number | null;
+}
+
+interface TourPlacesLookupResponse {
+  places?: TourPlacesLookupItem[];
+  items?: TourPlacesLookupItem[];
+  data?: TourPlacesLookupItem[];
 }
 
 export interface CreatePlanItemRequest {
@@ -583,7 +609,7 @@ export function budgetCategoryFromValue(value: number): BudgetCategory {
 export function budgetCategoryLabel(category: BudgetCategory): string {
   if (category === "Low") return "Low Budget";
   if (category === "High") return "High Budget";
-  return "Moderate Budget";
+  return "Mid Budget";
 }
 
 export function budgetCategoryHint(category: BudgetCategory): string {
@@ -752,6 +778,105 @@ async function planApiFetch<T>(
   }
 
   return (await response.json()) as T;
+}
+
+function readPlanItemLatitude(item: PlanItemResponse): number {
+  return Number(item.latitude ?? item.location?.lat);
+}
+
+function readPlanItemLongitude(item: PlanItemResponse): number {
+  return Number(item.longitude ?? item.location?.lng);
+}
+
+function planItemHasCoordinates(item: PlanItemResponse): boolean {
+  return (
+    Number.isFinite(readPlanItemLatitude(item)) &&
+    Number.isFinite(readPlanItemLongitude(item))
+  );
+}
+
+function normalizeLookupItems(
+  payload: TourPlacesLookupResponse | TourPlacesLookupItem[]
+): TourPlacesLookupItem[] {
+  if (Array.isArray(payload)) return payload;
+  return payload.places || payload.items || payload.data || [];
+}
+
+async function findPlaceForPlanItem(
+  item: PlanItemResponse
+): Promise<TourPlacesLookupItem | null> {
+  const queries = Array.from(
+    new Set([item.display_name, item.address].map((value) => value.trim()).filter(Boolean))
+  );
+
+  for (const keyword of queries) {
+    const params = new URLSearchParams({
+      lat: String(DEFAULT_MAP_CENTER.lat),
+      lng: String(DEFAULT_MAP_CENTER.lng),
+      keyword,
+    });
+    const payload = await planApiFetch<
+      TourPlacesLookupResponse | TourPlacesLookupItem[]
+    >(
+      `/api/tour/places?${params.toString()}`,
+      { method: "GET" },
+      "Failed to load place coordinates."
+    );
+    const matched = normalizeLookupItems(payload).find(
+      (place) => place.place_id === item.place_id
+    );
+
+    if (matched) return matched;
+  }
+
+  return null;
+}
+
+export async function hydratePlanItemCoordinates(
+  plan: PlanDetailResponse
+): Promise<PlanDetailResponse> {
+  const lookupByPlaceId = new Map<string, Promise<TourPlacesLookupItem | null>>();
+
+  const items = await Promise.all(
+    plan.items.map(async (item) => {
+      if (planItemHasCoordinates(item)) return item;
+
+      if (!lookupByPlaceId.has(item.place_id)) {
+        lookupByPlaceId.set(
+          item.place_id,
+          findPlaceForPlanItem(item).catch(() => null)
+        );
+      }
+
+      const place = await lookupByPlaceId.get(item.place_id);
+      const latitude = Number(place?.location?.lat);
+      const longitude = Number(place?.location?.lng);
+
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        return item;
+      }
+
+      return {
+        ...item,
+        display_name: place?.display_name || item.display_name,
+        address: place?.short_address || place?.address || item.address,
+        rating:
+          typeof place?.rating === "number" ? place.rating : item.rating,
+        category: place?.category || item.category,
+        latitude,
+        longitude,
+        location: {
+          lat: latitude,
+          lng: longitude,
+        },
+      };
+    })
+  );
+
+  return {
+    ...plan,
+    items,
+  };
 }
 
 function normalizeVisitTime(value?: string | null): string | null {
@@ -1077,92 +1202,4 @@ export function inferExtraPlaceCategory(value: string): string | null {
     return "자연/공원";
   }
   return null;
-}
-
-let googleMapsPromise: Promise<typeof window.google | null> | null = null;
-
-export async function loadGoogleMapsApi(): Promise<typeof window.google | null> {
-  if (typeof window === "undefined") return null;
-  if (window.google?.maps) return window.google;
-  if (googleMapsPromise) return googleMapsPromise;
-
-  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-  if (!apiKey) return null;
-
-  googleMapsPromise = new Promise((resolve, reject) => {
-    const callbackHost = window as unknown as Record<string, unknown>;
-    const previousAuthFailure = callbackHost.gm_authFailure;
-    const existing = document.querySelector<HTMLScriptElement>(
-      'script[data-google-maps-sdk="true"]'
-    );
-
-    callbackHost.gm_authFailure = () => {
-      if (typeof previousAuthFailure === "function") {
-        previousAuthFailure();
-      }
-      reject(new Error("Google Maps API key is not authorized for this origin."));
-    };
-
-    if (existing) {
-      if (window.google?.maps) {
-        resolve(window.google);
-        return;
-      }
-
-      const readyState = existing.dataset.loaded;
-      if (readyState === "error") {
-        reject(new Error("Google Maps SDK load failed"));
-        return;
-      }
-
-      const onLoad = () => resolve(window.google || null);
-      const onError = () => reject(new Error("Google Maps SDK load failed"));
-      existing.addEventListener("load", onLoad, { once: true });
-      existing.addEventListener("error", onError, { once: true });
-
-      window.setTimeout(() => {
-        if (window.google?.maps) {
-          resolve(window.google);
-        }
-      }, 1500);
-      return;
-    }
-
-    const callbackName = "__kripGoogleMapsInit";
-    const script = document.createElement("script");
-    script.async = true;
-    script.defer = true;
-    script.dataset.googleMapsSdk = "true";
-    script.src =
-      `https://maps.googleapis.com/maps/api/js?key=${apiKey}&v=weekly&loading=async&libraries=marker&callback=${callbackName}`;
-
-    callbackHost[callbackName] = () => {
-      script.dataset.loaded = "true";
-      resolve(window.google || null);
-      delete callbackHost[callbackName];
-      if (previousAuthFailure) {
-        callbackHost.gm_authFailure = previousAuthFailure;
-      } else {
-        delete callbackHost.gm_authFailure;
-      }
-    };
-
-    script.onerror = () => {
-      script.dataset.loaded = "error";
-      reject(new Error("Google Maps SDK load failed"));
-      delete callbackHost[callbackName];
-      if (previousAuthFailure) {
-        callbackHost.gm_authFailure = previousAuthFailure;
-      } else {
-        delete callbackHost.gm_authFailure;
-      }
-    };
-
-    document.head.appendChild(script);
-  }).catch((error) => {
-    googleMapsPromise = null;
-    throw error;
-  });
-
-  return googleMapsPromise;
 }
