@@ -1,5 +1,5 @@
-import type { CSSProperties } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import type { CSSProperties, PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getMyProfile } from "../../api/auth";
 import {
@@ -34,6 +34,7 @@ import { navigateBackOrFallback } from "../../utils/navigation";
 
 type FriendManagerTab = "friend" | "request";
 type LoadingKey = "received" | "sent" | "friends" | "blocks";
+type GroupSheetMode = "collapsed" | "expanded";
 
 const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
@@ -91,11 +92,19 @@ export default function ChatPage({
   const [friendSearchLoading, setFriendSearchLoading] = useState(false);
   const [friendSearchError, setFriendSearchError] = useState("");
   const [isGroupCreateOpen, setIsGroupCreateOpen] = useState(false);
+  const [groupSheetMode, setGroupSheetMode] = useState<GroupSheetMode>("collapsed");
+  const [isGroupSheetDragging, setIsGroupSheetDragging] = useState(false);
   const [groupTitle, setGroupTitle] = useState("");
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
   const [isGroupCreateConfirmOpen, setIsGroupCreateConfirmOpen] = useState(false);
   const [openActionRoomId, setOpenActionRoomId] = useState("");
   const [leaveConfirmRoom, setLeaveConfirmRoom] = useState<ChatRoom | null>(null);
+  const groupSheetRef = useRef<HTMLElement | null>(null);
+  const groupSheetStartYRef = useRef(0);
+  const groupSheetStartHeightRef = useRef(0);
+  const groupSheetPointerIdRef = useRef<number | null>(null);
+  const groupSheetDragYRef = useRef(0);
+  const groupSheetAnimationFrameRef = useRef<number | null>(null);
 
   const pendingCount = receivedRequests.length;
   const displayNamesById = useMemo(() => {
@@ -156,6 +165,20 @@ export default function ChatPage({
   useEffect(() => {
     void refreshAll();
   }, []);
+
+  useEffect(() => {
+    if (!isGroupCreateOpen && !isFriendManagerOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const previousTouchAction = document.body.style.touchAction;
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.touchAction = previousTouchAction;
+    };
+  }, [isGroupCreateOpen, isFriendManagerOpen]);
 
   useEffect(() => {
     function openGroupCreate(): void {
@@ -320,7 +343,7 @@ export default function ChatPage({
 
   async function handleCreateGroupChat(): Promise<void> {
     const title = groupTitle.trim();
-    if (!title || selectedGroupMemberIds.length === 0 || actionId) return;
+    if (!title || selectedGroupMemberIds.length < 2 || actionId) return;
 
     setActionId("create-group");
     setError("");
@@ -343,7 +366,7 @@ export default function ChatPage({
   }
 
   function requestCreateGroupChat(): void {
-    if (!groupTitle.trim() || selectedGroupMemberIds.length === 0 || actionId) return;
+    if (!groupTitle.trim() || selectedGroupMemberIds.length < 2 || actionId) return;
     setIsGroupCreateConfirmOpen(true);
   }
 
@@ -387,6 +410,110 @@ export default function ChatPage({
         ? current.filter((item) => item !== userId)
         : [...current, userId]
     );
+  }
+
+  function closeGroupCreateSheet(): void {
+    const sheet = groupSheetRef.current;
+    if (sheet) {
+      sheet.style.transform = "translate3d(0, 0, 0)";
+      sheet.style.height = "";
+      sheet.style.maxHeight = "";
+      sheet.scrollTop = 0;
+    }
+    groupSheetDragYRef.current = 0;
+    setIsGroupSheetDragging(false);
+    setGroupSheetMode("collapsed");
+    setIsGroupCreateOpen(false);
+  }
+
+  function applyGroupSheetDrag(deltaY: number): void {
+    const sheet = groupSheetRef.current;
+    if (!sheet) return;
+
+    if (groupSheetMode === "collapsed" && deltaY < 0) {
+      const nextHeight = Math.min(window.innerHeight, groupSheetStartHeightRef.current + Math.abs(deltaY));
+      sheet.style.transform = "translate3d(0, 0, 0)";
+      sheet.style.height = `${nextHeight}px`;
+      sheet.style.maxHeight = `${nextHeight}px`;
+      return;
+    }
+
+    sheet.style.height = "";
+    sheet.style.maxHeight = "";
+    sheet.style.transform = `translate3d(0, ${Math.max(0, deltaY)}px, 0)`;
+  }
+
+  function handleGroupSheetPointerDown(event: PointerEvent<HTMLButtonElement>): void {
+    const sheet = groupSheetRef.current;
+    if (sheet) {
+      sheet.style.transition = "none";
+      sheet.style.transform = "translate3d(0, 0, 0)";
+      groupSheetStartHeightRef.current = sheet.getBoundingClientRect().height;
+    }
+    groupSheetPointerIdRef.current = event.pointerId;
+    groupSheetStartYRef.current = event.clientY;
+    groupSheetDragYRef.current = 0;
+    setIsGroupSheetDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleGroupSheetPointerMove(event: PointerEvent<HTMLButtonElement>): void {
+    if (groupSheetPointerIdRef.current !== event.pointerId) return;
+    groupSheetDragYRef.current = event.clientY - groupSheetStartYRef.current;
+
+    if (groupSheetAnimationFrameRef.current !== null) return;
+    groupSheetAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      groupSheetAnimationFrameRef.current = null;
+      applyGroupSheetDrag(groupSheetDragYRef.current);
+    });
+  }
+
+  function handleGroupSheetPointerEnd(event: PointerEvent<HTMLButtonElement>): void {
+    if (groupSheetPointerIdRef.current !== event.pointerId) return;
+
+    const deltaY = groupSheetDragYRef.current || event.clientY - groupSheetStartYRef.current;
+    const sheet = groupSheetRef.current;
+    groupSheetPointerIdRef.current = null;
+    groupSheetDragYRef.current = 0;
+    if (groupSheetAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(groupSheetAnimationFrameRef.current);
+      groupSheetAnimationFrameRef.current = null;
+    }
+    setIsGroupSheetDragging(false);
+
+    if (deltaY < -56) {
+      setGroupSheetMode("expanded");
+      if (sheet) {
+        sheet.scrollTop = 0;
+        sheet.style.transition = "height 280ms cubic-bezier(0.22, 1, 0.36, 1), max-height 280ms cubic-bezier(0.22, 1, 0.36, 1)";
+        sheet.style.transform = "translate3d(0, 0, 0)";
+        sheet.style.height = "";
+        sheet.style.maxHeight = "";
+      }
+      return;
+    }
+
+    if (deltaY > 120 || (groupSheetMode === "expanded" && deltaY > 72)) {
+      if (groupSheetMode === "expanded" && deltaY <= 180) {
+        setGroupSheetMode("collapsed");
+        if (sheet) {
+          sheet.style.transition = "height 280ms cubic-bezier(0.22, 1, 0.36, 1), max-height 280ms cubic-bezier(0.22, 1, 0.36, 1)";
+          sheet.style.transform = "translate3d(0, 0, 0)";
+          sheet.style.height = "";
+          sheet.style.maxHeight = "";
+        }
+      } else {
+        closeGroupCreateSheet();
+      }
+      return;
+    }
+
+    if (sheet) {
+      sheet.style.transition = "transform 240ms cubic-bezier(0.22, 1, 0.36, 1), height 240ms cubic-bezier(0.22, 1, 0.36, 1)";
+      sheet.style.transform = "translate3d(0, 0, 0)";
+      sheet.style.height = "";
+      sheet.style.maxHeight = "";
+    }
   }
 
   async function handleSendFriendRequest(user: FriendSearchUser): Promise<void> {
@@ -761,71 +888,95 @@ export default function ChatPage({
         ) : null}
 
         {isGroupCreateOpen ? (
-          <div style={styles.managerBackdrop} onClick={() => setIsGroupCreateOpen(false)}>
-            <section style={styles.managerPanel} onClick={(event) => event.stopPropagation()}>
-              <div style={styles.managerHeader}>
+          <div
+            style={{ ...styles.managerBackdrop, ...styles.groupManagerBackdrop }}
+            onClick={closeGroupCreateSheet}
+          >
+            <section
+              ref={groupSheetRef}
+              style={{
+                ...styles.managerPanel,
+                ...styles.groupManagerPanel,
+                ...(groupSheetMode === "expanded" ? styles.groupManagerPanelExpanded : {}),
+                ...(isGroupSheetDragging ? styles.groupManagerPanelDragging : {}),
+              }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                style={styles.groupSheetHandleButton}
+                onPointerDown={handleGroupSheetPointerDown}
+                onPointerMove={handleGroupSheetPointerMove}
+                onPointerUp={handleGroupSheetPointerEnd}
+                onPointerCancel={handleGroupSheetPointerEnd}
+                aria-label="Drag group creation sheet"
+              >
+                <span style={styles.groupSheetHandle} />
+              </button>
+
+              <div style={{ ...styles.managerHeader, ...styles.groupManagerHeader }}>
                 <h2 style={styles.managerTitle}>New Group</h2>
-                <button
-                  type="button"
-                  style={styles.managerCloseButton}
-                  onClick={() => setIsGroupCreateOpen(false)}
-                >
-                  <img src="/icon-close.svg" alt="" style={styles.closeIcon} />
-                </button>
               </div>
 
-              <label style={styles.managerSearchWrap}>
+              <label style={{ ...styles.managerSearchWrap, ...styles.groupNameWrap }}>
                 <input
                   type="text"
                   value={groupTitle}
                   onChange={(event) => setGroupTitle(event.target.value)}
                   placeholder="Group name"
-                  style={styles.managerSearchInput}
+                  style={{ ...styles.managerSearchInput, ...styles.groupNameInput }}
                 />
+                {selectedGroupMemberIds.length >= 2 ? (
+                  <button
+                    type="button"
+                    style={{
+                      ...styles.groupNameCreateButton,
+                      ...(!groupTitle.trim() ? styles.disabledButton : {}),
+                    }}
+                    disabled={!groupTitle.trim() || actionId === "create-group"}
+                    onClick={requestCreateGroupChat}
+                  >
+                    {actionId === "create-group" ? "Creating..." : "Create"}
+                  </button>
+                ) : null}
               </label>
 
-              <div style={styles.friendList}>
-                {friends.length > 0 ? (
-                  friends.map((friend) => {
-                    const selected = selectedGroupMemberIds.includes(friend.peer.user_id);
+              <div style={styles.groupFriendListSection}>
+                <div style={styles.groupFriendListHeader}>
+                  <span style={styles.groupFriendListTitle}>Friends</span>
+                  <span style={styles.groupFriendListHint}>Select at least 2 friends</span>
+                </div>
+                <div style={{ ...styles.friendList, ...styles.groupFriendList }}>
+                  {friends.length > 0 ? (
+                    friends.map((friend) => {
+                      const selected = selectedGroupMemberIds.includes(friend.peer.user_id);
 
-                    return (
-                      <label key={friend.friendship_id} style={styles.groupFriendRow}>
-                        <PeerSummary peer={friend.peer} />
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          onChange={() => toggleGroupMember(friend.peer.user_id)}
-                          style={styles.groupCheckbox}
-                        />
-                      </label>
-                    );
-                  })
-                ) : (
-                  <p style={styles.mutedText}>Add friends before creating a group.</p>
-                )}
+                      return (
+                        <label key={friend.friendship_id} style={styles.groupFriendRow}>
+                          <PeerSummary peer={friend.peer} />
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => toggleGroupMember(friend.peer.user_id)}
+                            style={styles.groupCheckboxInput}
+                          />
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              ...styles.groupCheckbox,
+                              ...(selected
+                                ? styles.groupCheckboxSelected
+                                : styles.groupCheckboxUnselected),
+                            }}
+                          />
+                        </label>
+                      );
+                    })
+                  ) : (
+                    <p style={styles.mutedText}>Add friends before creating a group.</p>
+                  )}
+                </div>
               </div>
-
-              <button
-                type="button"
-                style={{
-                  ...styles.primaryButton,
-                  ...styles.groupCreateButton,
-                  ...(!groupTitle.trim() || selectedGroupMemberIds.length === 0
-                    ? styles.disabledButton
-                    : {}),
-                }}
-                disabled={
-                  !groupTitle.trim() ||
-                  selectedGroupMemberIds.length === 0 ||
-                  actionId === "create-group"
-                }
-                onClick={requestCreateGroupChat}
-              >
-                {actionId === "create-group"
-                  ? "Creating..."
-                  : `Create Group (${selectedGroupMemberIds.length})`}
-              </button>
             </section>
           </div>
         ) : null}
@@ -1719,6 +1870,9 @@ const styles: Record<string, CSSProperties> = {
     padding: "18px 0 0",
     background: "rgba(15,23,42,0.36)",
   },
+  groupManagerBackdrop: {
+    padding: 0,
+  },
   managerPanel: {
     width: "min(430px, 100%)",
     maxHeight: "88dvh",
@@ -1746,6 +1900,45 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+  },
+  groupManagerPanel: {
+    height: "min(78dvh, calc(100dvh - var(--app-safe-top, 0px)))",
+    maxHeight: "calc(100dvh - var(--app-safe-top, 0px))",
+    gap: 14,
+    padding: "6px 0 calc(20px + var(--app-safe-bottom))",
+    overflow: "hidden",
+    transition: "height 280ms cubic-bezier(0.22, 1, 0.36, 1), max-height 280ms cubic-bezier(0.22, 1, 0.36, 1), transform 240ms cubic-bezier(0.22, 1, 0.36, 1)",
+    willChange: "height, max-height, transform",
+  },
+  groupManagerPanelExpanded: {
+    height: "calc(100dvh - var(--app-safe-top, 0px))",
+    maxHeight: "calc(100dvh - var(--app-safe-top, 0px))",
+    borderRadius: "20px 20px 0 0",
+  },
+  groupManagerPanelDragging: {
+    transition: "none",
+  },
+  groupManagerHeader: {
+    padding: "0 20px",
+  },
+  groupSheetHandleButton: {
+    width: "100%",
+    minHeight: 18,
+    border: "none",
+    background: "#ffffff",
+    display: "grid",
+    placeItems: "center",
+    padding: "4px 0",
+    cursor: "grab",
+    touchAction: "none",
+    userSelect: "none",
+  },
+  groupSheetHandle: {
+    width: 52,
+    height: 5,
+    borderRadius: 999,
+    background: "#d9d9d9",
+    display: "block",
   },
   managerTitle: {
     margin: 0,
@@ -1816,6 +2009,12 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: "minmax(0, 1fr) auto",
     gap: 8,
   },
+  groupNameWrap: {
+    width: "calc(100% - 40px)",
+    maxWidth: "calc(100% - 40px)",
+    margin: "0 20px",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+  },
   managerSearchInput: {
     minHeight: 44,
     border: "1px solid #e8e8e8",
@@ -1824,6 +2023,20 @@ const styles: Record<string, CSSProperties> = {
     outline: "none",
     color: "#171717",
     fontWeight: 800,
+  },
+  groupNameInput: {
+    border: "none",
+    background: "#f3f3f3",
+  },
+  groupNameCreateButton: {
+    minHeight: 44,
+    border: "none",
+    borderRadius: 14,
+    padding: "0 14px",
+    background: "#04bfbf",
+    color: "#ffffff",
+    fontWeight: 900,
+    cursor: "pointer",
   },
   managerSearchButton: {
     minHeight: 44,
@@ -1836,20 +2049,76 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   groupFriendRow: {
+    position: "relative",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    padding: "12px 10px",
-    borderRadius: 16,
-    background: "#ffffff",
-    border: "1px solid #eeeeee",
+    width: "100%",
+    padding: "12px 20px",
+    borderRadius: 0,
+    background: "transparent",
+    border: "none",
+  },
+  groupFriendListSection: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    marginTop: 8,
+    flex: 1,
+    minHeight: 0,
+    overflow: "hidden",
+  },
+  groupFriendListHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: "0 20px",
+  },
+  groupFriendListTitle: {
+    color: "#171717",
+    fontSize: "0.9rem",
+    fontWeight: 900,
+  },
+  groupFriendListHint: {
+    color: "#9a9a9a",
+    fontSize: "0.72rem",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+  groupFriendList: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    WebkitOverflowScrolling: "touch",
+    overscrollBehavior: "contain",
+  },
+  groupCheckboxInput: {
+    position: "absolute",
+    right: 20,
+    width: 28,
+    height: 28,
+    opacity: 0,
+    cursor: "pointer",
+    zIndex: 1,
   },
   groupCheckbox: {
-    width: 20,
-    height: 20,
-    accentColor: "#04bfbf",
+    width: 24,
+    height: 24,
+    borderRadius: "50%",
     flexShrink: 0,
+    transition: "background-color 160ms ease, border-color 160ms ease",
+  },
+  groupCheckboxUnselected: {
+    border: "1.5px solid #d8d8d8",
+    background: "#ffffff",
+    boxShadow: "none",
+  },
+  groupCheckboxSelected: {
+    border: "1.5px solid #04bfbf",
+    background: "#04bfbf",
+    boxShadow: "inset 0 0 0 5px #ffffff",
   },
   groupCreateButton: {
     width: "100%",

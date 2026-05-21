@@ -512,20 +512,8 @@ export default function MyPage() {
 
           if (createdPost) {
             setFeedError("");
-            showAppToast({
-              title: "Upload status checked",
-              message: "The response was delayed, so we checked your upload status.",
-              variant: "success",
-              placement: "center",
-            });
           } else {
             setFeedError("");
-            showAppToast({
-              title: "Feed refreshed",
-              message: "The response was delayed, so we refreshed your feed. Please check whether the post appears.",
-              variant: "info",
-              placement: "center",
-            });
           }
           return;
         } catch (refreshError) {
@@ -596,20 +584,8 @@ export default function MyPage() {
 
           if (createdPost) {
             setFeedError("");
-            showAppToast({
-              title: "Upload status checked",
-              message: "The response was delayed, so we checked your upload status.",
-              variant: "success",
-              placement: "center",
-            });
           } else {
             setFeedError("");
-            showAppToast({
-              title: "Feed refreshed",
-              message: "The response was delayed, so we refreshed your feed. Please check whether the post appears.",
-              variant: "info",
-              placement: "center",
-            });
           }
           return;
         } catch (refreshError) {
@@ -723,48 +699,38 @@ export default function MyPage() {
   async function confirmSelectedDelete(): Promise<void> {
     if (!selectedFeedPost || isFeedActionRunning) return;
 
-    const deletingPost = selectedFeedPost;
-    const previousFeedCount = feedPosts.length;
+    const postToDelete = selectedFeedPost;
+    const previousPosts = feedPosts;
+    const previousStats = profileStats;
+
     setIsFeedActionRunning(true);
+    setFeedPosts((current) =>
+      current.filter((item) => item.post_id !== postToDelete.post_id)
+    );
+    setProfileStats((current) => ({
+      ...current,
+      total_feed_likes: Math.max(
+        0,
+        current.total_feed_likes - safeCount(postToDelete.like_count)
+      ),
+    }));
+    setSelectedFeedPost(null);
+    setFeedConfirm(null);
+    setIsFeedPostMenuOpen(false);
+    setIsFeedPostEditing(false);
+
     try {
-      await deleteFeedPost(deletingPost.post_id);
-      setFeedPosts((current) =>
-        current.filter((item) => item.post_id !== deletingPost.post_id)
-      );
-      setProfileStats((current) => ({
-        ...current,
-        total_feed_likes: Math.max(
-          0,
-          current.total_feed_likes - safeCount(deletingPost.like_count)
-        ),
-      }));
-      setSelectedFeedPost(null);
-      setFeedConfirm(null);
+      await deleteFeedPost(postToDelete.post_id);
     } catch (error) {
       if (isPossiblyCommittedFeedMutationError(error)) {
         try {
-          const refreshedPosts = await refreshFeedPosts({ minCount: previousFeedCount });
+          const refreshedPosts = await refreshFeedPosts({ minCount: previousPosts.length });
           const stillExists = refreshedPosts.some(
-            (post) => post.post_id === deletingPost.post_id
+            (post) => post.post_id === postToDelete.post_id
           );
 
           if (!stillExists) {
-            setProfileStats((current) => ({
-              ...current,
-              total_feed_likes: Math.max(
-                0,
-                current.total_feed_likes - safeCount(deletingPost.like_count)
-              ),
-            }));
-            setSelectedFeedPost(null);
-            setFeedConfirm(null);
             setFeedError("");
-            showAppToast({
-              title: "Post deleted",
-              message: "The delete request was processed, but the response was delayed.",
-              variant: "success",
-              placement: "center",
-            });
             return;
           }
         } catch {
@@ -777,6 +743,9 @@ export default function MyPage() {
         return;
       }
 
+      setFeedPosts(previousPosts);
+      setProfileStats(previousStats);
+      setSelectedFeedPost(postToDelete);
       window.alert(toErrorMessage(error, "Failed to delete feed photo."));
     } finally {
       setIsFeedActionRunning(false);
@@ -1335,7 +1304,7 @@ export default function MyPage() {
                 type="button"
                 style={{
                   ...styles.feedTile,
-                  ...(post.uploadStatus ? styles.feedTilePending : {}),
+                  ...(post.uploadStatus === "failed" ? styles.feedTilePending : {}),
                 }}
                 onClick={() => {
                   if (post.uploadStatus === "failed") return;
@@ -1344,41 +1313,29 @@ export default function MyPage() {
                 disabled={post.uploadStatus === "uploading"}
               >
                 <img src={getFeedImageUrl(post)} alt="" style={styles.feedTileImage} />
-                {post.uploadStatus ? (
+                {post.uploadStatus === "failed" ? (
                   <span style={styles.feedUploadOverlay}>
-                    {post.uploadStatus === "uploading" ? (
-                      <>
-                        <span style={styles.feedUploadSpinner} />
-                        <span style={styles.feedUploadBadge}>Uploading...</span>
-                        <span style={styles.feedUploadPercent}>
-                          {post.uploadProgress ?? 0}%
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span style={styles.feedFailedBadge}>Failed</span>
-                        <span style={styles.feedUploadError}>
-                          {post.uploadError || "Upload failed."}
-                        </span>
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          style={styles.feedRetryButton}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void retryFeedUpload(post);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key !== "Enter" && event.key !== " ") return;
-                            event.preventDefault();
-                            event.stopPropagation();
-                            void retryFeedUpload(post);
-                          }}
-                        >
-                          Retry
-                        </span>
-                      </>
-                    )}
+                    <span style={styles.feedFailedBadge}>Failed</span>
+                    <span style={styles.feedUploadError}>
+                      {post.uploadError || "Upload failed."}
+                    </span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      style={styles.feedRetryButton}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void retryFeedUpload(post);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void retryFeedUpload(post);
+                      }}
+                    >
+                      Retry
+                    </span>
                   </span>
                 ) : null}
               </button>
@@ -2247,17 +2204,37 @@ function FeedPostModal({
   onCommentSubmit: () => void;
   onCommentDelete: (comment: FeedComment) => void;
 }) {
+  const [commentsExpanded, setCommentsExpanded] = useState(false);
+
   return (
     <div style={styles.modalBackdrop} onClick={onClose}>
-      <div style={styles.feedModal} onClick={(event) => event.stopPropagation()}>
-        <div style={styles.sheetHandle} />
+      <div
+        style={{
+          ...styles.feedModal,
+          ...(commentsExpanded ? styles.feedModalCommentsExpanded : {}),
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
         <button type="button" style={styles.modalCloseButton} onClick={onClose}>
           x
         </button>
-        <div style={styles.feedModalImagePane}>
+        <div
+          style={{
+            ...styles.feedModalImagePane,
+            ...(commentsExpanded ? styles.feedModalImagePaneCompact : {}),
+          }}
+        >
           <img src={post.original_url} alt="" style={styles.feedModalImage} />
         </div>
         <aside style={styles.feedModalSidePane}>
+          <button
+            type="button"
+            style={styles.feedCommentHandleButton}
+            onClick={() => setCommentsExpanded((current) => !current)}
+            aria-label={commentsExpanded ? "Collapse comments" : "Expand comments"}
+          >
+            <span style={styles.feedCommentHandle} />
+          </button>
           <header style={styles.feedPostHeader}>
             <div style={styles.feedPostAuthor}>
               <img src={profileImageUrl} alt="" style={styles.feedPostAvatar} />
@@ -2320,7 +2297,12 @@ function FeedPostModal({
             </section>
           ) : null}
 
-          <div style={styles.feedDiscussion}>
+          <div
+            style={{
+              ...styles.feedDiscussion,
+              ...(commentsExpanded ? styles.feedDiscussionExpanded : {}),
+            }}
+          >
             {post.caption ? (
               <article style={styles.commentItem}>
                 <img src={profileImageUrl} alt="" style={styles.feedCommentAvatar} />
@@ -2385,6 +2367,7 @@ function FeedPostModal({
                 value={commentInput}
                 placeholder="Add a comment..."
                 style={styles.feedCommentInput}
+                onFocus={() => setCommentsExpanded(true)}
                 onChange={(event) => onCommentInputChange(event.target.value)}
               />
               <button
@@ -3566,17 +3549,10 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 18,
     background: "#ffffff",
     boxShadow: "0 24px 70px rgba(15,23,42,0.28)",
+    transition: "max-height 260ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
-  sheetHandle: {
-    position: "absolute",
-    top: 8,
-    left: "50%",
-    transform: "translateX(-50%)",
-    width: 48,
-    height: 4,
-    borderRadius: 999,
-    background: "rgba(255,255,255,0.64)",
-    zIndex: 3,
+  feedModalCommentsExpanded: {
+    maxHeight: "98dvh",
   },
   modalCloseButton: {
     position: "absolute",
@@ -3598,6 +3574,10 @@ const styles: Record<string, CSSProperties> = {
     display: "grid",
     placeItems: "center",
     background: "#050608",
+    transition: "min-height 260ms cubic-bezier(0.22, 1, 0.36, 1)",
+  },
+  feedModalImagePaneCompact: {
+    minHeight: "min(28dvh, 260px)",
   },
   feedModalImage: {
     width: "100%",
@@ -3613,6 +3593,24 @@ const styles: Record<string, CSSProperties> = {
     background: "#ffffff",
     color: "var(--text-primary)",
     borderTop: "1px solid var(--neutral-200)",
+  },
+  feedCommentHandleButton: {
+    width: "100%",
+    minHeight: 20,
+    border: "none",
+    background: "#ffffff",
+    display: "grid",
+    placeItems: "center",
+    padding: "7px 0 0",
+    cursor: "pointer",
+    touchAction: "manipulation",
+  },
+  feedCommentHandle: {
+    width: 46,
+    height: 5,
+    borderRadius: 999,
+    background: "#d8d8d8",
+    display: "block",
   },
   feedPostHeader: {
     display: "flex",
@@ -3746,6 +3744,10 @@ const styles: Record<string, CSSProperties> = {
     maxHeight: "42dvh",
     overflowY: "auto",
     padding: "8px 16px",
+    transition: "max-height 260ms cubic-bezier(0.22, 1, 0.36, 1)",
+  },
+  feedDiscussionExpanded: {
+    maxHeight: "64dvh",
   },
   feedPostFooter: {
     borderTop: "1px solid var(--neutral-200)",
