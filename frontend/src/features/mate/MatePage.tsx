@@ -1041,7 +1041,7 @@ export default function MatePage() {
                 onClick={openChatGroupCreate}
                 aria-label="Create group chat"
               >
-                <img src="/icon-plus.svg" alt="" style={styles.headerIcon} />
+                <img src="/icon-plus.svg" alt="" style={{ ...styles.headerIcon, ...styles.headerPlusIcon }} />
               </button>
               <button
                 type="button"
@@ -1057,21 +1057,27 @@ export default function MatePage() {
       </header>
 
       <section style={styles.tabPanel}>
-        {(["mate", "chat"] as const).map((item) => (
-          <button
-            key={item}
-            type="button"
-            style={{
-              ...styles.tabButton,
-              ...(mainTab === item ? styles.tabButtonActive : {}),
-              ...(item === "mate" ? { borderRight: "1px solid #e0e0e0" } : {}),
-            }}
-            onClick={() => handleMainTabChange(item)}
-          >
-            {item === "mate" ? "Mate" : "Chat"}
-            {mainTab === item && <span style={styles.tabActiveIndicator} />}
-          </button>
-        ))}
+        <button
+          type="button"
+          style={{
+            ...styles.tabButton,
+            ...(mainTab === "mate" ? styles.tabButtonActive : {}),
+          }}
+          onClick={() => handleMainTabChange("mate")}
+        >
+          Mate
+        </button>
+        <span style={styles.tabVerticalDivider} />
+        <button
+          type="button"
+          style={{
+            ...styles.tabButton,
+            ...(mainTab === "chat" ? styles.tabButtonActive : {}),
+          }}
+          onClick={() => handleMainTabChange("chat")}
+        >
+          Chat
+        </button>
       </section>
 
       {mainTab === "mate" && tab === "list" ? renderMateSearchPanel(inputRef) : null}
@@ -1944,7 +1950,7 @@ function PostModal({
           <div>
             <h2 style={styles.modalTitle}>{post.title}</h2>
             <p style={styles.modalDistance}>
-              {post.region} / {post.travel_start_date} - {post.travel_end_date}
+              {post.author.user_name} / {post.travel_start_date} - {post.travel_end_date}
             </p>
           </div>
         </div>
@@ -1987,9 +1993,9 @@ function PostModal({
             </div>
           ) : null}
 
-          <div style={styles.modalButtonGrid}>
+          <div style={styles.modalActionArea}>
             {isOwnPost ? (
-              <>
+              <div style={styles.modalButtonGrid}>
                 <button type="button" style={styles.primaryButton} onClick={onEdit}>
                   Edit Post
                 </button>
@@ -2000,32 +2006,33 @@ function PostModal({
                 >
                   Delete Post
                 </button>
+              </div>
+            ) : (
+              <>
+                <div style={styles.modalButtonGrid}>
+                  {canAddFriend ? (
+                    <button
+                      type="button"
+                      style={hasPendingRequest ? styles.secondaryButton : styles.primaryButton}
+                      onClick={onToggleFriend}
+                      disabled={hasPendingRequest || isSendingFriendRequest}
+                    >
+                      {isSendingFriendRequest
+                        ? "Sending..."
+                        : hasPendingRequest
+                          ? "Request Sent"
+                          : "Add Friend"}
+                    </button>
+                  ) : null}
+                  <button type="button" style={styles.secondaryButton} onClick={onViewProfile}>
+                    View Feed
+                  </button>
+                </div>
+                <button type="button" style={styles.modalChatButton} onClick={onChat}>
+                  Chat
+                </button>
               </>
-            ) : null}
-            {canAddFriend ? (
-              <button
-                type="button"
-                style={hasPendingRequest ? styles.secondaryButton : styles.primaryButton}
-                onClick={onToggleFriend}
-                disabled={hasPendingRequest || isSendingFriendRequest}
-              >
-                {isSendingFriendRequest
-                  ? "Sending..."
-                  : hasPendingRequest
-                    ? "Request Sent"
-                    : "Add Friend"}
-              </button>
-            ) : null}
-            {!isOwnPost ? (
-              <button type="button" style={styles.secondaryButton} onClick={onViewProfile}>
-                View Feed
-              </button>
-            ) : null}
-            {!isOwnPost ? (
-              <button type="button" style={styles.secondaryButton} onClick={onChat}>
-                Chat
-              </button>
-            ) : null}
+            )}
           </div>
         </div>
       </div>
@@ -2600,45 +2607,49 @@ const styles: Record<string, CSSProperties> = {
     height: 24,
     objectFit: "contain",
   },
+  headerPlusIcon: {
+    opacity: 0.32,
+    filter: "grayscale(1)",
+  },
   tabPanel: {
     position: "relative",
     display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gridTemplateColumns: "1fr 1px 1fr",
+    alignItems: "stretch",
     width: "100vw",
     marginLeft: "calc(50% - 50vw)",
     marginRight: "calc(50% - 50vw)",
     background: "#ffffff",
-    border: "none",
-    borderBottom: "1px solid #e0e0e0",
+    borderTop: "none",
+    borderBottom: "1.5px solid #e8e8e8",
+    boxShadow: "none",
   },
   tabButton: {
-    position: "relative",
-    minHeight: 54,
+    minHeight: 48,
     border: "none",
-    background: "transparent",
-    color: "#747474",
-    fontSize: "clamp(11px, 3.15vw, 14px)",
-    fontWeight: 600,
+    borderBottom: "3px solid transparent",
+    borderRadius: 0,
+    background: "#ffffff",
+    color: "#9e9e9e",
+    fontWeight: 500,
+    fontSize: "1rem",
     cursor: "pointer",
-    display: "flex",
-    flexDirection: "column" as const,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingBottom: 6,
+    outline: "none",
+    boxShadow: "none",
+    WebkitTapHighlightColor: "transparent",
   },
   tabButtonActive: {
-    color: "#212121",
+    background: "#ffffff",
+    color: "#1a1a1a",
     fontWeight: 700,
+    borderBottom: "3px solid #00bfbf",
   },
-  tabActiveIndicator: {
-    position: "absolute",
-    bottom: 0,
-    left: "8%",
-    right: "8%",
-    height: 4,
-    borderRadius: 50,
-    background: "#53d7d7",
+  tabVerticalDivider: {
     display: "block",
+    width: 1,
+    background: "#e0e0e0",
+    alignSelf: "stretch",
+    margin: "10px 0",
   },
   chatEmbed: {
     margin: "-18px -16px calc(-40px - var(--app-bottom-nav-reserved))",
@@ -3735,6 +3746,21 @@ const styles: Record<string, CSSProperties> = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
     gap: 10,
+  },
+  modalActionArea: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  modalChatButton: {
+    width: "100%",
+    border: "1px solid rgba(5,181,187,0.18)",
+    borderRadius: 18,
+    padding: "14px 16px",
+    background: "rgba(255,255,255,0.88)",
+    color: "var(--text-secondary)",
+    fontWeight: 800,
+    cursor: "pointer",
   },
   lightboxOverlay: {
     position: "fixed",

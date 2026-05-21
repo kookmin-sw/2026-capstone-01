@@ -1769,6 +1769,8 @@ function HomeHeader({
   onOpenSearch: () => void;
   isHidden: boolean;
 }) {
+  const navigate = useNavigate();
+
   return (
     <header
       style={{
@@ -1789,6 +1791,14 @@ function HomeHeader({
           />
         </div>
         <div style={styles.headerActions}>
+          <button
+            type="button"
+            style={styles.helpButton}
+            onClick={() => navigate("/help")}
+            aria-label="Open help guide"
+          >
+            <InfoIcon />
+          </button>
           <NotificationBell buttonStyle={styles.myPageButton} />
         </div>
       </div>
@@ -1820,6 +1830,16 @@ function HomeHeader({
         </div>
       </div>
     </header>
+  );
+}
+
+function InfoIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+      <path d="M12 10.5v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy="7.5" r="1.2" fill="currentColor" />
+    </svg>
   );
 }
 
@@ -2151,6 +2171,21 @@ const styles: Record<string, CSSProperties> = {
     flexShrink: 0,
     fontWeight: 900,
   },
+  helpButton: {
+    position: "relative",
+    width: 40,
+    height: 40,
+    border: "none",
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "transparent",
+    color: "var(--brand-primary-deep)",
+    boxShadow: "none",
+    cursor: "pointer",
+    flexShrink: 0,
+    padding: 0,
+  },
   searchPanel: {
     padding: "8px 16px 0",
     borderRadius: 28,
@@ -2249,16 +2284,21 @@ const styles: Record<string, CSSProperties> = {
   },
   filterChip: {
     border: "transparent",
-    borderRadius: 999,
-    padding: "0.3rem 0.7rem 0.35rem",
-    lineHeight: 1.4,
+    borderRadius: "9999px",
+    minHeight: 22,
+    padding: "0 0.48rem",
+    lineHeight: 1,
     background: "#fff",
     color: "var(--neutral-500)",
     fontWeight: 500,
-    fontSize: "0.7rem",
+    fontSize: "0.55rem",
     cursor: "pointer",
     whiteSpace: "nowrap",
     flexShrink: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   filterChipActive: {
     background: "#01C0C0",
@@ -2266,16 +2306,21 @@ const styles: Record<string, CSSProperties> = {
   },
   secondaryChip: {
     border: "transparent",
-    borderRadius: 999,
-    padding: "0.3rem 0.7rem 0.35rem",
-    lineHeight: 1.4,
+    borderRadius: "9999px",
+    minHeight: 22,
+    padding: "0 0.48rem",
+    lineHeight: 1,
     background: "#fff",
     color: "var(--neutral-500)",
     fontWeight: 500,
-    fontSize: "0.7rem",
+    fontSize: "0.55rem",
     cursor: "pointer",
     whiteSpace: "nowrap",
     flexShrink: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   secondaryChipActive: {
     background: "#01C0C0",
@@ -2463,6 +2508,7 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 50,
     background: "#fff",
     height: "100dvh",
+    borderRadius: "20px 20px 0 0",
     boxShadow: "0 -12px 40px rgba(15, 23, 42, 0.10)",
     overflowY: "auto",
     overflowX: "hidden",
@@ -2926,7 +2972,7 @@ const styles: Record<string, CSSProperties> = {
     overflowY: "auto",
     overscrollBehavior: "contain",
     WebkitOverflowScrolling: "touch",
-    borderRadius: "30px 30px 0 0",
+    borderRadius: "20px 20px 0 0",
     background: "var(--surface-panel)",
     boxShadow: "0 28px 72px rgba(24, 26, 32, 0.18)",
     padding: "22px 18px 26px",

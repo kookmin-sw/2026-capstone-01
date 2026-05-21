@@ -19,6 +19,7 @@ import ChatPage from "./features/friend-chat/ChatPage";
 import ChatRoomPage from "./features/friend-chat/ChatRoomPage";
 import { ChatProvider } from "./features/friend-chat/ChatProvider";
 import MyPage from "./pages/MyPage";
+import HelpInfoPage from "./pages/HelpInfoPage";
 import UserFeedPage from "./pages/UserFeedPage";
 import SharedPlanPage from "./pages/SharedPlanPage";
 import PlaceholderPage from "./pages/PlaceholderPage";
@@ -1011,6 +1012,7 @@ export default function App() {
             <Route path="/mate" element={<MatePage />} />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/my" element={<MyPage />} />
+            <Route path="/help" element={<HelpInfoPage />} />
             <Route path="/account/delete" element={<DeleteAccountTermsPage />} />
             <Route path="/profile/:id" element={<UserFeedPage />} />
             <Route path="/spots/:id" element={<PlaceholderPage />} />
