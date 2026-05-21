@@ -29,17 +29,16 @@ export default function PlanSelectionPage({
 
         <div style={styles.header}>
           <h1 style={styles.headline}>How would<br />you like to plan?</h1>
-          <p style={styles.byline}>Pick your style — AI builds it, or craft every step yourself.</p>
         </div>
 
         {/* ── AI Ticket ── */}
-        <button type="button" onClick={handleAiSelect} style={styles.ticketDark}>
+        <button type="button" onClick={handleAiSelect} style={styles.ticket}>
           <div style={styles.ticketTop}>
             <div>
               <span style={{ ...styles.routeTag, color: BRAND }}>AI ROUTE</span>
-              <p style={{ ...styles.dest, color: "#ffffff" }}>Smart Travel Plan</p>
+              <p style={{ ...styles.dest, color: "#212121" }}>AI Travel Plan</p>
             </div>
-            <span style={{ fontSize: "1.8rem", color: "rgba(255,255,255,0.35)", lineHeight: 1, flexShrink: 0 }}>→</span>
+            <span style={{ fontSize: "1.8rem", color: "#58C9D4", lineHeight: 1, flexShrink: 0 }}>→</span>
           </div>
 
           <div style={styles.fields}>
@@ -49,26 +48,25 @@ export default function PlanSelectionPage({
           </div>
 
           <div style={styles.perf}>
-            <div style={styles.notchL} />
-            <div style={{ ...styles.perfLine, borderColor: "rgba(255,255,255,0.12)" }} />
-            <div style={styles.notchR} />
+            <div style={{...styles.notchL, background: "#f5f5f5"}} />
+            <div style={{ ...styles.perfLine, borderColor: "#eaeaea" }} />
+            <div style={{...styles.notchR, background: "#f5f5f5"}} />
           </div>
 
           <div style={styles.stub}>
-            {["Budget friendly", "Personalized route", "Auto-saved"].map((t) => (
-              <span key={t} style={styles.tagDark}>{t}</span>
-            ))}
+            <p style={styles.ticketSubTitle}>Tailored For Your Style</p>
+            <p style={styles.ticketSummary}>Effortless plan with personalization & tailored routes.</p>
           </div>
         </button>
 
         {/* ── Manual Ticket ── */}
-        <button type="button" onClick={handleManualSelect} style={styles.ticketLight}>
+        <button type="button" onClick={handleManualSelect} style={styles.ticket}>
           <div style={styles.ticketTop}>
             <div>
-              <span style={{ ...styles.routeTag, color: "#b45309" }}>MANUAL ROUTE</span>
-              <p style={{ ...styles.dest, color: "#0f172a" }}>Custom Itinerary</p>
+              <span style={{ ...styles.routeTag, color: "#FFB765" }}>MANUAL ROUTE</span>
+              <p style={{ ...styles.dest, color: "#212121" }}>Custom Itinerary</p>
             </div>
-            <span style={{ fontSize: "1.8rem", color: BRAND, lineHeight: 1, flexShrink: 0 }}>→</span>
+            <span style={{ fontSize: "1.8rem", color: "#FFB765", lineHeight: 1, flexShrink: 0 }}>→</span>
           </div>
 
           <div style={styles.fields}>
@@ -78,15 +76,14 @@ export default function PlanSelectionPage({
           </div>
 
           <div style={styles.perf}>
-            <div style={{ ...styles.notchL, background: "#f5f0eb" }} />
-            <div style={{ ...styles.perfLine, borderColor: "#e5e7eb" }} />
-            <div style={{ ...styles.notchR, background: "#f5f0eb" }} />
+            <div style={{ ...styles.notchL, background: "#f5f5f5" }} />
+            <div style={{ ...styles.perfLine, borderColor: "#eaeaea" }} />
+            <div style={{ ...styles.notchR, background: "#f5f5f5" }} />
           </div>
 
           <div style={styles.stub}>
-            {["Search Places", "Editable plan", "Invite friends"].map((t) => (
-              <span key={t} style={styles.tagLight}>{t}</span>
-            ))}
+            <p style={styles.ticketSubTitle}>Designed By Your Hands</p>
+            <p style={styles.ticketSummary}>Full control with place searching & editable plans.</p>
           </div>
         </button>
 
@@ -111,7 +108,7 @@ function BoardingField({
         fontSize: "0.52rem",
         fontWeight: 900,
         letterSpacing: "0.12em",
-        color: dark ? "rgba(255,255,255,0.38)" : "#9ca3af",
+        color: "#aaa",
         marginBottom: 3,
       }}>
         {label}
@@ -119,7 +116,7 @@ function BoardingField({
       <span style={{
         fontSize: "0.82rem",
         fontWeight: 700,
-        color: dark ? "#ffffff" : "#0f172a",
+        color: "#212121",
       }}>
         {value}
       </span>
@@ -127,21 +124,25 @@ function BoardingField({
   );
 }
 
-const PAGE_BG = "#f5f0eb";
-
 const styles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "var(--app-viewport-height)",
-    padding: "calc(20px + var(--app-safe-top)) 20px calc(28px + var(--app-bottom-nav-reserved))",
-    background: PAGE_BG,
-    fontFamily: '"Satoshi Variable", "Satoshi", "Apple SD Gothic Neo", sans-serif',
+    height: "calc(var(--app-viewport-height) - var(--app-bottom-nav-reserved))",
+    padding: "calc(20px + var(--app-safe-top)) 16px 28px",
+    background: "#f5f5f5",
+    fontFamily: '"Pretendard Variable", sans-serif',
+    boxSizing: "border-box",
+    overflow: "hidden",
   },
   container: {
     maxWidth: 430,
+    width: "100%",
+    height: "100%",
+    overflow: "hidden",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
     gap: 14,
+    boxSizing: "border-box",
   },
   header: {
     padding: "8px 0 14px",
@@ -149,34 +150,16 @@ const styles: Record<string, CSSProperties> = {
   headline: {
     margin: "0 0 8px",
     fontSize: "2rem",
-    fontWeight: 900,
-    color: "#0f172a",
+    fontWeight: 800,
+    color: "var(--font-primary)",
     lineHeight: 1.1,
     letterSpacing: "-0.03em",
   },
-  byline: {
-    margin: 0,
-    fontSize: "0.83rem",
-    color: "#9ca3af",
-    lineHeight: 1.55,
-  },
-
   /* ── Tickets ── */
-  ticketDark: {
+  ticket: {
     border: "none",
     borderRadius: 20,
-    background: "#1a2537",
-    textAlign: "left",
-    cursor: "pointer",
-    padding: 0,
-    width: "100%",
-    position: "relative",
-    overflow: "hidden",
-  },
-  ticketLight: {
-    border: "1.5px solid #e5e7eb",
-    borderRadius: 20,
-    background: "#ffffff",
+    background: "#fcfcfc",
     textAlign: "left",
     cursor: "pointer",
     padding: 0,
@@ -223,7 +206,7 @@ const styles: Record<string, CSSProperties> = {
     width: 22,
     height: 22,
     borderRadius: "50%",
-    background: PAGE_BG,
+    background: "var(background)",
     marginLeft: -11,
     zIndex: 1,
   },
@@ -232,7 +215,7 @@ const styles: Record<string, CSSProperties> = {
     width: 22,
     height: 22,
     borderRadius: "50%",
-    background: PAGE_BG,
+    background: "var(background)",
     marginRight: -11,
     zIndex: 1,
   },
@@ -246,23 +229,17 @@ const styles: Record<string, CSSProperties> = {
   stub: {
     display: "flex",
     flexWrap: "wrap",
-    gap: 6,
+    gap: 0,
     padding: "12px 22px 20px",
   },
-  tagDark: {
-    padding: "5px 10px",
-    borderRadius: 6,
-    background: "rgba(255,255,255,0.1)",
-    color: "rgba(255,255,255,0.82)",
-    fontSize: "0.72rem",
+  ticketSubTitle: {
+    color: "#444",
+    fontSize: "0.8rem",
     fontWeight: 700,
   },
-  tagLight: {
-    padding: "5px 10px",
-    borderRadius: 6,
-    background: "#f0fdfc",
-    color: BRAND,
-    fontSize: "0.72rem",
-    fontWeight: 700,
+  ticketSummary: {
+    marginTop: "-8px",
+    color: "#999",
+    fontSize: "0.75rem",
   },
 };
