@@ -12,6 +12,7 @@ import {
   createPlanId,
   deleteTourPlanItem,
   getTourPlan,
+  hydratePlanItemCoordinates,
   moveTourPlanItem,
   updateTourPlanItem,
   updateTourPlanTitle,
@@ -255,18 +256,24 @@ function savedPlanToStops(
     ] as const)
   );
 
-  return plan.items.map((item) => ({
+    return plan.items.map((item) => ({
     plannedId: item.item_id,
     backendItemId: item.item_id,
     backendDayNumber: item.day_number,
     id: item.place_id,
     name: item.display_name,
-    category: "Saved place",
+    category: item.category || "Saved place",
     summary: "",
     address: item.address,
     rating: typeof item.rating === "number" ? item.rating : undefined,
     visitDate: dateByDay.get(item.day_number) || getDefaultStartDate(),
     visitTime: item.visit_time || "10:00",
+    latitude: Number.isFinite(Number(item.latitude ?? item.location?.lat))
+      ? Number(item.latitude ?? item.location?.lat)
+      : undefined,
+    longitude: Number.isFinite(Number(item.longitude ?? item.location?.lng))
+      ? Number(item.longitude ?? item.location?.lng)
+      : undefined,
   }));
 }
 
@@ -886,6 +893,7 @@ export default function ManualPlanPage({
 
     let cancelled = false;
     void getTourPlan(planId)
+      .then((savedPlan) => hydratePlanItemCoordinates(savedPlan))
       .then((savedPlan) => {
         if (cancelled) return;
         const dateMetadata = readManualPlanDateMetadata()[savedPlan.plan_id] || {};
@@ -1763,7 +1771,6 @@ export default function ManualPlanPage({
           </div>
         </div>
       ) : null}
-
       {showShare ? <ShareSheet onClose={() => setShowShare(false)} /> : null}
     </div>
   );
