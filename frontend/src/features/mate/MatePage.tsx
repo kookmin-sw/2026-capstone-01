@@ -1049,7 +1049,7 @@ export default function MatePage() {
                 onClick={openChatFriendManager}
                 aria-label="Manage friends"
               >
-                <img src="/user-add-alt.png" alt="" style={styles.headerIcon} />
+                <img src="/chatFriendIcon.svg" alt="" style={styles.headerIcon} />
               </button>
             </>
           )}

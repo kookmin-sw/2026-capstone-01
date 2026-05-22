@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { useEffect } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { getMyProfile } from "../api/auth/auth";
-import { registerFcmToken } from "../lib/fcm";
+import { registerFcmToken, requestPermission } from "../lib/fcm";
 import { recordLastTab } from "../utils/navigation";
 
 type NavIconSize = {
@@ -34,12 +34,14 @@ export default function AppShell() {
 
   useEffect(() => {
     getMyProfile()
-      .then(() =>
-        registerFcmToken()
-          .catch((error) => {
-            console.warn("Failed to register FCM token", error);
-          })
-      )
+      .then(async () => {
+        try {
+          await requestPermission();
+          await registerFcmToken();
+        } catch (error) {
+          console.warn("Failed to initialize push notifications", error);
+        }
+      })
       .catch((error) => {
         if (isWithdrawalPendingError(error)) {
           navigate("/withdrawal-pending", { replace: true });

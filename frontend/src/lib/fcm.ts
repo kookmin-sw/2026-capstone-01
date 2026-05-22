@@ -132,7 +132,11 @@ async function setupNativePushNotifications(): Promise<string | null> {
     await ensureNativePushListeners();
     await ensureNativeNotificationChannels();
 
-    const pushPermission = await PushNotifications.requestPermissions();
+    const currentPermission = await PushNotifications.checkPermissions();
+    const pushPermission =
+      currentPermission.receive === "granted"
+        ? currentPermission
+        : await PushNotifications.requestPermissions();
     await requestLocalNotificationPermissionIfNeeded();
 
     if (pushPermission.receive !== "granted") {
@@ -216,11 +220,17 @@ async function requestLocalNotificationPermissionIfNeeded(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
 
   if (Capacitor.getPlatform() === "android") {
-    const androidVersion = Number(Capacitor.getPlatform?.() ?? 0);
+    const getPlatformVersion = (Capacitor as { getPlatformVersion?: () => string }).getPlatformVersion;
+    const androidVersion = Number(getPlatformVersion?.() ?? 0);
     if (androidVersion > 0 && androidVersion < 13) return;
   }
 
-  await LocalNotifications.requestPermissions().catch(() => undefined);
+  const permission = await LocalNotifications.checkPermissions().catch(() => null);
+  if (permission?.display === "granted") return;
+
+  await LocalNotifications.requestPermissions().catch((error) => {
+    if (DEBUG_FCM_LOG) console.warn("Local notification permission request failed", error);
+  });
 }
 
 export async function unregisterFcmToken(): Promise<void> {
