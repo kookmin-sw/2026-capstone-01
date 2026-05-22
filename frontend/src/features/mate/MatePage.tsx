@@ -924,7 +924,7 @@ export default function MatePage() {
           onMouseDown={() => handleSearch(searchInput)}
           aria-label="Search"
         >
-          <SearchIcon />
+          <img src="/SearchIcon.svg" alt="" aria-hidden="true" width="18" height="18" />
         </button>
       </div>
 
@@ -1010,7 +1010,7 @@ export default function MatePage() {
           />
         </span>
         <span style={styles.searchAction} aria-hidden="true">
-          <SearchIcon />
+          <img src="/SearchIcon.svg" alt="" aria-hidden="true" width="18" height="18" />
         </span>
       </label>
     </section>
@@ -1041,7 +1041,7 @@ export default function MatePage() {
                 onClick={openChatGroupCreate}
                 aria-label="Create group chat"
               >
-                <img src="/icon-plus.svg" alt="" style={styles.headerIcon} />
+                <img src="/icon-plus.svg" alt="" style={{ ...styles.headerIcon, ...styles.headerPlusIcon }} />
               </button>
               <button
                 type="button"
@@ -1057,19 +1057,27 @@ export default function MatePage() {
       </header>
 
       <section style={styles.tabPanel}>
-        {(["mate", "chat"] as const).map((item) => (
-          <button
-            key={item}
-            type="button"
-            style={{
-              ...styles.tabButton,
-              ...(mainTab === item ? styles.tabButtonActive : {}),
-            }}
-            onClick={() => handleMainTabChange(item)}
-          >
-            {item === "mate" ? "Mate" : "Chat"}
-          </button>
-        ))}
+        <button
+          type="button"
+          style={{
+            ...styles.tabButton,
+            ...(mainTab === "mate" ? styles.tabButtonActive : {}),
+          }}
+          onClick={() => handleMainTabChange("mate")}
+        >
+          Mate
+        </button>
+        <span style={styles.tabVerticalDivider} />
+        <button
+          type="button"
+          style={{
+            ...styles.tabButton,
+            ...(mainTab === "chat" ? styles.tabButtonActive : {}),
+          }}
+          onClick={() => handleMainTabChange("chat")}
+        >
+          Chat
+        </button>
       </section>
 
       {mainTab === "mate" && tab === "list" ? renderMateSearchPanel(inputRef) : null}
@@ -1942,7 +1950,7 @@ function PostModal({
           <div>
             <h2 style={styles.modalTitle}>{post.title}</h2>
             <p style={styles.modalDistance}>
-              {post.region} / {post.travel_start_date} - {post.travel_end_date}
+              {post.author.user_name} / {post.travel_start_date} - {post.travel_end_date}
             </p>
           </div>
         </div>
@@ -1985,9 +1993,9 @@ function PostModal({
             </div>
           ) : null}
 
-          <div style={styles.modalButtonGrid}>
+          <div style={styles.modalActionArea}>
             {isOwnPost ? (
-              <>
+              <div style={styles.modalButtonGrid}>
                 <button type="button" style={styles.primaryButton} onClick={onEdit}>
                   Edit Post
                 </button>
@@ -1998,32 +2006,33 @@ function PostModal({
                 >
                   Delete Post
                 </button>
+              </div>
+            ) : (
+              <>
+                <div style={styles.modalButtonGrid}>
+                  {canAddFriend ? (
+                    <button
+                      type="button"
+                      style={hasPendingRequest ? styles.secondaryButton : styles.primaryButton}
+                      onClick={onToggleFriend}
+                      disabled={hasPendingRequest || isSendingFriendRequest}
+                    >
+                      {isSendingFriendRequest
+                        ? "Sending..."
+                        : hasPendingRequest
+                          ? "Request Sent"
+                          : "Add Friend"}
+                    </button>
+                  ) : null}
+                  <button type="button" style={styles.secondaryButton} onClick={onViewProfile}>
+                    View Feed
+                  </button>
+                </div>
+                <button type="button" style={styles.modalChatButton} onClick={onChat}>
+                  Chat
+                </button>
               </>
-            ) : null}
-            {canAddFriend ? (
-              <button
-                type="button"
-                style={hasPendingRequest ? styles.secondaryButton : styles.primaryButton}
-                onClick={onToggleFriend}
-                disabled={hasPendingRequest || isSendingFriendRequest}
-              >
-                {isSendingFriendRequest
-                  ? "Sending..."
-                  : hasPendingRequest
-                    ? "Request Sent"
-                    : "Add Friend"}
-              </button>
-            ) : null}
-            {!isOwnPost ? (
-              <button type="button" style={styles.secondaryButton} onClick={onViewProfile}>
-                View Feed
-              </button>
-            ) : null}
-            {!isOwnPost ? (
-              <button type="button" style={styles.secondaryButton} onClick={onChat}>
-                Chat
-              </button>
-            ) : null}
+            )}
           </div>
         </div>
       </div>
@@ -2257,19 +2266,6 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   );
 }
 
-function SearchIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M10.5 18a7.5 7.5 0 1 1 5.303-12.803A7.5 7.5 0 0 1 10.5 18Zm0-13a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11Zm10 15l-4.35-4.35"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  );
-}
 
 function MapMarkerIcon() {
   return (
@@ -2611,39 +2607,56 @@ const styles: Record<string, CSSProperties> = {
     height: 24,
     objectFit: "contain",
   },
+  headerPlusIcon: {
+    opacity: 0.32,
+    filter: "grayscale(1)",
+  },
   tabPanel: {
     position: "relative",
     display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gridTemplateColumns: "1fr 1px 1fr",
+    alignItems: "stretch",
     width: "100vw",
     marginLeft: "calc(50% - 50vw)",
     marginRight: "calc(50% - 50vw)",
-    borderRadius: "22px 22px 0 0",
-    background: "#f1f8f6",
-    border: "none",
-    boxShadow: "0 -4px 16px rgba(0,0,0,0.06)",
-    overflow: "hidden",
+    background: "#ffffff",
+    borderTop: "none",
+    borderBottom: "1.5px solid #e8e8e8",
+    boxShadow: "none",
   },
   tabButton: {
-    minHeight: 46,
+    minHeight: 48,
     border: "none",
-    borderRadius: "22px 22px 0 0",
-    background: "#f1f8f6",
-    color: "var(--neutral-500)",
-    fontWeight: 800,
+    borderBottom: "3px solid transparent",
+    borderRadius: 0,
+    background: "#ffffff",
+    color: "#9e9e9e",
+    fontWeight: 500,
+    fontSize: "1rem",
     cursor: "pointer",
+    outline: "none",
+    boxShadow: "none",
+    WebkitTapHighlightColor: "transparent",
   },
   tabButtonActive: {
-    background: "#f5f5f5",
-    color: "var(--text-primary)",
-    boxShadow: "inset 0 3px 8px rgba(0,0,0,0.06)",
+    background: "#ffffff",
+    color: "#1a1a1a",
+    fontWeight: 700,
+    borderBottom: "3px solid #00bfbf",
+  },
+  tabVerticalDivider: {
+    display: "block",
+    width: 1,
+    background: "#e0e0e0",
+    alignSelf: "stretch",
+    margin: "10px 0",
   },
   chatEmbed: {
     margin: "-18px -16px calc(-40px - var(--app-bottom-nav-reserved))",
   },
   searchPanel: {
     position: "relative",
-    width: "100%",
+    width: "95%",
     maxWidth: 760,
     margin: "0 auto",
     padding: 0,
@@ -3733,6 +3746,21 @@ const styles: Record<string, CSSProperties> = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
     gap: 10,
+  },
+  modalActionArea: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  modalChatButton: {
+    width: "100%",
+    border: "1px solid rgba(5,181,187,0.18)",
+    borderRadius: 18,
+    padding: "14px 16px",
+    background: "rgba(255,255,255,0.88)",
+    color: "var(--text-secondary)",
+    fontWeight: 800,
+    cursor: "pointer",
   },
   lightboxOverlay: {
     position: "fixed",

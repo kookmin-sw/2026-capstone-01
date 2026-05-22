@@ -1,6 +1,9 @@
 import client from "./client";
 import type { AxiosProgressEvent } from "axios";
 
+const FEED_UPLOAD_TIMEOUT_MS = 60000;
+const FEED_DELETE_TIMEOUT_MS = 30000;
+
 export type FeedVisibility = "private" | "friends" | "public";
 
 export interface FeedPost {
@@ -86,7 +89,7 @@ export async function createFeedPost({
   }
 
   const { data } = await client.post<FeedPost>("/api/feed/posts", formData, {
-    timeout: 0,
+    timeout: FEED_UPLOAD_TIMEOUT_MS,
     onUploadProgress: (progressEvent: AxiosProgressEvent) => {
       const total = progressEvent.total ?? file.size;
       if (!total) return;
@@ -166,7 +169,9 @@ export async function updateFeedPostCaption(
 }
 
 export async function deleteFeedPost(postId: string): Promise<void> {
-  await client.delete(`/api/feed/posts/${encodeURIComponent(postId)}`);
+  await client.delete(`/api/feed/posts/${encodeURIComponent(postId)}`, {
+    timeout: FEED_DELETE_TIMEOUT_MS,
+  });
 }
 
 export async function likeFeedPost(
@@ -256,4 +261,20 @@ export async function deleteFeedComment(
 function getApiStatus(error: unknown): number | undefined {
   const apiError = error as { status?: number; response?: { status?: number } };
   return apiError.status || apiError.response?.status;
+}
+
+export function isPossiblyCommittedFeedMutationError(error: unknown): boolean {
+  const apiError = error as {
+    code?: string;
+    message?: string;
+    response?: { status?: number };
+  };
+  const message = String(apiError.message || "").toLowerCase();
+
+  return (
+    apiError.code === "ECONNABORTED" ||
+    message.includes("timeout") ||
+    message.includes("network error") ||
+    (!apiError.response && message.includes("network"))
+  );
 }

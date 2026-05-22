@@ -216,7 +216,7 @@ async function requestLocalNotificationPermissionIfNeeded(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
 
   if (Capacitor.getPlatform() === "android") {
-    const androidVersion = Number(Capacitor.getPlatformVersion?.() ?? 0);
+    const androidVersion = Number(Capacitor.getPlatform?.() ?? 0);
     if (androidVersion > 0 && androidVersion < 13) return;
   }
 
