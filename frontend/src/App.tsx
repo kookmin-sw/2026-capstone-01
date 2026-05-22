@@ -119,7 +119,13 @@ function AiPlanResultRoute() {
 
 function ManualPlanRoute() {
   const navigate = useNavigate();
-  return <ManualPlanPage onBack={() => navigate("/plan")} />;
+  return (
+    <ManualPlanPage
+      onBack={() => navigate("/plan")}
+      onHome={() => navigate("/home")}
+      onMyPage={() => navigate("/my")}
+    />
+  );
 }
 
 function RouteScrollReset() {
