@@ -32,7 +32,6 @@ import {
   consumePendingNotificationPath,
   hasPendingNotificationPath,
   listenForegroundMessages,
-  requestPermission,
   unregisterFcmToken,
 } from "./lib/fcm";
 import type { AppToastDetail } from "./utils/appToast";
@@ -979,9 +978,6 @@ function UnauthorizedRedirect() {
 
 export default function App() {
   useEffect(() => {
-    requestPermission().catch((error) => {
-      console.warn("Failed to initialize push permissions", error);
-    });
     listenForegroundMessages().catch((error) => {
       console.warn("Failed to listen for foreground FCM messages", error);
     });

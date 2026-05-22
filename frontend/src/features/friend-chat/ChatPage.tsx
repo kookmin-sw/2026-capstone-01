@@ -576,7 +576,7 @@ export default function ChatPage({
                 }}
                 aria-label="Manage friends"
               >
-                <img src="/user-add-alt.png" alt="" style={styles.friendManagerIcon} />
+                <img src="/chatFriendIcon.svg" alt="" style={styles.friendManagerIcon} />
                 {pendingCount > 0 ? <span style={styles.addButtonDot} /> : null}
               </button>
             </div>
