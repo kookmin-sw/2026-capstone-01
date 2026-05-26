@@ -36,6 +36,7 @@ class TripmateSearchHistoryRepository:
 
         return TripmateSearchHistory.model_validate(result)
 
+
     async def _trim_oldest(self, user_id: str) -> None:
         """유저의 검색 기록이 MAX_SEARCH_HISTORY를 초과하면 오래된 것부터 삭제"""
         collection = TripmateSearchHistory.get_motor_collection()
@@ -70,6 +71,7 @@ class TripmateSearchHistoryRepository:
         )
         if doc:
             await doc.delete()
+
 
     @measure_mongo_op("delete", "tripmate_search_history")
     async def delete_all_by_user_id(self, user_id: str) -> None:

@@ -1,7 +1,7 @@
 import redis.asyncio as redis
 
-from app.config.setting import settings
 from app.core.instrumentation import instrument_redis_client
+from app.config.setting import settings
 
 
 # socket-level timeout 정책 — Redis hang 시 코루틴이 영구 stuck 되는 것을 차단.
@@ -55,6 +55,7 @@ class RedisClient:
             instrument_redis_client(cls._client, db="hot")
         return cls._client
 
+
     @classmethod
     async def get_dedupe_client(cls) -> redis.Redis:
         """dedupe 전용 Redis 클라이언트(DB 1)"""
@@ -68,6 +69,7 @@ class RedisClient:
             )
             instrument_redis_client(cls._dedupe_client, db="dedupe")
         return cls._dedupe_client
+
 
     @classmethod
     async def close(cls):

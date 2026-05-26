@@ -1,9 +1,9 @@
+import uvicorn
+import random
 from prometheus_client import start_http_server
 import os
-import random
-import uvicorn
-from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 from app.middleware.tracking import (
@@ -30,20 +30,20 @@ from app.domain.auth.worker.withdraw_purge import (
 )
 from app.database.session import init_mongodb, close_mongodb
 import app.database.model # Relation Lazy Load 문제 해결하기 위한 import!
-from app.core.ai.tour_planner.load import TourPlanner
-from app.core.logger import setup_logging, get_logger
-from app.core.ai.menu_ocr.load import MenuOcr
-from app.core.ai.papago_translator.load import PapagoTranslator
 from app.core.redis import get_redis_client, get_redis_dedupe_client, close_redis
+from app.core.metric import build_instrumentator
+from app.core.logger import setup_logging, get_logger
 from app.core.instrumentation import (
     attach_db_instrumentation,
     prime_worker_gauges,
     start_event_loop_monitor,
     stop_event_loop_monitor,
 )
-from app.core.metric import build_instrumentator
 from app.core.fcm import init_fcm, close_fcm
 from app.core.chat.lua_script import lua_scripts
+from app.core.ai.tour_planner.load import TourPlanner
+from app.core.ai.papago_translator.load import PapagoTranslator
+from app.core.ai.menu_ocr.load import MenuOcr
 from app.container import Container
 from app.config.setting import settings
 from app.api.v1.router import api_router

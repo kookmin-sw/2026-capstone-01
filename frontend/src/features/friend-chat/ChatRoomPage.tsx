@@ -15,7 +15,6 @@ import {
 import { getMyProfile } from "../../api/auth/auth";
 import { getFriendDetail } from "../../api/friend";
 import ConfirmToast from "../../components/ConfirmToast";
-import FeedPopup from "../../components/FeedPopup";
 import { useChat } from "./ChatProvider";
 
 const BOTTOM_THRESHOLD_PX = 160;
@@ -26,8 +25,11 @@ export default function ChatRoomPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const messageListRef = useRef<HTMLElement>(null);
+  const composerInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollModeRef = useRef<"bottom" | "preserve">("bottom");
+  const pendingNewRoomSendRef = useRef<string | null>(null);
+  const recentComposerSendRef = useRef<{ key: string; expiresAt: number } | null>(null);
   const shouldForceScrollToBottomRef = useRef(true);
   const scrollSnapshotRef = useRef<{ height: number; top: number } | null>(null);
   const latestMessageKeyRef = useRef("");
@@ -51,6 +53,7 @@ export default function ChatRoomPage() {
   const [draftDirectUserId, setDraftDirectUserId] = useState<string | null>(null);
   const [draftPeer, setDraftPeer] = useState<ChatPeer | null>(null);
   const [input, setInput] = useState("");
+  const [isCreatingDirectRoom, setIsCreatingDirectRoom] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [members, setMembers] = useState<ChatUserProfile[]>([]);
   const [invitableFriends, setInvitableFriends] = useState<ChatUserProfile[]>([]);
@@ -61,7 +64,6 @@ export default function ChatRoomPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
-  const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
   const [isLeaveConfirmOpen, setIsLeaveConfirmOpen] = useState(false);
   const [isInviteConfirmOpen, setIsInviteConfirmOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -108,6 +110,48 @@ export default function ChatRoomPage() {
       renderMessageContent(message).toLowerCase().includes(query)
     ).length;
   }, [messageSearchQuery, messages]);
+
+  useEffect(() => {
+    function handleAndroidBack(event: Event): void {
+      if (isLeaveConfirmOpen) {
+        event.preventDefault();
+        setIsLeaveConfirmOpen(false);
+        return;
+      }
+      if (isInviteConfirmOpen) {
+        event.preventDefault();
+        setIsInviteConfirmOpen(false);
+        return;
+      }
+      if (inviteOpen) {
+        event.preventDefault();
+        setInviteOpen(false);
+        return;
+      }
+      if (infoOpen) {
+        event.preventDefault();
+        setInfoOpen(false);
+        return;
+      }
+      if (isSearchOpen) {
+        event.preventDefault();
+        setIsSearchOpen(false);
+      }
+    }
+
+    window.addEventListener("krip:android-back", handleAndroidBack);
+
+    return () => {
+      window.removeEventListener("krip:android-back", handleAndroidBack);
+    };
+  }, [
+    infoOpen,
+    inviteOpen,
+    isInviteConfirmOpen,
+    isLeaveConfirmOpen,
+    isSearchOpen,
+  ]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -358,7 +402,7 @@ export default function ChatRoomPage() {
       return;
     }
 
-    const latestMessage = messages.at(-1);
+    const latestMessage = messages[messages.length - 1];
     const latestMessageKey = latestMessage ? getMessageKey(latestMessage) : "";
     const previousLatestMessageKey = latestMessageKeyRef.current;
     const hasNewLatestMessage =
@@ -411,24 +455,46 @@ export default function ChatRoomPage() {
   function handleSend(): void {
     const content = input.trim();
     if (!content || content.length > 2000) return;
+    const targetRoomId =
+      roomId || (!draftDirectUserId && id && !id.startsWith("USER_") ? id : "");
 
     // Draft mode: create the room on the backend first, then send
     if (draftDirectUserId) {
+      if (isDuplicateComposerSend(`draft:${draftDirectUserId}:${content}`)) return;
       void handleSendToNewRoom(draftDirectUserId, content);
       return;
     }
 
-    if (!roomId) return;
+    if (!targetRoomId) return;
+    if (isDuplicateComposerSend(`room:${targetRoomId}:${content}`)) return;
 
     shouldForceScrollToBottomRef.current = true;
     setIncomingMessageNotice(null);
-    sendMessage(roomId, content);
+    sendMessage(targetRoomId, content);
     setInput("");
+    window.requestAnimationFrame(() => composerInputRef.current?.focus());
+  }
+
+  function isDuplicateComposerSend(key: string): boolean {
+    const now = Date.now();
+    const recent = recentComposerSendRef.current;
+    if (recent?.key === key && recent.expiresAt > now) return true;
+
+    recentComposerSendRef.current = { key, expiresAt: now + 300 };
+    return false;
   }
 
   async function handleSendToNewRoom(userId: string, content: string): Promise<void> {
+    if (pendingNewRoomSendRef.current === userId) return;
+
+    pendingNewRoomSendRef.current = userId;
+    setIsCreatingDirectRoom(true);
     try {
+      // TODO: backend must enforce direct-room uniqueness and reuse existing rooms.
       const newRoom = await createDirectChatRoom(userId);
+      if (!newRoom?.chat_room_id) {
+        throw new Error("Failed to open chat room.");
+      }
       setDraftDirectUserId(null);
       setDraftPeer(null);
       setInput("");
@@ -439,6 +505,9 @@ export default function ChatRoomPage() {
       navigate(`/chat/${newRoom.chat_room_id}`, { replace: true });
     } catch (error) {
       setErrorMessage(toErrorMessage(error, "Failed to create chat room."));
+    } finally {
+      pendingNewRoomSendRef.current = null;
+      setIsCreatingDirectRoom(false);
     }
   }
 
@@ -521,7 +590,7 @@ export default function ChatRoomPage() {
   function openFeedPopup(userId?: string | null): void {
     if (userId) {
       setInfoOpen(false);
-      setFeedPopupUserId(userId);
+      navigate(`/profile/${userId}`);
     }
   }
 
@@ -592,12 +661,6 @@ export default function ChatRoomPage() {
         </label>
       ) : null}
 
-      <div style={styles.dateDivider}>
-        <span style={styles.dateLine} />
-        <span style={styles.dateText}>{formatChatDate(messages[0]?.created_at)}</span>
-        <span style={styles.dateLine} />
-      </div>
-
       <main ref={messageListRef} style={styles.messageList}>
         {errorMessage ? <div style={styles.error}>{errorMessage}</div> : null}
         {actionMessage ? <div style={styles.notice}>{actionMessage}</div> : null}
@@ -615,21 +678,25 @@ export default function ChatRoomPage() {
           </button>
         ) : null}
         {messages.map((message, messageIndex) => {
+          const previousMessage = messages[messageIndex - 1];
+          const showDateDivider =
+            messageIndex === 0 ||
+            !isSameChatDate(previousMessage?.created_at, message.created_at);
+
           if (isRoomNoticeMessage(message)) {
             return (
-              <div
-                key={message.client_msg_id || message.message_id}
-                style={styles.roomNoticeRow}
-              >
-                <span style={styles.roomNoticeText}>
-                  {renderMessageContent(message)}
-                </span>
+              <div key={message.client_msg_id || message.message_id}>
+                {showDateDivider ? <DateDivider value={message.created_at} /> : null}
+                <div style={styles.roomNoticeRow}>
+                  <span style={styles.roomNoticeText}>
+                    {renderMessageContent(message)}
+                  </span>
+                </div>
               </div>
             );
           }
 
           const mine = Boolean(currentUserId && message.sender_id === currentUserId);
-          const previousMessage = messages[messageIndex - 1];
           const showAvatar =
             !mine &&
             (!previousMessage ||
@@ -641,75 +708,77 @@ export default function ChatRoomPage() {
               .toLowerCase()
               .includes(messageSearchQuery.trim().toLowerCase());
           return (
-            <div
-              key={message.client_msg_id || message.message_id}
-              style={{
-                ...styles.messageRow,
-                ...(mine ? styles.messageRowMine : {}),
-              }}
-            >
-              {!mine ? (
-                <button
-                  type="button"
-                  style={styles.messageAvatarButton}
-                  onClick={() => openFeedPopup(message.sender_id)}
-                  disabled={!message.sender_id}
-                  aria-label={`${getMessageSenderName(message)} feed`}
-                >
-                  <img
-                    src={getMessageAvatarUrl(message)}
-                    alt={getMessageSenderName(message)}
-                    style={{
-                      ...styles.messageAvatar,
-                      ...(showAvatar ? {} : styles.hiddenMessageAvatar),
-                    }}
-                  />
-                </button>
-              ) : null}
-              <span style={styles.messageContentGroup}>
-                {!mine && showAvatar ? (
-                  <span style={styles.senderName}>{getMessageSenderName(message)}</span>
-                ) : null}
-                <span style={styles.bubbleLine}>
-                  {!mine ? (
-                    <div
+            <div key={message.client_msg_id || message.message_id}>
+              {showDateDivider ? <DateDivider value={message.created_at} /> : null}
+              <div
+                style={{
+                  ...styles.messageRow,
+                  ...(mine ? styles.messageRowMine : {}),
+                }}
+              >
+                {!mine ? (
+                  <button
+                    type="button"
+                    style={styles.messageAvatarButton}
+                    onClick={() => openFeedPopup(message.sender_id)}
+                    disabled={!message.sender_id}
+                    aria-label={`${getMessageSenderName(message)} feed`}
+                  >
+                    <img
+                      src={getMessageAvatarUrl(message)}
+                      alt={getMessageSenderName(message)}
                       style={{
-                        ...styles.bubble,
-                        ...(room?.type === "group" ? styles.groupReceivedBubble : {}),
-                        ...(isSearchMatch ? styles.searchMatchedBubble : {}),
+                        ...styles.messageAvatar,
+                        ...(showAvatar ? {} : styles.hiddenMessageAvatar),
                       }}
-                    >
-                      {renderMessageContent(message)}
-                    </div>
-                  ) : (
-                    <>
+                    />
+                  </button>
+                ) : null}
+                <span style={styles.messageContentGroup}>
+                  {!mine && showAvatar ? (
+                    <span style={styles.senderName}>{getMessageSenderName(message)}</span>
+                  ) : null}
+                  <span style={styles.bubbleLine}>
+                    {!mine ? (
+                      <div
+                        style={{
+                          ...styles.bubble,
+                          ...(room?.type === "group" ? styles.groupReceivedBubble : {}),
+                          ...(isSearchMatch ? styles.searchMatchedBubble : {}),
+                        }}
+                      >
+                        {renderMessageContent(message)}
+                      </div>
+                    ) : (
+                      <>
+                        <span style={styles.time}>
+                          {formatTime(message.created_at)}
+                          {message.status === "sending" ? " - sending" : ""}
+                          {message.status === "failed" ? " - failed" : ""}
+                          {message.edited_at && !message.deleted_at ? " - edited" : ""}
+                        </span>
+                        <div
+                          style={{
+                            ...styles.bubble,
+                            ...styles.bubbleMine,
+                            ...(isSearchMatch ? styles.searchMatchedBubbleMine : {}),
+                          }}
+                        >
+                          {renderMessageContent(message)}
+                        </div>
+                      </>
+                    )}
+                    {!mine ? (
                       <span style={styles.time}>
                         {formatTime(message.created_at)}
                         {message.status === "sending" ? " - sending" : ""}
                         {message.status === "failed" ? " - failed" : ""}
                         {message.edited_at && !message.deleted_at ? " - edited" : ""}
                       </span>
-                      <div
-                        style={{
-                          ...styles.bubble,
-                          ...styles.bubbleMine,
-                          ...(isSearchMatch ? styles.searchMatchedBubbleMine : {}),
-                        }}
-                      >
-                        {renderMessageContent(message)}
-                      </div>
-                    </>
-                  )}
-                  {!mine ? (
-                    <span style={styles.time}>
-                      {formatTime(message.created_at)}
-                      {message.status === "sending" ? " - sending" : ""}
-                      {message.status === "failed" ? " - failed" : ""}
-                      {message.edited_at && !message.deleted_at ? " - edited" : ""}
-                    </span>
-                  ) : null}
+                    ) : null}
+                  </span>
                 </span>
-              </span>
+              </div>
             </div>
           );
         })}
@@ -734,34 +803,51 @@ export default function ChatRoomPage() {
         </button>
       ) : null}
 
-      <footer style={styles.composer}>
+      <form
+        style={styles.composer}
+        onSubmit={(event) => {
+          event.preventDefault();
+          handleSend();
+        }}
+      >
         <input
+          ref={composerInputRef}
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
-            if (event.key === "Enter") handleSend();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              handleSend();
+            }
           }}
           maxLength={2000}
+          enterKeyHint="send"
           placeholder="Type a message"
           style={styles.input}
         />
         <button
-          type="button"
+          type="submit"
           style={{
             ...styles.sendButton,
-            ...(!input.trim() || connectionState === "closed" ? styles.sendButtonDisabled : {}),
+            ...(!input.trim() || isCreatingDirectRoom
+              ? styles.sendButtonDisabled
+              : {}),
           }}
-          onClick={handleSend}
-          disabled={!input.trim() || connectionState === "closed"}
-          aria-label={connectionState === "closed" ? "Offline" : "Send"}
-          title={connectionState === "ready" ? "Send" : connectionState === "closed" ? "Offline" : "Queued"}
+          onMouseDown={(event) => event.preventDefault()}
+          onTouchEnd={(event) => {
+            event.preventDefault();
+            handleSend();
+          }}
+          disabled={!input.trim() || isCreatingDirectRoom}
+          aria-label="Send"
+          title={connectionState === "ready" ? "Send" : "Queued"}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
             <path d="M7 12V2M3 6l4-4 4 4" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-      </footer>
+      </form>
 
       {infoOpen ? (
         <div style={styles.infoBackdrop} onClick={() => setInfoOpen(false)}>
@@ -901,14 +987,6 @@ export default function ChatRoomPage() {
         </div>
       ) : null}
 
-      {feedPopupUserId ? (
-        <FeedPopup
-          userId={feedPopupUserId}
-          side="left"
-          onClose={() => setFeedPopupUserId(null)}
-        />
-      ) : null}
-
       {isLeaveConfirmOpen ? (
         <ConfirmToast
           title="Leave this group chat?"
@@ -1037,6 +1115,32 @@ function formatChatDate(value?: string): string {
   });
 }
 
+function isSameChatDate(left?: string, right?: string): boolean {
+  if (!left || !right) return false;
+
+  const leftDate = new Date(left);
+  const rightDate = new Date(right);
+  if (Number.isNaN(leftDate.getTime()) || Number.isNaN(rightDate.getTime())) {
+    return false;
+  }
+
+  return (
+    leftDate.getFullYear() === rightDate.getFullYear() &&
+    leftDate.getMonth() === rightDate.getMonth() &&
+    leftDate.getDate() === rightDate.getDate()
+  );
+}
+
+function DateDivider({ value }: { value?: string }) {
+  return (
+    <div style={styles.dateDivider}>
+      <span style={styles.dateLine} />
+      <span style={styles.dateText}>{formatChatDate(value)}</span>
+      <span style={styles.dateLine} />
+    </div>
+  );
+}
+
 function BackIcon() {
   return (
     <svg width="11" height="20" viewBox="0 0 11 20" fill="none" aria-hidden="true">
@@ -1078,12 +1182,12 @@ const styles: Record<string, CSSProperties> = {
     height: "var(--app-viewport-height)",
     display: "flex",
     flexDirection: "column",
-    background: "linear-gradient(to bottom, #f2ffff 0%, #f2ffff 66%, #fffbf1 100%)",
+    background: "#f5f5f5",
     fontFamily: "'Pretendard Variable', 'Nunito', 'Apple SD Gothic Neo', sans-serif",
     overflow: "hidden",
   },
   groupPage: {
-    background: "#ffffff",
+    background: "#f5f5f5",
   },
   header: {
     zIndex: 5,

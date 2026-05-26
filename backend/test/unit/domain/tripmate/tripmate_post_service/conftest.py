@@ -6,10 +6,9 @@
     - get_object_storage() (init 시점 + delete_post 안에서 재호출)
     - TripmateImageRepository (Mongo beanie, init 시점 + delete_post 안에서 재호출)
 """
-import pytest
-
-from app.domain.tripmate.service.tripmate_post import TripmatePostService
-
+from test.unit.domain.tripmate.tripmate_post_service.model_factory import (
+    TripmatePostFactory,
+)
 from test.unit.domain.tripmate.mock_factory import (
     FakeUnitOfWork,
     TripmatePostImageRepositoryMockFactory,
@@ -21,9 +20,9 @@ from test.unit.domain.tripmate.mock_factory import (
     make_object_storage_mock,
     make_tripmate_image_mongo_repo_mock,
 )
-from test.unit.domain.tripmate.tripmate_post_service.model_factory import (
-    TripmatePostFactory,
-)
+import pytest
+
+from app.domain.tripmate.service.tripmate_post import TripmatePostService
 
 
 @pytest.fixture

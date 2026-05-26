@@ -14,18 +14,19 @@ shutdown 시 `stop_withdraw_purge_scheduler()` 호출. 패턴은 `chat.worker.re
     - `purge` 자체는 `WithdrawService.purge` 위임 — 단일 진실 공급원.
 """
 from __future__ import annotations
+
 from typing import Optional
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 import os
 from datetime import datetime, timezone, timedelta
 import asyncio
 
-from app.domain.auth.repository.withdrawal_request import WithdrawalRequestRepository
-from app.domain.auth.service.withdraw import WithdrawService
 from app.domain.notification.service.inbox import InboxService
+from app.domain.auth.service.withdraw import WithdrawService
+from app.domain.auth.repository.withdrawal_request import WithdrawalRequestRepository
 from app.database.session import UnitOfWork
-from app.core.instrumentation import withdraw_purge_run
 from app.core.logger import get_logger
+from app.core.instrumentation import withdraw_purge_run
 
 
 logger = get_logger("auth.withdraw_purge")

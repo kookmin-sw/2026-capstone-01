@@ -8,8 +8,10 @@ class FakeUnitOfWork:
     def __init__(self, session):
         self._session = session
 
+
     async def __aenter__(self):
         return self._session
+
 
     async def __aexit__(self, exc_type, exc, tb):
         return False
@@ -97,12 +99,14 @@ class FakeBeanieDocumentClass:
         # service 가 `await TripmateImage.find({...}).delete()` 형태로 호출하므로 매번 새 query
         self._queries: list[FakeBeanieFindQuery] = []
 
+
     def find(self, filter_dict):
         self.find_call_count += 1
         self.last_filter = filter_dict
         q = FakeBeanieFindQuery()
         self._queries.append(q)
         return q
+
 
     @property
     def queries(self) -> list[FakeBeanieFindQuery]:

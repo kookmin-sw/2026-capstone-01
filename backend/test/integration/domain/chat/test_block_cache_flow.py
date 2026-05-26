@@ -4,14 +4,14 @@ friend 도메인의 `block_user` / `unblock_user` 가 chat 의 `BlockCacheServic
 Redis `room:blocks:{R}` 캐시를 **즉시** 무효화하고, 다음 `send_message` 가 새 상태를
 반영하는지 검증. "캐시 TTL 대기 없음" 이 PHASE_2 #6 통합 체크리스트의 핵심.
 """
-import pytest
 import pytest_asyncio
+import pytest
 
-from app.core.chat.redis_key import room_blocks_key
-from app.domain.chat.model.chat_message import MessageType
-from app.domain.chat.service.block_cache import BlockCacheService
-from app.domain.chat.service.room import RoomService
 from app.domain.friend.service.user_block import UserBlockService
+from app.domain.chat.service.room import RoomService
+from app.domain.chat.service.block_cache import BlockCacheService
+from app.domain.chat.model.chat_message import MessageType
+from app.core.chat.redis_key import room_blocks_key
 
 
 pytestmark = pytest.mark.integration
@@ -53,6 +53,7 @@ class TestBlockCacheInvalidationFlow:
                 client_msg_id="cm-2", msg_type=MessageType.TEXT, content="blocked",
             )
 
+
     async def test_unblock_allows_immediate_next_send(
         self, uow, seed_users, chat_fanout_stub, message_service, redis_hot,
         patch_external_clients,
@@ -90,6 +91,7 @@ class TestBlockCacheInvalidationFlow:
         # miss-through 가 __none__ sentinel 로 캐시를 재구성
         assert await redis_hot.sismember(room_blocks_key(room_id), "__none__")
 
+
     async def test_peer_blocking_sender_also_rejects(
         self, uow, seed_users, chat_fanout_stub, message_service, redis_hot,
         patch_external_clients,
@@ -111,6 +113,7 @@ class TestBlockCacheInvalidationFlow:
                 sender_user_id=a, sender_session_id="WS_A", room_id=room.chat_room_id,
                 client_msg_id="cm-peer-1", msg_type=MessageType.TEXT, content="nope",
             )
+
 
     async def test_group_room_unaffected_by_block(
         self, uow, seed_users, chat_fanout_stub, message_service,

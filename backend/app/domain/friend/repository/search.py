@@ -3,9 +3,9 @@ from sqlalchemy.orm import contains_eager, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 
-from app.domain.auth.model.user import User, UserStatus
-from app.domain.auth.model.user_detail_inform import UserDetailInform
 from app.domain.friend.model.user_block import UserBlock
+from app.domain.auth.model.user_detail_inform import UserDetailInform
+from app.domain.auth.model.user import User, UserStatus
 
 
 # 검색 결과 페이지 크기

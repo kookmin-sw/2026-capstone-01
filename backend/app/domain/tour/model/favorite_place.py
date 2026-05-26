@@ -1,5 +1,5 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.sql import func
+from sqlalchemy import Column, String, DateTime, ForeignKey, UniqueConstraint, Index
 
 from app.util.id_generator import generate_favorite_place_id
 from app.database.session import Base

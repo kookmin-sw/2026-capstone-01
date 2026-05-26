@@ -48,6 +48,7 @@ class TestGetNearbyPlaces:
         assert place_ids == ["P_close", "P_mid", "P_far"]
         assert result.places[0].distance < result.places[1].distance < result.places[2].distance
 
+
     async def test_returns_empty_when_no_places(self, place_service):
         result = await place_service.get_nearby_places(
             lat=37.5, lng=127.0, user_id="",
@@ -55,6 +56,7 @@ class TestGetNearbyPlaces:
 
         assert result.places == []
         assert result.next_cursor is None
+
 
     async def test_marks_favorited_places(
         self, place_service, seed_place, seed_users, session_factory,
@@ -76,6 +78,7 @@ class TestGetNearbyPlaces:
         by_id = {p.place_id: p for p in result.places}
         assert by_id["P_a"].is_favorite is True
         assert by_id["P_b"].is_favorite is None  # 미즐겨찾기는 None (presence 표현)
+
 
     async def test_no_favorited_when_user_id_empty(
         self, place_service, seed_place,
@@ -101,6 +104,7 @@ class TestGetPlaceById:
         assert result is not None
         assert result.place_id == "P_x"
         assert result.display_name == "Custom Name"
+
 
     async def test_returns_none_when_not_found(self, place_service):
         result = await place_service.get_place_by_id(

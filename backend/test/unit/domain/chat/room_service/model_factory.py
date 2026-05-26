@@ -1,7 +1,7 @@
 """RoomService 단위 테스트용 모델 팩토리 (SimpleNamespace 기반)."""
-from datetime import datetime, timezone
-from types import SimpleNamespace
 from typing import Optional
+from types import SimpleNamespace
+from datetime import datetime, timezone
 
 from app.domain.chat.model.chat_room import ChatRoomType
 
@@ -29,6 +29,7 @@ class UserFactory:
         else:
             detail_obj = detail
         return SimpleNamespace(user_id=uid, detail=detail_obj)
+
 
     @classmethod
     def reset_counter(cls) -> None:
@@ -65,6 +66,7 @@ class ChatRoomFactory:
             effective_last_at=now,
         )
 
+
     @classmethod
     def reset_counter(cls) -> None:
         cls._counter = 0
@@ -85,6 +87,7 @@ class UserBlockFactory:
             blocker_id=blocker_id,
             blocked_id=blocked_id,
         )
+
 
     @classmethod
     def reset_counter(cls) -> None:

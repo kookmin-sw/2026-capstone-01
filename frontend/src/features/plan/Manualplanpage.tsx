@@ -12,7 +12,7 @@ import {
   createPlanId,
   deleteTourPlanItem,
   getTourPlan,
-  loadGoogleMapsApi,
+  hydratePlanItemCoordinates,
   moveTourPlanItem,
   updateTourPlanItem,
   updateTourPlanTitle,
@@ -57,38 +57,10 @@ declare global {
         sendDefault: (options: unknown) => void;
       };
     };
-    google?: {
-      maps?: {
-        Map: new (element: HTMLElement, options: Record<string, unknown>) => GoogleMap;
-        marker?: {
-          AdvancedMarkerElement: new (
-            options: Record<string, unknown>
-          ) => GoogleAdvancedMarker;
-        };
-        Polyline: new (options: Record<string, unknown>) => GooglePolyline;
-        LatLngBounds: new () => GoogleLatLngBounds;
-      };
-    };
   }
 }
 
-interface GoogleMap {
-  fitBounds: (bounds: GoogleLatLngBounds) => void;
-}
 
-interface GoogleAdvancedMarker {
-  map?: GoogleMap | null;
-}
-
-interface GooglePolyline {
-  setMap: (map: GoogleMap | null) => void;
-}
-
-interface GoogleLatLngBounds {
-  extend: (position: { lat: number; lng: number }) => void;
-}
-
-const DEFAULT_START_DATE = formatDateOnly(new Date());
 const MANUAL_PLAN_DATE_METADATA_KEY = "krip-manual-plan-date-metadata";
 
 function formatDateOnly(date: Date): string {
@@ -96,6 +68,10 @@ function formatDateOnly(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getDefaultStartDate(): string {
+  return formatDateOnly(new Date());
 }
 
 function parseDateOnly(value: string): Date | null {
@@ -184,13 +160,13 @@ function saveManualPlanDateMetadata(
 function getStableFallbackDate(plan: PlanDetailResponse): string {
   const parsed = new Date(plan.created_at);
   return Number.isNaN(parsed.getTime())
-    ? DEFAULT_START_DATE
+    ? getDefaultStartDate()
     : formatDateOnly(parsed);
 }
 
 function addDays(date: string, days: number): string {
   const parsed = parseDateOnly(date);
-  if (!parsed) return DEFAULT_START_DATE;
+  if (!parsed) return getDefaultStartDate();
   parsed.setDate(parsed.getDate() + days);
   return formatDateOnly(parsed);
 }
@@ -204,7 +180,7 @@ function stopsToSlotsByDate(
   stops: PlannedStop[],
   dates: string[]
 ): Record<string, Array<PlannedStop | null>> {
-  const fallbackDates = dates.length > 0 ? dates : [DEFAULT_START_DATE];
+  const fallbackDates = dates.length > 0 ? dates : [getDefaultStartDate()];
   return Object.fromEntries(
     fallbackDates.map((date) => [
       date,
@@ -280,18 +256,24 @@ function savedPlanToStops(
     ] as const)
   );
 
-  return plan.items.map((item) => ({
+    return plan.items.map((item) => ({
     plannedId: item.item_id,
     backendItemId: item.item_id,
     backendDayNumber: item.day_number,
     id: item.place_id,
     name: item.display_name,
-    category: "Saved place",
+    category: item.category || "Saved place",
     summary: "",
     address: item.address,
     rating: typeof item.rating === "number" ? item.rating : undefined,
-    visitDate: dateByDay.get(item.day_number) || DEFAULT_START_DATE,
+    visitDate: dateByDay.get(item.day_number) || getDefaultStartDate(),
     visitTime: item.visit_time || "10:00",
+    latitude: Number.isFinite(Number(item.latitude ?? item.location?.lat))
+      ? Number(item.latitude ?? item.location?.lat)
+      : undefined,
+    longitude: Number.isFinite(Number(item.longitude ?? item.location?.lng))
+      ? Number(item.longitude ?? item.location?.lng)
+      : undefined,
   }));
 }
 
@@ -622,6 +604,9 @@ function ShareSheet({ onClose }: { onClose: () => void }) {
 
 function MapPreview({ stops }: { stops: PlannedStop[] }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
+  const naverMapRef = useRef<any>(null);
+  const markersRef = useRef<any[]>([]); 
+  const polylineRef = useRef<any>(null);  
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState("");
 
@@ -635,103 +620,110 @@ function MapPreview({ stops }: { stops: PlannedStop[] }) {
   );
 
   useEffect(() => {
-    const markers: GoogleAdvancedMarker[] = [];
-    let polyline: GooglePolyline | null = null;
-    let cancelled = false;
+    if (!mapRef.current || positionedStops.length === 0) return;
 
-    if (!mapRef.current || positionedStops.length === 0) {
-      setMapReady(false);
-      setMapError("");
-      return undefined;
+    const clientId = import.meta.env.VITE_NAVER_MAPS_CLIENT_ID;
+    if (!clientId) {
+      setMapError("Add VITE_NAVER_MAPS_CLIENT_ID to render the map.");
+      return;
     }
 
-    void loadGoogleMapsApi()
-      .then((google) => {
-        if (cancelled || !google?.maps || !mapRef.current) return;
-
-        try {
-          const map = new google.maps.Map(mapRef.current, {
-            center: {
-              lat: positionedStops[0].latitude,
-              lng: positionedStops[0].longitude,
-            },
-            zoom: 12,
-            disableDefaultUI: true,
-            zoomControl: true,
-            mapId: "d67e58693d403acacaa713aa"
-          });
-
-          const bounds = new google.maps.LatLngBounds();
-          positionedStops.forEach((stop, index) => {
-            const position = { lat: stop.latitude, lng: stop.longitude };
-            bounds.extend(position);
-            const markerContent = document.createElement("div");
-
-            markerContent.style.width = "28px";
-            markerContent.style.height = "28px";
-            markerContent.style.borderRadius = "50%";
-            markerContent.style.background = "#10c0c0";
-            markerContent.style.color = "#fff";
-            markerContent.style.display = "flex";
-            markerContent.style.alignItems = "center";
-            markerContent.style.justifyContent = "center";
-            markerContent.style.fontSize = "14px";
-            markerContent.style.fontWeight = "800";
-            markerContent.style.border = "2px solid #fff";
-            markerContent.style.boxShadow =
-              "0 4px 10px rgba(16,192,192,0.35)";
-
-            markerContent.textContent = String(index + 1);
-
-            markers.push(
-              new google.maps.marker.AdvancedMarkerElement({
-                position,
-                map,
-                title: stop.name,
-                content: markerContent,
-              })
-            );
-          });
-
-          if (positionedStops.length > 1) {
-            polyline = new google.maps.Polyline({
-              path: positionedStops.map((stop) => ({
-                lat: stop.latitude,
-                lng: stop.longitude,
-              })),
-              geodesic: true,
-              strokeColor: BRAND,
-              strokeOpacity: 0.9,
-              strokeWeight: 3,
-              map,
-            });
-          }
-
-          map.fitBounds(bounds);
-          setMapReady(true);
-          setMapError("");
-        } catch (error) {
-          setMapReady(false);
-          setMapError(error instanceof Error ? error.message : "Google Map could not be rendered.");
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setMapReady(false);
-          setMapError(error instanceof Error ? error.message : "Google Maps failed to load.");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      markers.forEach((marker) => {
-        marker.map = null;
-      });
-      polyline?.setMap(null);
+    const scriptId = "naver-maps-sdk-gl";
+    
+    const load = () => {
+      setTimeout(() => {
+        initMap();
+      }, 100);
     };
+
+    if (!document.getElementById(scriptId)) {
+      const script = document.createElement("script");
+      script.id = scriptId;
+      script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${clientId}&submodules=gl`;
+      script.onload = load;
+      script.onerror = () => setMapError("Naver Maps SDK failed to load.");
+      document.head.appendChild(script);
+    } else if ((window as any).naver?.maps) {
+      load();
+    } else {
+      document.getElementById(scriptId)?.addEventListener("load", load, { once: true });
+    }
+
+    function initMap() {
+      const naver = (window as any).naver;
+      if (!naver?.maps || !mapRef.current) return;
+
+      let map = naverMapRef.current;
+
+      if (!map) {
+        map = new naver.maps.Map(mapRef.current, {
+          center: new naver.maps.LatLng(
+            positionedStops[0].latitude,
+            positionedStops[0].longitude
+          ),
+          gl: true, 
+          zoom: 10,
+          scaleControl: false,
+          mapDataControl: false,
+          customStyleId: import.meta.env.VITE_NAVER_MAPS_STYLE_ID,
+        });
+        naverMapRef.current = map;
+      } else {
+        map.refresh();
+      }
+
+      markersRef.current.forEach((marker) => marker.setMap(null));
+      markersRef.current = [];
+
+      if (polylineRef.current) {
+        polylineRef.current.setMap(null);
+        polylineRef.current = null;
+      }
+
+      const bounds = new naver.maps.LatLngBounds();
+
+      positionedStops.forEach((stop, index) => {
+        const position = new naver.maps.LatLng(stop.latitude, stop.longitude);
+        bounds.extend(position);
+
+        const marker = new naver.maps.Marker({
+          position,
+          map,
+          icon: {
+            content: `
+              <svg width="24" height="32" viewBox="0 0 36 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M18 0C8.06 0 0 8.06 0 18C0 31.5 18 48 18 48C18 48 36 31.5 36 18C36 8.06 27.94 0 18 0Z" fill="#58C9D4"/>
+                <text x="18" y="22" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="14" font-weight="800" font-family="sans-serif">${index + 1}</text>
+              </svg>
+            `,
+            anchor: new naver.maps.Point(12, 32),
+          },
+        });
+        markersRef.current.push(marker);
+      });
+
+      if (positionedStops.length > 1) {
+        polylineRef.current = new naver.maps.Polyline({
+          path: positionedStops.map(
+            (stop) => new naver.maps.LatLng(stop.latitude, stop.longitude)
+          ),
+          strokeColor: "#58C9D4",
+          strokeOpacity: 0.9,
+          strokeWeight: 3,
+          map,
+        });
+      }
+
+      if (positionedStops.length > 0) {
+        map.fitBounds(bounds, { top: 60, right: 60, bottom: 60, left: 60 });
+      }
+
+      setMapReady(true);
+      setMapError("");
+    }
   }, [mapRef, positionedStops]);
 
-  const hasApiKey = Boolean(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
+  const hasApiKey = Boolean(import.meta.env.VITE_NAVER_MAPS_CLIENT_ID);
 
   return (
     <div style={styles.mapBox}>
@@ -742,11 +734,13 @@ function MapPreview({ stops }: { stops: PlannedStop[] }) {
             Search and add places with coordinates to display them on the map.
           </div>
         ) : !hasApiKey ? (
-          <div style={styles.mapEmpty}>Add `VITE_GOOGLE_MAPS_API_KEY` to render the live map.</div>
+          <div style={styles.mapEmpty}>
+            Add `VITE_NAVER_MAPS_CLIENT_ID` to render the live map.
+          </div>
         ) : mapError ? (
           <div style={styles.mapEmpty}>{mapError}</div>
         ) : !mapReady ? (
-          <div style={styles.mapEmpty}>Loading Google Map...</div>
+          <div style={styles.mapEmpty}>Loading Naver Map...</div>
         ) : null}
       </div>
       {positionedStops.length > 0 ? (
@@ -899,12 +893,13 @@ export default function ManualPlanPage({
 
     let cancelled = false;
     void getTourPlan(planId)
+      .then((savedPlan) => hydratePlanItemCoordinates(savedPlan))
       .then((savedPlan) => {
         if (cancelled) return;
         const dateMetadata = readManualPlanDateMetadata()[savedPlan.plan_id] || {};
         const stops = savedPlanToStops(savedPlan, dateMetadata);
         const dates = Array.from(new Set(stops.map((stop) => stop.visitDate))).sort();
-        const firstDate = dates[0] || DEFAULT_START_DATE;
+        const firstDate = dates[0] || getDefaultStartDate();
         const lastDate = dates[dates.length - 1] || firstDate;
 
         setLoadedPlan(savedPlan);
@@ -1301,19 +1296,15 @@ export default function ManualPlanPage({
           <button type="button" onClick={goBack} style={styles.iconButton}>
             <img src="/icon-back.svg" alt="Back" style={styles.backIcon} />
           </button>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <strong style={styles.title}>
-              {isComplete ? "Plan created" : "Manual Planner"}
-            </strong>
-          </div>
-          {isComplete ? (
-            <button type="button" onClick={onHome} style={styles.shareButton}>
-              Home
+          <h1 style={styles.headerLogo}>
+            Manual Plan
+          </h1>
+          {!isComplete ? (
+            <button type="button" onClick={() => setShowShare(true)} style={styles.shareButton}>
+              <img src="/UserAddIcon.svg" alt="UserAdd" style={styles.userAddButton}></img>
             </button>
           ) : (
-            <button type="button" onClick={() => setShowShare(true)} style={styles.shareButton}>
-              Invite
-            </button>
+            <span style={styles.headerSpacer} />
           )}
         </div>
 
@@ -1321,15 +1312,20 @@ export default function ManualPlanPage({
 
         {isComplete ? (
           <section style={{ ...styles.card, ...styles.completeCard }}>
-            <div style={styles.completeImage}>✓</div>
-            <h1 style={styles.sectionTitle}>Plan creation complete</h1>
+            <img src="/map_success.svg" alt="" style={styles.completeImage} />
+            <h1 style={styles.sectionTitleEnd}>All set!</h1>
             <p style={styles.sectionCopy}>
               {saveMessage || `Saved to My Page (${buildPlanTitle("manual", tripTitle)})`}
             </p>
+          </section>
+        ) : null}
+
+        {isComplete ? (
+          <div style={styles.actionBar}>
             <button type="button" onClick={onMyPage} style={styles.primaryAction}>
               Check My Page
             </button>
-          </section>
+          </div>
         ) : null}
 
         {!isComplete && step === 1 ? (
@@ -1344,7 +1340,7 @@ export default function ManualPlanPage({
               <input
                 value={tripTitle}
                 onChange={(event) => setTripTitle(event.target.value)}
-                style={styles.input}
+                style={styles.planInput}
                 placeholder="Manual Trip Plan"
               />
             </label>
@@ -1573,7 +1569,13 @@ export default function ManualPlanPage({
                               }
                               style={styles.editButton}
                             >
-                              {editingStopId === stop.plannedId ? "D" : "E"}
+                              {editingStopId === stop.plannedId ? (
+                                <img width="16" height="16" src="/CheckIcon.svg">
+                                </img>
+                              ) : (
+                                <img width="16" height="16" src="/PostIcon.svg">
+                                </img>
+                              )}
                             </button>
                             <button
                               type="button"
@@ -1584,7 +1586,8 @@ export default function ManualPlanPage({
                               }}
                               disabled={!canDeleteStop}
                             >
-                              X
+                                <img width="16" height="16" src="/icon-close.svg">
+                                </img>
                             </button>
                           </div>
                         </div>
@@ -1706,7 +1709,6 @@ export default function ManualPlanPage({
             <div style={styles.sheetHandle} />
             <h2 style={styles.sheetTitle}>Search place</h2>
             <label style={styles.searchWrap}>
-              <span style={styles.searchLabel}>Place search</span>
               <div style={styles.searchRow}>
                 <input
                   value={query}
@@ -1719,7 +1721,7 @@ export default function ManualPlanPage({
                     }
                   }}
                   style={styles.input}
-                  placeholder="Examples: Bukchon, cafe, Myeongdong Gyoja"
+                  placeholder="Examples: Bukchon, cafe, Myeongdong"
                 />
                 <button
                   type="button"
@@ -1727,7 +1729,7 @@ export default function ManualPlanPage({
                   style={styles.searchButton}
                   disabled={isLoading}
                 >
-                  Search
+                  <img src="/SearchIcon.svg" alt="search" style={styles.searchIcon}></img>
                 </button>
               </div>
             </label>
@@ -1745,25 +1747,23 @@ export default function ManualPlanPage({
                 searchResults.map((place) => (
                   <article key={place.id} style={styles.placeCard}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      <div style={styles.placeTopRow}>
-                        <strong style={styles.placeName}>{place.name}</strong>
-                        <div style={styles.placeBadgeRow}>
+                      <div style={styles.placeBadgeRow}>
                           {typeof place.rating === "number" ? (
                             <span style={styles.ratingBadge}>{place.rating.toFixed(1)}</span>
                           ) : null}
                           <span style={styles.placeCategory}>{place.category}</span>
-                        </div>
+                      </div>
+                      <div style={styles.placeTopRow}>
+                        <strong style={styles.placeName}>{place.name}</strong>
                       </div>
                       {place.summary ? <p style={styles.placeSummary}>{place.summary}</p> : null}
                       {place.address ? <span style={styles.placeAddress}>{place.address}</span> : null}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => addPlaceToPlan(place)}
-                      style={styles.addButton}
-                    >
-                      Add
-                    </button>
+                    <div style={styles.addButtonRow}>   
+                      <button type="button" onClick={() => addPlaceToPlan(place)} style={styles.addButton}>
+                        Add
+                      </button>
+                    </div>
                   </article>
                 ))
               )}
@@ -1771,7 +1771,6 @@ export default function ManualPlanPage({
           </div>
         </div>
       ) : null}
-
       {showShare ? <ShareSheet onClose={() => setShowShare(false)} /> : null}
     </div>
   );
@@ -1783,7 +1782,7 @@ const styles: Record<string, CSSProperties> = {
     padding: "calc(20px + var(--app-safe-top)) 16px 20px",
     boxSizing: "border-box",
     background: "#fff",
-    fontFamily: '"Nunito", "Apple SD Gothic Neo", sans-serif',
+    fontFamily: '"Pretendard Variable", sans-serif',
   },
   phoneFrame: {
     maxWidth: 430,
@@ -1804,7 +1803,7 @@ const styles: Record<string, CSSProperties> = {
   },
   topBar: {
     display: "grid",
-    gridTemplateColumns: "42px 1fr auto",
+    gridTemplateColumns: "42px 1fr 42px",
     alignItems: "center",
   },
   iconButton: {
@@ -1823,16 +1822,35 @@ const styles: Record<string, CSSProperties> = {
     height: 20,
     display: "block",
   },
+  headerLogo: {
+    fontSize: "1.1rem",
+    height: "auto",
+    display: "flex",
+    color: "#212121",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerSpacer: {
+    width: 72,
+    height: 42,
+    display: "block",
+  },
   shareButton: {
-    marginTop: 2,
-    border: "none",
-    borderRadius: "3rem",
-    background: ACCENT,
-    color: "#533800",
-    padding: "0.5rem 0.8rem",
-    fontSize: 13,
-    fontWeight: 700,
+    width: 42,
+    height: 42,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "transparent",
+    background: "transparent",
+    padding: 0,
     cursor: "pointer",
+  },
+  userAddButton: {
+    width: "24px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
   },
   title: {
     color: "#102223",
@@ -1872,14 +1890,14 @@ const styles: Record<string, CSSProperties> = {
   },
   sectionTitle: {
     margin: "0 0 2.5rem",
-    color: "#102223",
+    color: "#212121",
     fontSize: 20,
   },
   dayCount: {
     padding: "8px 12px",
     borderRadius: 999,
-    background: "rgba(255,190,15,0.18)",
-    color: "#7a5400",
+    background: "var(--brand-secondary-soft)",
+    color: "#64370d",
     fontSize: 12,
     fontWeight: 600,
   },
@@ -1896,17 +1914,31 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     color: "#6b6b6b",
   },
-  input: {
+  planInput: {
     width: "100%",
     minHeight: 46,
     borderRadius: "3rem",
     border: "transparent",
-    background: "#f6f6f6",
     color: "#222",
     padding: "0.5rem 1.2rem",
     fontSize: "0.8rem",
     boxSizing: "border-box",
     fontWeight: 400,
+    outline: "none",
+    background: "#f5f5f5",
+  },
+  input: {
+    width: "100%",
+    minHeight: 46,
+    borderRadius: "3rem",
+    border: "transparent",
+    background: "transparent",
+    color: "#222",
+    padding: "0.5rem 1.2rem",
+    fontSize: "0.8rem",
+    boxSizing: "border-box",
+    fontWeight: 400,
+    outline: "none",
   },
   dayTabs: {
     display: "flex",
@@ -1996,17 +2028,17 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   calendarDayToday: {
-    background: "#eeeeee",
+    background: "#ffffff",
     borderRadius: 999,
     color: "#204444",
   },
   calendarDayInRange: {
-    background: BRAND,
+    background: "#58c9d4",
     color: "#ffffff",
     border: "none",
   },
   calendarDaySelected: {
-    background: BRAND,
+    background: "#58c9d4",
     color: "#ffffff",
     border: "none",
   },
@@ -2080,7 +2112,7 @@ const styles: Record<string, CSSProperties> = {
     width: 24,
     height: 24,
     borderRadius: "50%",
-    background: "#10c0c0",
+    background: "#58c9d4",
     color: "#fff",
     display: "grid",
     placeItems: "center",
@@ -2102,32 +2134,32 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     gap: 8,
   },
-  searchLabel: {
-    color: "#204444",
-    fontSize: 12,
-    fontWeight: 800,
-  },
   searchRow: {
     display: "grid",
     gridTemplateColumns: "1fr auto",
     gap: 10,
     alignItems: "center",
+    background: "var(--surface-muted)",
+    borderRadius: "3rem",
   },
   searchButton: {
-    minWidth: 82,
+    minWidth: 46,
     minHeight: 46,
     border: "none",
+    background: "transparent",
     borderRadius: 14,
-    background: ACCENT,
-    color: "#533800",
     padding: "0 14px",
     fontSize: 13,
     fontWeight: 900,
     cursor: "pointer",
   },
+  searchIcon: {
+    width: 18,
+    alignItems: "center",
+    justifyItems: "center",
+  },
   placeEntryCard: {
     minHeight: 360,
-    padding: "24px 0 26px",
     borderRadius: 0,
     border: "none",
     boxShadow: "none",
@@ -2263,16 +2295,19 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 10,
+    overflowY: "auto",
+    flex: 1,
+    paddingBottom: 8,
   },
   placeCard: {
     padding: 14,
     borderRadius: 18,
-    border: "1px solid #dceeee",
-    background: "#fbffff",
-    display: "grid",
-    gridTemplateColumns: "1fr auto",
+    border: "0.8px solid #eaeaea",
+    background: "#fafafa",
+    display: "flex",
+    flexDirection: "column",
     gap: 12,
-    alignItems: "center",
+    alignItems: "stretch",
   },
   placeTopRow: {
     display: "flex",
@@ -2281,9 +2316,10 @@ const styles: Record<string, CSSProperties> = {
     gap: 10,
   },
   placeName: {
+    marginTop: 4,
     color: "#222",
-    fontSize: "0.9rem",
-    lineHeight: "1.2rem"
+    fontSize: "0.85rem",
+    lineHeight: "1.1rem"
   },
   placeNameButton: {
     minWidth: 0,
@@ -2300,53 +2336,58 @@ const styles: Record<string, CSSProperties> = {
   placeCategory: {
     padding: "6px 10px",
     borderRadius: 999,
-    background: "rgba(1,192,192,0.1)",
+    background: "#e1eef0",
     color: BRAND,
-    fontSize: 11,
-    fontWeight: 800,
+    fontSize: 10,
+    fontWeight: 700,
   },
   placeBadgeRow: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "flex-end",
+    justifyContent: "flex-start",
     gap: 6,
     flexWrap: "wrap",
   },
   ratingBadge: {
     padding: "6px 9px",
     borderRadius: 999,
-    background: "rgba(255,190,15,0.2)",
-    color: "#7a5400",
-    fontSize: 11,
-    fontWeight: 900,
+    background: "#f8edd0",
+    color: "#7a4900",
+    fontSize: 10,
+    fontWeight: 800,
   },
   placeSummary: {
     margin: 0,
-    color: "#222",
+    color: "#444444",
     lineHeight: "1rem",
-    fontSize: "1rem",
+    fontSize: "0.75rem",
   },
   placeAddress: {
     color: "#848484",
-    fontSize: "0.75rem",
+    fontSize: "0.7rem",
     fontWeight: 400,
   },
+  addButtonRow: {
+    width: "100%",
+    display: "flex",
+    justifyContent: "flex-end",
+  },
   addButton: {
-    minWidth: 66,
-    minHeight: 40,
+    minWidth: 48,
+    minHeight: 36,
     border: "none",
-    borderRadius: 14,
+    borderRadius: 12,
     background: BRAND,
     color: "#ffffff",
-    fontSize: 13,
-    fontWeight: 900,
+    fontSize: 12,
+    fontWeight: 800,
     cursor: "pointer",
   },
   emptyState: {
     padding: "24px 16px",
     borderRadius: 18,
-    background: "#f6fcfc",
-    color: "#577071",
+    background: "transparent",
+    color: "#888888",
     textAlign: "center",
     fontSize: 14,
   },
@@ -2451,7 +2492,7 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 56,
     border: "none",
     borderRadius: "3rem",
-    background: "#10c0c0",
+    background: "#58c9d4",
     color: "#ffffff",
     fontSize: "1rem",
     fontWeight: 800,
@@ -2473,20 +2514,14 @@ const styles: Record<string, CSSProperties> = {
   completeCard: {
     alignItems: "center",
     textAlign: "center",
-    paddingTop: 32,
+    paddingTop: 180,
     paddingBottom: 32,
   },
   completeImage: {
     width: 118,
     height: 118,
-    borderRadius: "50%",
-    background: `linear-gradient(135deg, ${BRAND} 0%, ${ACCENT} 100%)`,
-    color: "#ffffff",
-    display: "grid",
-    placeItems: "center",
-    fontSize: 56,
-    fontWeight: 900,
-    boxShadow: "0 18px 34px rgba(1, 192, 192, 0.22)",
+    objectFit: "contain",
+    display: "block",
   },
   overlay: {
     position: "fixed",
@@ -2497,42 +2532,48 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 30,
   },
   overlayBackdrop: {
+    position: "fixed",
+    inset: 0,
     flex: 1,
     border: "none",
     background: "rgba(16, 34, 35, 0.42)",
     cursor: "pointer",
+    zIndex: 0,  
   },
   sheet: {
+    zIndex: 1,
     padding: "18px 18px calc(28px + var(--app-safe-bottom))",
-    borderRadius: "28px 28px 0 0",
-    background: "#ffffff",
+    borderRadius: "20px 20px 0 0",
+    background: "#fff",
     boxShadow: "0 -16px 36px rgba(16, 34, 35, 0.12)",
     display: "flex",
     flexDirection: "column",
     gap: 14,
+    overflow: "hidden",
   },
   searchSheet: {
+    position: "relative",
+    zIndex: 1,
     maxHeight: "82vh",
     padding: "18px 18px calc(28px + var(--app-safe-bottom))",
-    borderRadius: "28px 28px 0 0",
+    borderRadius: "20px 20px 0 0",
     background: "#ffffff",
     boxShadow: "0 -16px 36px rgba(16, 34, 35, 0.12)",
     display: "flex",
     flexDirection: "column",
     gap: 14,
-    overflowY: "auto",
   },
   sheetHandle: {
     width: 56,
     height: 6,
     borderRadius: 999,
-    background: "#d7ecec",
+    background: "#eaeaea",
     alignSelf: "center",
   },
   sheetTitle: {
     margin: 0,
-    color: "#102223",
-    fontSize: 22,
+    color: "var(--text-primary)",
+    fontSize: 16,
   },
   sheetCopy: {
     margin: 0,
@@ -2562,5 +2603,17 @@ const styles: Record<string, CSSProperties> = {
   shareSubtitle: {
     color: "#577071",
     fontSize: 12,
+  },
+  sectionTitleEnd: {
+    margin: "0 0 4px",
+    color: "#212121",
+    fontSize: 20,
+  },
+  sectionCopy: {
+    margin: "0 0 1rem",
+    color: "#577071",
+    fontSize: 14,
+    lineHeight: 1.6,
+    textAlign: "center",
   },
 };

@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Request, Depends, Query
 from dependency_injector.wiring import Provide, inject
 
+from app.schema.common import MessageResponse
 from app.domain.friend.service.search_history import FriendSearchHistoryService
 from app.domain.friend.schema.search_history import (
     FriendSearchHistoryResponse, FriendSearchHistoryListResponse,
 )
-from app.schema.common import MessageResponse
 from app.core.logger import get_logger
 from app.container import Container
 

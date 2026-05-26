@@ -10,8 +10,8 @@ happy path 전체 (실 Pillow + 실 S3 + 실 INSERT) 는 통합 테스트 영역
 """
 import pytest
 
-from app.domain.feed.dto.image import ProcessedFeedImage, ProcessedVariant
 from app.domain.feed.model.feed_post import FeedVisibility
+from app.domain.feed.dto.image import ProcessedFeedImage, ProcessedVariant
 
 
 def _stub_processed() -> ProcessedFeedImage:
@@ -51,6 +51,7 @@ class TestUploadCaptionNormalization:
         saved_post = repo_mock.save.await_args.args[0]
         assert saved_post.caption is None
 
+
     async def test_whitespace_caption_normalized(
         self, service, repo_mock, storage_mock, stub_thumbnail,
     ):
@@ -61,6 +62,7 @@ class TestUploadCaptionNormalization:
         )
         assert result.caption is None
 
+
     async def test_non_blank_caption_passes_through(
         self, service, repo_mock, storage_mock, stub_thumbnail,
     ):
@@ -70,6 +72,7 @@ class TestUploadCaptionNormalization:
             visibility=FeedVisibility.PUBLIC, caption="안녕",
         )
         assert result.caption == "안녕"
+
 
     async def test_new_post_has_zero_counts(
         self, service, repo_mock, storage_mock, stub_thumbnail,
@@ -82,6 +85,20 @@ class TestUploadCaptionNormalization:
         )
         assert result.like_count == 0
         assert result.comment_count == 0
+
+
+    async def test_new_post_is_liked_false(
+        self, service, repo_mock, storage_mock, stub_thumbnail,
+    ):
+        """신규 업로드 직후엔 본인이 자기 글에 아직 좋아요 안 눌렀으므로 항상 False —
+        service 가 reload 없이 False 로 합성 (인스타 동치).
+        """
+        storage_mock.upload_to_key.return_value = "https://x/url"
+        result = await service.upload_post(
+            user_id="USER_a", file_bytes=b"x",
+            visibility=FeedVisibility.PUBLIC, caption="hi",
+        )
+        assert result.is_liked is False
 
 
 @pytest.mark.unit
@@ -104,6 +121,7 @@ class TestUploadCleanupOnFailure:
         # INSERT 는 호출되지 않아야 함 (S3 실패가 먼저)
         repo_mock.save.assert_not_called()
 
+
     async def test_insert_failure_triggers_cleanup(
         self, service, repo_mock, storage_mock, stub_thumbnail,
     ):
@@ -117,6 +135,7 @@ class TestUploadCleanupOnFailure:
                 visibility=FeedVisibility.PUBLIC, caption="hi",
             )
         storage_mock.delete_by_prefix.assert_awaited_once()
+
 
     async def test_cleanup_failure_does_not_mask_original_error(
         self, service, repo_mock, storage_mock, stub_thumbnail,

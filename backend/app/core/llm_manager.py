@@ -1,11 +1,11 @@
 from typing import Dict, List
 from langchain_google_genai import ChatGoogleGenerativeAI
-from functools import lru_cache
 import httpx
+from functools import lru_cache
 from enum import Enum
 
-from app.config.setting import settings
 from app.core.instrumentation import GeminiInstrumentationHandler
+from app.config.setting import settings
 
 
 class ModelName(str, Enum):

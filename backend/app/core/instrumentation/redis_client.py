@@ -1,7 +1,7 @@
 """Redis 명령 / Lua script 호출 instrumentation.
 
-파일명을 `redis_client` 로 둔 이유: 패키지 내부에서 `redis` 로 두면 `import redis` 가
-상대 import 처럼 해석되거나 IDE 가 헷갈리기 쉬워 외부 `redis` 패키지와 명시적으로 구분.
+모듈명을 `redis_client` 로 둔 이유 — 패키지 내부에서 `redis` 로 두면 외부 `redis` 패키지와
+헷갈리기 쉬워 명시적 구분.
 """
 import time
 
@@ -12,7 +12,7 @@ from app.core.metric import (
 )
 
 
-# 우리 코드가 실제 호출하는 명령 화이트리스트. 그 외는 'other' 로 통합 — 카디널리티 통제.
+# 실제 호출하는 명령 화이트리스트. 그 외는 'other' 통합.
 _KNOWN_REDIS_COMMANDS = frozenset({
     "GET", "SET", "DEL", "EXISTS", "EXPIRE", "TTL", "PERSIST", "MGET", "MSET",
     "INCR", "DECR", "INCRBY", "DECRBY",
@@ -29,10 +29,7 @@ _KNOWN_REDIS_COMMANDS = frozenset({
 
 
 def _normalize_redis_command(cmd) -> str:
-    """Redis command 이름을 enum 라벨로 정규화. bytes / str 모두 처리.
-
-    SCRIPT LOAD 같이 두 단어 명령은 첫 단어만 사용 (SCRIPT). 화이트리스트 외는 'other'.
-    """
+    """Redis 명령 이름을 enum 라벨로 정규화. `SCRIPT LOAD` 같은 두 단어 명령은 첫 단어만."""
     if isinstance(cmd, bytes):
         cmd = cmd.decode("ascii", errors="replace")
     if not isinstance(cmd, str):
@@ -42,10 +39,9 @@ def _normalize_redis_command(cmd) -> str:
 
 
 def instrument_redis_client(client, db: str) -> None:
-    """redis.asyncio.Redis 인스턴스의 execute_command 를 instrumented 버전으로 monkey-patch.
+    """redis.asyncio.Redis 의 `execute_command` 를 monkey-patch 해 단일 명령 측정.
 
-    redis.from_url() 직후 1 회 호출. 단일 명령만 잡힌다 — pipeline 은 send_packed_command
-    경로라 우회. 운영 가시성에 충분.
+    `redis.from_url()` 직후 1회. pipeline 은 `send_packed_command` 경로라 우회.
     """
     if getattr(client, "_krip_instrumented", False):
         return
@@ -73,26 +69,22 @@ def instrument_redis_client(client, db: str) -> None:
 
 
 class _InstrumentedScript:
-    """AsyncScript 호출에 redis_lua_script_run_total 카운트 부착.
-
-    내부 script 의 SHA, EVALSHA fallback, NOSCRIPT 재로드 등 동작은 그대로 위임된다.
-    """
+    """AsyncScript 호출에 run_total 카운트 부착. SHA / EVALSHA fallback 동작은 그대로 위임."""
 
     def __init__(self, script, name: str) -> None:
         self._script = script
         self._name = name
 
+
     async def __call__(self, *args, **kwargs):
         REDIS_LUA_SCRIPT_RUN_TOTAL.labels(script=self._name).inc()
         return await self._script(*args, **kwargs)
+
 
     def __getattr__(self, item):
         return getattr(self._script, item)
 
 
 def instrument_lua_script(script, name: str):
-    """AsyncScript 를 _InstrumentedScript wrapper 로 감싼다.
-
-    LuaScripts.load() 안에서 register_script 결과에 부착.
-    """
+    """AsyncScript 를 `_InstrumentedScript` 로 감싼다. `LuaScripts.load()` 에서 호출."""
     return _InstrumentedScript(script, name)

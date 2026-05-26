@@ -23,6 +23,7 @@ class TripmateImageRepository:
             {"user_id": user_id}
         ).sort("-timestamp").to_list()
 
+
     @measure_mongo_op("find_one", "tripmate_image")
     async def find_by_image_id(self, image_id: str) -> Optional[TripmateImage]:
         """이미지 ID로 단건 조회"""
@@ -37,6 +38,7 @@ class TripmateImageRepository:
         if image:
             await image.delete()
 
+
     @measure_mongo_op("delete", "tripmate_image")
     async def delete_by_image_ids(self, image_ids: List[str]) -> None:
         """이미지 ID 목록으로 일괄 삭제"""
@@ -44,12 +46,14 @@ class TripmateImageRepository:
             return
         await TripmateImage.find({"image_id": {"$in": image_ids}}).delete()
 
+
     @measure_mongo_op("delete", "tripmate_image")
     async def delete_by_urls(self, image_urls: List[str]) -> None:
         """이미지 URL 목록으로 일괄 삭제"""
         if not image_urls:
             return
         await TripmateImage.find({"image_url": {"$in": image_urls}}).delete()
+
 
     @measure_mongo_op("delete", "tripmate_image")
     async def delete_by_user_id(self, user_id: str) -> None:

@@ -185,3 +185,21 @@ class OtherUserProfileListResponse(BaseModel):
         ...,
         description="본인을 제외한 ACTIVE 유저 목록 (최신 가입순)",
     )
+
+
+class ProfileStatsResponse(BaseModel):
+    """마이페이지 통계 응답 — 본인 활동 카운터.
+
+    응답 시점 스냅샷. 클라이언트가 좋아요/친구 액션 후 마이페이지를 다시 조회하면
+    갱신된 값. 미래 확장 (게시물 수, 댓글 수 등) 시 새 필드를 평면으로 추가.
+    """
+    total_feed_likes: int = Field(
+        ...,
+        description="본인이 업로드한 모든 피드 게시물이 받은 좋아요 총 합 (visibility 무관)",
+        examples=[42],
+    )
+    total_friends: int = Field(
+        ...,
+        description="ACCEPTED 상태의 친구 수 (PENDING / REJECTED 제외)",
+        examples=[7],
+    )

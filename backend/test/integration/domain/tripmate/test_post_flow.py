@@ -15,10 +15,9 @@ S3 / Mongo image repo mock — RDB 흐름만 통합. visibility 검증 없음 (t
     | delete_post 정상               | RDB row 삭제 (CASCADE 좋아요/이미지) |
     | toggle_display 정상            | is_displayed 토글                 |
 """
-from datetime import date
-
-import pytest
 from sqlalchemy import select
+import pytest
+from datetime import date
 
 from app.domain.tripmate.model.tripmate_post import (
     CompanionType, PreferredGender, TripmatePost,
@@ -69,6 +68,7 @@ class TestGetPost:
 
         assert result.post_id == post_id
 
+
     async def test_raises_when_post_not_found(self, tripmate_post_service):
         with pytest.raises(ValueError, match="존재하지 않는"):
             await tripmate_post_service.get_post(post_id="TMP_ghost")
@@ -94,6 +94,7 @@ class TestUpdatePost:
                 travel_end_date=date(2026, 6, 5),
                 companion_type=CompanionType.FRIEND,
             )
+
 
     async def test_owner_can_update_persists(
         self, tripmate_post_service, seed_tripmate_post, session_factory,
@@ -130,6 +131,7 @@ class TestDeletePost:
         with pytest.raises(PermissionError):
             await tripmate_post_service.delete_post(post_id=post_id, user_id=other_id)
 
+
     async def test_owner_can_delete_post_row_removed(
         self, tripmate_post_service, seed_tripmate_post, session_factory,
     ):
@@ -140,6 +142,7 @@ class TestDeletePost:
         async with session_factory() as session:
             post = await session.get(TripmatePost, post_id)
             assert post is None
+
 
     async def test_missing_raises_value_error(
         self, tripmate_post_service, seed_users,
@@ -169,6 +172,7 @@ class TestToggleDisplay:
         async with session_factory() as session:
             post = await session.get(TripmatePost, post_id)
             assert post.is_displayed is False
+
 
     async def test_other_user_raises_permission_error(
         self, tripmate_post_service, seed_tripmate_post,

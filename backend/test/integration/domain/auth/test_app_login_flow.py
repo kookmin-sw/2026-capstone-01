@@ -10,23 +10,22 @@ OAuth provider 호출은 fake client 로, SignupService 도 mock 으로 격리�
 이 파일의 핵심 목적이다 — state 파싱, deep link 형식, JWT payload, status 분기.
 """
 
-from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
-
-import jwt
+from unittest.mock import AsyncMock
 import pytest
-from dependency_injector import providers
-from fastapi import FastAPI
+import jwt
 from fastapi.testclient import TestClient
+from fastapi import FastAPI
+from dependency_injector import providers
 
-import app.database.model  # noqa: F401 — 매퍼 선 등록 (dto 가 enum 참조)
-from app.config.oauth import OAuthProvider
-from app.config.setting import settings
-from app.container import Container
-from app.core.oauth import OAUTH_CLIENTS
-from app.core.oauth.base import OAuthClient, OAuthUser
-from app.domain.auth.dto.signup import SignupResult, SignupStatus
 from app.domain.auth.router.app_login import APP_DEEP_LINK, router as app_login_router
+from app.domain.auth.dto.signup import SignupResult, SignupStatus
+import app.database.model  # noqa: F401 — 매퍼 선 등록 (dto 가 enum 참조)
+from app.core.oauth.base import OAuthClient, OAuthUser
+from app.core.oauth import OAUTH_CLIENTS
+from app.container import Container
+from app.config.setting import settings
+from app.config.oauth import OAuthProvider
 
 
 pytestmark = pytest.mark.integration
@@ -50,8 +49,10 @@ class _FakeGoogleClient(OAuthClient):
     def __init__(self, config):
         super().__init__(config, OAuthProvider.GOOGLE)
 
+
     async def get_access_token(self, code: str, user_type: str) -> str:
         return f"fake-access-token:{code}"
+
 
     async def get_user_info(self, access_token: str) -> OAuthUser:
         return OAuthUser(
@@ -129,6 +130,7 @@ class TestAppLoginRedirect:
         # Google 은 `select_account` 강제 (base 클래스 분기) — 캐시된 세션 자동 로그인 방지.
         assert params["prompt"] == ["select_account"]
 
+
     def test_returns_422_when_provider_is_unknown(self, app_http):
         """OAuthProvider enum 에 없는 값은 FastAPI Query 검증 단계에서 422."""
         client, _ = app_http
@@ -182,6 +184,7 @@ class TestAppLoginCallbackSuccess:
             auth_provider_id=_FakeGoogleClient.USER_ID,
         )
 
+
     def test_still_issues_token_on_withdrawal_pending(self, app_http):
         """탈퇴 유예 유저도 토큰을 발급한다 — 프론트가 status 로 cancel 화면 라우팅.
 
@@ -203,6 +206,7 @@ class TestAppLoginCallbackSuccess:
         assert params["status"] == ["withdrawal_pending"]
         # 토큰은 발급되어야 한다 (프론트가 cancel 흐름에서 사용)
         assert _decode_utk(params["utk"][0])["user_id"] == "USER_pending"
+
 
     def test_omits_optional_user_fields_when_provider_returns_none(self, app_http, monkeypatch):
         """provider 가 email/name 을 안 주는 경우 query 에 키 자체가 빠진다 (빈 문자열 X)."""
@@ -249,6 +253,7 @@ class TestAppLoginCallbackErrors:
         assert resp.status_code == 400
         assert "state" in resp.json()["detail"]
         signup_mock.check_and_register.assert_not_called()
+
 
     def test_returns_400_when_state_provider_unknown(self, app_http):
         client, signup_mock = app_http

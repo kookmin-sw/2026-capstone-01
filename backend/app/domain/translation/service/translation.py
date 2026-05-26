@@ -1,12 +1,12 @@
 from httpx import HTTPStatusError, RequestError
 
-from app.core.ai.papago_translator.load import PapagoTranslator
-from app.domain.translation.dto.translation import DetectData, TranslateData
-from app.domain.translation.schema.translation import LangCode
 from app.domain.translation.service.exception import (
     TranslationUnreachableError,
     TranslationVendorError,
 )
+from app.domain.translation.schema.translation import LangCode
+from app.domain.translation.dto.translation import DetectData, TranslateData
+from app.core.ai.papago_translator.load import PapagoTranslator
 
 
 class TranslationService:

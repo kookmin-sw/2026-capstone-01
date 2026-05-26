@@ -107,6 +107,7 @@ class PlaceRepository:
         collection = Place.get_motor_collection()
         return await collection.find_one({"place_id": place_id})
 
+
     @measure_mongo_op("find", "place")
     async def find_by_place_ids(self, place_ids: list[str]) -> list[dict]:
         """place_id 목록으로 장소 배치 조회"""

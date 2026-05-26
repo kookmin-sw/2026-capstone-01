@@ -1,6 +1,6 @@
 from typing import List, Optional
-from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
+from datetime import datetime
 
 from app.domain.friend.model.friendship import FriendshipStatus
 from app.domain.auth.model.user_detail_inform import Gender

@@ -1,23 +1,7 @@
 """인박스 라우터.
 
-엔드포인트:
-    GET   /notification/inbox                       — 인박스 (커서 페이지네이션, 최신순).
-                                                      첫 페이지 진입 시 미읽음 자동 일괄 읽음 처리.
-    GET   /notification/inbox/unread-count          — 미읽음 뱃지 카운트 (999+ 캡)
-    PATCH /notification/inbox/{inbox_item_id}/hide  — X 버튼 (display=False, 본인 소유만)
-
-`/inbox` sub-prefix — 부모 `/notification` 안에서 fcm-token / mute 와 같은 레벨로 두기 위함.
-FastAPI 는 sub-router 의 (prefix, path) 가 모두 빈 문자열이면 등록 거부 → 의미 있는 sub path 사용.
-
-자동 읽음 처리 정책 (별도 PATCH 엔드포인트 없음):
-    - 첫 페이지 진입(`cursor` 미지정) 시점에만 `mark_as_read=True` 로 호출 → 라운드트립 절약.
-    - 응답의 `is_read` 는 read 전 상태 그대로라 클라가 "방금 본 항목" 시각 강조 가능 — 다음
-      진입에는 강조 사라짐 (인스타 패턴).
-    - "더 보기"(cursor 있음) 호출은 read 처리 안 함 — 첫 페이지에서 이미 처리됨.
-
-에러 매핑:
-    InboxItemNotFoundError → 404 (id 미존재 / 다른 유저 소유 / 이미 hide / 잘못된 형식)
-    ValueError             → 400 (cursor 형식 오류 등)
+자동 읽음 처리는 첫 페이지(`cursor` 미지정) 진입 시에만 `mark_as_read=True` — 응답의
+`is_read` 는 read 전 상태 그대로라 클라가 "방금 본 항목" 강조 가능.
 """
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, Depends, Query
@@ -52,11 +36,7 @@ async def list_inbox(
     ),
     service: InboxService = Depends(Provide[Container.inbox_service]),
 ) -> InboxListResponse:
-    """인박스 — display=true 항목을 최신순으로 페이지네이션. 한 페이지 20개.
-
-    첫 페이지(cursor 미지정) 진입 시 미읽음 자동 일괄 읽음 처리. 응답의 `is_read` 는
-    read 전 상태 그대로 (DB 만 update) → 클라이언트가 "방금 본 항목" 강조 가능.
-    """
+    """display=true 항목 최신순 페이지네이션. 첫 페이지 진입 시 미읽음 자동 read 처리."""
     user_id: str = request.state.user_id
     try:
         result = await service.list_items(
@@ -78,7 +58,7 @@ async def get_unread_count(
     request: Request,
     service: InboxService = Depends(Provide[Container.inbox_service]),
 ) -> UnreadCountResponse:
-    """미읽음 인박스 카운트 — 999+ 표시용 캡 적용."""
+    """미읽음 카운트 — 999+ 캡."""
     user_id: str = request.state.user_id
     count = await service.count_unread(recipient_id=user_id)
     return UnreadCountResponse(unread_count=count)
@@ -93,7 +73,7 @@ async def hide_inbox_item(
     inbox_item_id: str,
     service: InboxService = Depends(Provide[Container.inbox_service]),
 ) -> MessageResponse:
-    """인박스 항목 X 버튼 — display=False 토글. 본인 소유 항목만 가능."""
+    """X 버튼 — display=False 토글. 본인 소유만."""
     user_id: str = request.state.user_id
     try:
         await service.hide_item(

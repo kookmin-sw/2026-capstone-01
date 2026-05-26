@@ -5,16 +5,16 @@
 상위 conftest 의 fixture 재사용 (같은 fanout 인스턴스를 RoomService 와 MessageService 가
 공유해야 호출 카운트 일관).
 """
-import pytest
-import pytest_asyncio
 from sqlalchemy import select
+import pytest_asyncio
+import pytest
 
-from app.core.chat.redis_key import room_members_key, room_seq_key, unread_key
-from app.domain.chat.model.chat_room import ChatRoom, ChatRoomType
-from app.domain.chat.model.chat_room_member import ChatRoomMember
-from app.domain.chat.service.exception import ChatRoomNotFoundError
-from app.domain.chat.service.room import RoomService
 from app.domain.friend.model.friendship import Friendship, FriendshipStatus
+from app.domain.chat.service.room import RoomService
+from app.domain.chat.service.exception import ChatRoomNotFoundError
+from app.domain.chat.model.chat_room_member import ChatRoomMember
+from app.domain.chat.model.chat_room import ChatRoom, ChatRoomType
+from app.core.chat.redis_key import room_members_key, room_seq_key, unread_key
 
 
 pytestmark = pytest.mark.integration
@@ -87,6 +87,7 @@ class TestCreateGroupRoomFlow:
         for call in chat_fanout_stub.fan_out_to_user.call_args_list:
             assert call.args[1]["type"] == "room_joined"
             assert call.args[1]["room_id"] == dto.chat_room_id
+
 
     async def test_non_friend_target_raises(
         self, uow, seed_users, chat_fanout_stub, patch_external_clients, message_service,
@@ -163,6 +164,7 @@ class TestInviteMembersFlow:
         invited_targets = {call.args[0] for call in chat_fanout_stub.fan_out_to_user.call_args_list}
         assert invited_targets == {b, c}
 
+
     async def test_already_active_member_is_skipped(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, patch_external_clients, message_service,
     ):
@@ -181,6 +183,7 @@ class TestInviteMembersFlow:
         assert invited == []
         assert skipped == [b]
 
+
     async def test_inviter_must_be_active_member(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, patch_external_clients, message_service,
     ):
@@ -197,6 +200,7 @@ class TestInviteMembersFlow:
             await service.invite_members(
                 me_id=c, room_id=room.chat_room_id, user_ids=[b],
             )
+
 
     async def test_direct_room_rejects_invite(
         self, uow, seed_users, chat_fanout_stub, patch_external_clients, message_service,
@@ -247,6 +251,7 @@ class TestLeaveRoomFlow:
         assert call.args[0] == b
         assert call.args[1] == {"type": "room_left", "room_id": room.chat_room_id}
 
+
     async def test_direct_room_rejects_leave(
         self, uow, seed_users, chat_fanout_stub, patch_external_clients, message_service,
     ):
@@ -292,6 +297,7 @@ class TestKickMemberFlow:
         assert call.args[0] == b
         assert call.args[1]["type"] == "room_left"
 
+
     async def test_non_creator_cannot_kick(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, patch_external_clients, message_service,
     ):
@@ -309,6 +315,7 @@ class TestKickMemberFlow:
             await service.kick_member(
                 me_id=b, room_id=room.chat_room_id, target_user_id=c,
             )
+
 
     async def test_creator_after_leaving_loses_kick_permission(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, patch_external_clients, message_service,

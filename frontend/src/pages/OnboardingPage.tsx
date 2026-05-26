@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import React from "react";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { registerUser } from "../api/auth/auth";
@@ -44,6 +45,8 @@ export interface OnboardingData {
 
 const MIN_AGE = 20;
 const MAX_AGE = 100;
+const KOREAN_NICKNAME_MAX_LENGTH = 10;
+const ENGLISH_NICKNAME_MAX_LENGTH = 20;
 
 const TRAVEL_STYLE_KEY: Record<string, string> = {
   Activity: "activity",
@@ -447,6 +450,24 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
   );
 }
 
+function normalizeSignupNickname(value: string): string {
+  const maxLength = getSignupNicknameMaxLength(value);
+  return Array.from(value).slice(0, maxLength).join("");
+}
+
+function getSignupNicknameMaxLength(value: string): number {
+  return /[가-힣]/.test(value) ? KOREAN_NICKNAME_MAX_LENGTH : ENGLISH_NICKNAME_MAX_LENGTH;
+}
+
+function getSignupNicknameError(value: string): string {
+  const maxLength = getSignupNicknameMaxLength(value);
+  if (Array.from(value.trim()).length <= maxLength) return "";
+
+  return /[가-힣]/.test(value)
+    ? `Nickname must be ${KOREAN_NICKNAME_MAX_LENGTH} Korean characters or fewer.`
+    : `Nickname must be ${ENGLISH_NICKNAME_MAX_LENGTH} English characters or fewer.`;
+}
+
 function PageShell({
   children,
   onBack,
@@ -514,6 +535,269 @@ type PageProps = {
   email?: string;
 };
 
+function PrivacyPolicyContent() {
+  const h2: React.CSSProperties = {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#111827",
+    margin: "18px 0 6px",
+    lineHeight: "18px",
+  };
+  const p: React.CSSProperties = {
+    fontSize: 12,
+    lineHeight: "19px",
+    color: "#374151",
+    margin: "0 0 6px",
+  };
+  const li: React.CSSProperties = {
+    fontSize: 12,
+    lineHeight: "19px",
+    color: "#374151",
+    marginBottom: 4,
+  };
+  const ul: React.CSSProperties = {
+    paddingLeft: 16,
+    margin: "4px 0 8px",
+  };
+  const indent: React.CSSProperties = {
+    paddingLeft: 12,
+    margin: "4px 0 6px",
+  };
+  const label: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 600,
+    color: "#6b7280",
+    display: "block",
+    marginTop: 4,
+  };
+
+  return (
+    <div style={{ padding: "4px 2px 8px" }}>
+      <p style={{ ...p, fontWeight: 700, fontSize: 13, color: "#01c0c0", marginBottom: 12 }}>
+        KRIP Privacy Policy
+      </p>
+      <p style={p}>
+        KRIP (hereinafter, the "Company") values users' personal information and
+        complies with the Personal Information Protection Act and other applicable laws.
+        Through this Privacy Policy, the Company explains the purposes for which it
+        processes users' personal information and how it protects and destroys such information.
+      </p>
+
+      <p style={h2}>Article 1 — Purpose of Processing Personal Information</p>
+      <ul style={ul}>
+        {[
+          "User identification, confirmation of intent to sign up, login, and account management",
+          "Service provision and delivery of personalized features",
+          "Provision of menu OCR translation, travel mate matching, and AI travel itinerary planning",
+          "Provision of community features such as posts and chats",
+          "Responding to inquiries, delivering notices, and operating and improving the service",
+          "Statistical analysis of service usage",
+          "Prevention and sanctions against abnormal use such as fraudulent use and identity theft",
+          "Sending push notifications (advertising only with separate consent)",
+        ].map((item, i) => <li key={i} style={li}>{item}</li>)}
+      </ul>
+
+      <p style={h2}>Article 2 — Items of Personal Information Processed</p>
+      <div style={indent}>
+        <span style={label}>Sign-up and login</span>
+        <p style={p}>Required: Email address, name, nickname, unique Google account identifier<br />
+          Collection method: User input or Google OAuth authentication</p>
+        <span style={label}>Automatically generated information</span>
+        <p style={p}>Service usage records, access logs, IP address, device information, app version, error records</p>
+        <span style={label}>Push notifications (optional)</span>
+        <p style={p}>FCM device token — processed only when the user has consented</p>
+        <span style={label}>Menu OCR translation</span>
+        <p style={p}>Menu board images — deleted immediately after OCR processing</p>
+        <span style={label}>Travel mate matching & AI planning</span>
+        <p style={p}>Travel region, schedule, companion type, preferred gender, age group, search keywords, post content, chat messages</p>
+      </div>
+
+      <p style={h2}>Article 3 — Retention and Use Period</p>
+      <div style={indent}>
+        <span style={label}>Member information</span>
+        <p style={p}>After withdrawal request: 1-month grace period (account deactivated, restoration possible). After grace period: deleted without delay.</p>
+        <span style={label}>Menu board images</span>
+        <p style={p}>Deleted immediately after OCR processing.</p>
+        <span style={label}>Fraud prevention records</span>
+        <p style={p}>Minimum necessary records retained up to 1 year after withdrawal.</p>
+        <span style={label}>Retention required by law</span>
+        <ul style={ul}>
+          {[
+            "Contracts or withdrawal records: 5 years",
+            "Payment and supply records: 5 years",
+            "Consumer complaints / dispute resolution: 3 years",
+            "Labeling / advertising records: 6 months",
+            "Website access logs: 3 months",
+          ].map((item, i) => <li key={i} style={li}>{item}</li>)}
+        </ul>
+      </div>
+
+      <p style={h2}>Article 4 — Procedures and Methods for Destruction</p>
+      <ul style={ul}>
+        <li style={li}>Electronic files: deleted using methods that prevent recovery or reproduction</li>
+        <li style={li}>Paper documents: shredded or incinerated</li>
+        <li style={li}>Legally required information: stored separately from other personal information</li>
+      </ul>
+
+      <p style={h2}>Article 5 — Provision of Personal Information to Third Parties</p>
+      <p style={p}>
+        In principle, the Company does not provide users' personal information to external parties,
+        except when the user has consented, when required by law, or when investigative authorities
+        request information through lawful procedures. Google OAuth authentication does not constitute
+        provision to a third party.
+      </p>
+
+      <p style={h2}>Article 6 — Outsourcing of Personal Information Processing</p>
+      <div style={indent}>
+        <span style={label}>Google LLC</span>
+        <p style={p}>Tasks: Google social login; Firebase Cloud Messaging push notifications<br />
+          Items: Email, name, Google account identifier, FCM device token<br />
+          Retention: Until 1 month after withdrawal or until purpose is achieved</p>
+      </div>
+
+      <p style={h2}>Article 7 — Overseas Transfer of Personal Information</p>
+      <div style={indent}>
+        <p style={p}>
+          <b>Recipient:</b> Google LLC<br />
+          <b>Country:</b> United States and other countries where Google processes data<br />
+          <b>Items:</b> Email, name, Google account identifier, FCM device token<br />
+          <b>Purpose:</b> Social login authentication; push notifications<br />
+          <b>Retention:</b> Until 1 month after withdrawal or purpose is achieved
+        </p>
+      </div>
+
+      <p style={h2}>Article 8 — Rights of Data Subjects</p>
+      <p style={p}>
+        Users may request access, correction, deletion, suspension of processing, or withdrawal
+        of consent at any time via in-app features or by emailing the Chief Privacy Officer.
+      </p>
+
+      <p style={h2}>Article 9 — Children Under 14</p>
+      <p style={p}>
+        The Company does not allow children under 14 to sign up. If such information is
+        inadvertently collected, it will be deleted without delay.
+      </p>
+
+      <p style={h2}>Article 10 — Advertising Information</p>
+      <p style={p}>
+        Advertising information is transmitted only with explicit prior consent.
+        Users may withdraw consent at any time.
+      </p>
+
+      <p style={h2}>Article 11 — Cookies</p>
+      <p style={p}>
+        The Company may use cookies for web-based services. Users may refuse cookies
+        via browser settings, though some features may be restricted as a result.
+      </p>
+
+      <p style={h2}>Article 12 — Security Measures</p>
+      <ul style={ul}>
+        {[
+          "Minimization of access rights to personal information",
+          "Training for personnel handling personal information",
+          "Encryption and secure storage",
+          "Technical measures against hacking and malware",
+          "Retention of access records and prevention of forgery",
+          "Access control for personal information processing systems",
+        ].map((item, i) => <li key={i} style={li}>{item}</li>)}
+      </ul>
+
+      <p style={h2}>Article 13 — Data Breach Response</p>
+      <p style={p}>
+        In the event of loss, theft, or leakage of personal information, the Company will
+        notify users without delay and report to the Personal Information Protection Commission
+        and other relevant authorities.
+      </p>
+
+      <p style={h2}>Article 14 — Chief Privacy Officer</p>
+      <div style={indent}>
+        <p style={p}>
+          <b>Name:</b> Wonjun Choi<br />
+          <b>Title:</b> Team Lead<br />
+          <b>Email:</b> gwg0813@gmail.com
+        </p>
+      </div>
+
+      <p style={h2}>Article 15 — Remedies for Rights Infringement</p>
+      <ul style={ul}>
+        {[
+          "Personal Information Dispute Mediation Committee: 1833-6972, www.kopico.go.kr",
+          "Personal Information Infringement Report Center: 118, privacy.kisa.or.kr",
+          "Supreme Prosecutors' Office: 1301, www.spo.go.kr",
+          "National Police Agency: 182, ecrm.cyber.go.kr",
+        ].map((item, i) => <li key={i} style={li}>{item}</li>)}
+      </ul>
+
+      <p style={h2}>Article 16 — Changes to the Privacy Policy</p>
+      <p style={p}>
+        The Company may revise this Policy due to changes in laws, service contents, or
+        internal policies. Changes will be announced at least 7 days prior to the effective date
+        (30 days for material changes affecting users' rights).
+      </p>
+
+      <p style={{ ...p, color: "#9ca3af", marginTop: 16, fontSize: 11 }}>
+        This Privacy Policy is effective as of May 25, 2026.
+      </p>
+    </div>
+  );
+}
+
+function PrivacyConsentPage({
+  agreed,
+  onAgreeChange,
+  onNext,
+  onBack,
+}: {
+  agreed: boolean;
+  onAgreeChange: (value: boolean) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <PageShell onBack={onBack} showBack={false}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingTop: 4 }}>
+        <QuestionTitle text={"Privacy Policy"} />
+        <div style={{ padding: "0 16px" }}>
+          <div
+            style={{
+              height: "min(58vh, 520px)",
+              overflowY: "auto",
+              border: `1px solid ${GRAY2}`,
+              borderRadius: 18,
+              background: GRAY1,
+              padding: 16,
+            }}
+          >
+            <PrivacyPolicyContent />
+          </div>
+        </div>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "0 18px",
+            fontFamily: "Pretendard Variable,sans-serif",
+            fontWeight: 700,
+            fontSize: 14,
+            color: GRAY6,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={agreed}
+            onChange={(event) => onAgreeChange(event.target.checked)}
+            style={{ width: 18, height: 18, accentColor: MINT }}
+          />
+          <span>I agree to the Privacy Policy.</span>
+        </label>
+      </div>
+      <NextButton onNext={onNext} canProceed={agreed} />
+    </PageShell>
+  );
+}
+
 function Page1({ data, setData, onNext, onBack, email }: PageProps) {
   const isAgeValid = Boolean(data.age);
   const ageError = "";
@@ -533,7 +817,12 @@ function Page1({ data, setData, onNext, onBack, email }: PageProps) {
           </span>
         </div>
         {email ? <ReadOnlyField label="Email" value={email} /> : null}
-        <TextInput label="Nickname *" value={data.nickname} onChange={(v) => setData({ nickname: v })} placeholder="What should we call you?" />
+        <TextInput
+          label="Nickname *"
+          value={data.nickname}
+          onChange={(v) => setData({ nickname: normalizeSignupNickname(v) })}
+          placeholder="What should we call you?"
+        />
         <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
           <label
             style={{
@@ -841,7 +1130,11 @@ export default function OnboardingPage() {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [data, setDataState] = useState<OnboardingData>({ ...EMPTY, nickname: initialNickname });
+  const [privacyAgreed, setPrivacyAgreed] = useState(false);
+  const [data, setDataState] = useState<OnboardingData>({
+    ...EMPTY,
+    nickname: normalizeSignupNickname(initialNickname),
+  });
 
   const setData = (patch: Partial<OnboardingData>) =>
     setDataState((prev) => ({ ...prev, ...patch }));
@@ -850,6 +1143,13 @@ export default function OnboardingPage() {
 
   async function handleComplete(): Promise<void> {
     if (!email) { setError("Email is missing. Please log in again."); return; }
+    const nicknameError = getSignupNicknameError(data.nickname);
+    if (nicknameError) {
+      setError(nicknameError);
+      setDone(false);
+      setStep(0);
+      return;
+    }
     const age = Number(data.age);
     if (!Number.isInteger(age) || age < MIN_AGE || age > MAX_AGE) {
       setError(`Age must be between ${MIN_AGE} and ${MAX_AGE}.`);
@@ -862,7 +1162,7 @@ export default function OnboardingPage() {
     try {
       await registerUser({
         email,
-        user_name: data.nickname,
+        user_name: normalizeSignupNickname(data.nickname),
         phone_number: "",
         age: Number(data.age),
         gender: data.gender.toLowerCase(),
@@ -886,8 +1186,19 @@ export default function OnboardingPage() {
     return <CompletePage onStart={() => void handleComplete()} loading={loading} error={error} />;
   }
 
+  if (!privacyAgreed) {
+    return (
+      <PrivacyConsentPage
+        agreed={privacyAgreed}
+        onAgreeChange={setPrivacyAgreed}
+        onNext={() => setPrivacyAgreed(true)}
+        onBack={() => navigate("/login")}
+      />
+    );
+  }
+
   const pages = [
-    <Page1 key={0} data={data} setData={setData} onNext={next} onBack={() => navigate("/login")} email={email} />,
+    <Page1 key={0} data={data} setData={setData} onNext={next} onBack={back} email={email} />,
     <Page2 key={1} data={data} setData={setData} onNext={next} onBack={back} />,
     <Page3 key={2} data={data} setData={setData} onNext={next} onBack={back} />,
     <Page4 key={3} data={data} setData={setData} onNext={next} onBack={back} />,
