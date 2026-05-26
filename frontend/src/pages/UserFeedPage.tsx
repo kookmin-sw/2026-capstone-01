@@ -17,6 +17,13 @@ import {
   type FeedPost,
   type FeedPopupResponse,
 } from "../api/feed";
+import { createDirectChatRoom } from "../api/chat";
+import {
+  getFriendDetail,
+  sendFriendRequest,
+  type FriendshipStatus,
+} from "../api/friend";
+import ConfirmToast from "../components/ConfirmToast";
 
 const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
@@ -37,6 +44,11 @@ export default function UserFeedPage() {
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [viewerUserId, setViewerUserId] = useState("");
+  const [isMetaExpanded, setIsMetaExpanded] = useState(false);
+  const [friendshipStatus, setFriendshipStatus] = useState<FriendshipStatus | null>(null);
+  const [isRequester, setIsRequester] = useState<boolean | null>(null);
+  const [relationshipBusy, setRelationshipBusy] = useState(false);
+  const [commentDeleteTarget, setCommentDeleteTarget] = useState<FeedComment | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -49,7 +61,7 @@ export default function UserFeedPage() {
         if (!mounted) return;
         setProfile(response);
         setPosts(response.feed.items);
-        setNextCursor(response.feed.items.at(-1)?.post_id ?? null);
+        setNextCursor(response.feed.items[response.feed.items.length - 1]?.post_id ?? null);
       })
       .catch((loadError) => {
         if (mounted) setError(toErrorMessage(loadError, "Feed could not be loaded."));
@@ -77,6 +89,63 @@ export default function UserFeedPage() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!id || !viewerUserId || id === viewerUserId) {
+      setFriendshipStatus(null);
+      setIsRequester(null);
+      return undefined;
+    }
+
+    getFriendDetail(id)
+      .then((detail) => {
+        if (!mounted) return;
+        setFriendshipStatus(detail.friendship_status);
+        setIsRequester(detail.is_requester);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setFriendshipStatus(null);
+        setIsRequester(null);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [id, viewerUserId]);
+
+  async function handleAddFriend(): Promise<void> {
+    if (!id || relationshipBusy || id === viewerUserId) return;
+
+    setRelationshipBusy(true);
+    try {
+      const friendship = await sendFriendRequest(id);
+      setFriendshipStatus(friendship.status);
+      setIsRequester(friendship.is_requester);
+    } catch (requestError) {
+      setError(toErrorMessage(requestError, "Failed to send friend request."));
+    } finally {
+      setRelationshipBusy(false);
+    }
+  }
+
+  async function handleOpenChat(): Promise<void> {
+    if (!id || relationshipBusy || id === viewerUserId) return;
+
+    setRelationshipBusy(true);
+    try {
+      const room = await createDirectChatRoom(id);
+      if (!room?.chat_room_id) {
+        throw new Error("Failed to open chat room.");
+      }
+      navigate(`/chat/${room.chat_room_id}`);
+    } catch (chatError) {
+      setError(toErrorMessage(chatError, "Failed to open chat."));
+    } finally {
+      setRelationshipBusy(false);
+    }
+  }
 
   async function loadMore(): Promise<void> {
     if (!id || !nextCursor || loadingMore) return;
@@ -120,32 +189,40 @@ export default function UserFeedPage() {
 
   function updatePostState(post: FeedPost): void {
     setPosts((current) =>
-      current.map((item) => (item.post_id === post.post_id ? post : item))
+      current.map((item) => (item.post_id === post.post_id ? mergeFeedPost(item, post) : item))
     );
-    setSelectedPost((current) => (current?.post_id === post.post_id ? post : current));
+    setSelectedPost((current) =>
+      current?.post_id === post.post_id ? mergeFeedPost(current, post) : current
+    );
   }
 
   async function handleLike(): Promise<void> {
     if (!selectedPost || detailBusy) return;
 
+    const previousPost = selectedPost;
+    const nextLiked = !previousPost.is_liked;
+    const optimisticPost = {
+      ...previousPost,
+      is_liked: nextLiked,
+      like_count: Math.max(0, previousPost.like_count + (nextLiked ? 1 : -1)),
+    };
+
     setDetailBusy(true);
     setDetailError("");
+    updatePostState(optimisticPost);
     try {
-      const response = await likeFeedPost(selectedPost.post_id);
-      updatePostState({ ...selectedPost, like_count: response.like_count });
-      setSelectedLikes((await getFeedPostLikes(selectedPost.post_id)).users);
+      const response = nextLiked
+        ? await likeFeedPost(previousPost.post_id)
+        : await unlikeFeedPost(previousPost.post_id);
+      updatePostState({
+        ...optimisticPost,
+        like_count: response.like_count,
+        is_liked: nextLiked,
+      });
+      setSelectedLikes((await getFeedPostLikes(previousPost.post_id)).users);
     } catch (likeError) {
-      if (getApiStatus(likeError) === 400) {
-        try {
-          const response = await unlikeFeedPost(selectedPost.post_id);
-          updatePostState({ ...selectedPost, like_count: response.like_count });
-          setSelectedLikes((await getFeedPostLikes(selectedPost.post_id)).users);
-        } catch (unlikeError) {
-          setDetailError(toErrorMessage(unlikeError, "Failed to update like."));
-        }
-      } else {
-        setDetailError(toErrorMessage(likeError, "Failed to update like."));
-      }
+      updatePostState(previousPost);
+      setDetailError(toErrorMessage(likeError, "Failed to update like."));
     } finally {
       setDetailBusy(false);
     }
@@ -174,18 +251,24 @@ export default function UserFeedPage() {
 
   async function handleCommentDelete(comment: FeedComment): Promise<void> {
     if (!selectedPost || detailBusy) return;
+    setCommentDeleteTarget(comment);
+  }
+
+  async function confirmCommentDelete(): Promise<void> {
+    if (!selectedPost || !commentDeleteTarget || detailBusy) return;
 
     setDetailBusy(true);
     setDetailError("");
     try {
-      await deleteFeedComment(selectedPost.post_id, comment.comment_id);
+      await deleteFeedComment(selectedPost.post_id, commentDeleteTarget.comment_id);
       setSelectedComments((current) =>
-        current.filter((item) => item.comment_id !== comment.comment_id)
+        current.filter((item) => item.comment_id !== commentDeleteTarget.comment_id)
       );
       updatePostState({
         ...selectedPost,
         comment_count: Math.max(0, selectedPost.comment_count - 1),
       });
+      setCommentDeleteTarget(null);
     } catch (deleteError) {
       setDetailError(toErrorMessage(deleteError, "Failed to delete comment."));
     } finally {
@@ -193,14 +276,13 @@ export default function UserFeedPage() {
     }
   }
 
-  const profileMeta = [profile?.nationality, ...(profile?.travel_styles ?? [])]
+  const profileMetaItems = [profile?.nationality, ...(profile?.travel_styles ?? [])]
     .filter((value): value is string => Boolean(value))
-    .map(formatMeta)
-    .join(" · ");
-
-  const isSelectedPostLikedByViewer = selectedLikes.some(
-    (likeUser) => likeUser.user_id === viewerUserId
-  );
+    .map(formatMeta);
+  const previewChips = profileMetaItems.slice(0, 3);
+  const expandedChips = profileMetaItems.slice(3);
+  const canExpandChips = profileMetaItems.length > 3;
+  const canShowProfileActions = Boolean(id && viewerUserId && id !== viewerUserId);
 
   return (
     <div style={styles.page}>
@@ -222,46 +304,116 @@ export default function UserFeedPage() {
         <div style={styles.statePanel}>{error}</div>
       ) : profile ? (
         <>
-          <section style={styles.profileHeader}>
-            <img
-              src={profile.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
-              alt=""
-              style={styles.avatar}
-            />
-            <div style={styles.profileText}>
-              <h1 style={styles.name}>{profile.user_name || "Unknown"}</h1>
-              {profileMeta ? <p style={styles.meta}>{profileMeta}</p> : null}
-              <p style={styles.count}>{posts.length} posts</p>
+          <section style={styles.socialProfile}>
+            <div style={styles.avatarWrap}>
+              <img
+                src={profile.profile_image_url || DEFAULT_PROFILE_IMAGE_URL}
+                alt=""
+                style={styles.avatarImage}
+              />
+            </div>
+            <div style={styles.socialProfileBody}>
+              <div style={styles.socialNameRow}>
+                <h1 style={styles.name}>{profile.user_name || "Unknown"}</h1>
+              </div>
+              <div style={styles.profileStatsRow}>
+                <span style={styles.profileStat}>
+                  <strong style={styles.profileStatNumber}>{posts.length}</strong>
+                  <span>Posts</span>
+                </span>
+                <span style={styles.profileStat}>
+                  <strong style={styles.profileStatNumber}>
+                    {posts.reduce((sum, p) => sum + p.like_count, 0)}
+                  </strong>
+                  <span>Likes</span>
+                </span>
+              </div>
+              {previewChips.length ? (
+                <div style={styles.profileChipBlock}>
+                  <div style={styles.profileChipPreviewRow}>
+                    {previewChips.map((item) => (
+                      <span key={item} style={styles.profileChip}>{item}</span>
+                    ))}
+                    {canExpandChips ? (
+                      <button
+                        type="button"
+                        style={styles.profileChipToggle}
+                        onClick={() => setIsMetaExpanded((current) => !current)}
+                        aria-label={isMetaExpanded ? "Show fewer" : "Show all travel styles"}
+                        aria-expanded={isMetaExpanded}
+                      >
+                        <ChevronDownIcon flipped={isMetaExpanded} />
+                      </button>
+                    ) : null}
+                  </div>
+                  {canExpandChips ? (
+                    <div
+                      style={{
+                        ...styles.profileChipExpandedRow,
+                        ...(isMetaExpanded ? styles.profileChipExpandedRowOpen : {}),
+                      }}
+                    >
+                      {expandedChips.map((item) => (
+                        <span key={item} style={styles.profileChip}>{item}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </section>
 
-          {posts.length > 0 ? (
-            <section style={styles.grid}>
-              {posts.map((post) => (
-                <button
-                  key={post.post_id}
-                  type="button"
-                  style={styles.tile}
-                  onClick={() => void openPost(post)}
-                >
-                  <img src={getFeedImageUrl(post)} alt="" style={styles.tileImage} />
-                </button>
-              ))}
+          {canShowProfileActions ? (
+            <section style={styles.profileActionBar}>
+              <button
+                type="button"
+                style={styles.profileActionButton}
+                onClick={() => void handleOpenChat()}
+                disabled={relationshipBusy}
+              >
+                <ChatSvg />
+                <span>Chat</span>
+              </button>
+              <span style={styles.profileActionDivider} />
+              <button
+                type="button"
+                style={styles.profileActionButton}
+                onClick={() => void handleAddFriend()}
+                disabled={relationshipBusy || friendshipStatus === "accepted" || friendshipStatus === "pending"}
+              >
+                <AddFriendSvg />
+                <span>
+                  {friendshipStatus === "accepted"
+                    ? "Friends"
+                    : friendshipStatus === "pending"
+                      ? isRequester ? "Requested" : "Pending"
+                      : "Add Friend"}
+                </span>
+              </button>
             </section>
-          ) : (
-            <div style={styles.statePanel}>No visible feed photos.</div>
-          )}
-
-          {nextCursor ? (
-            <button
-              type="button"
-              style={styles.loadMoreButton}
-              onClick={() => void loadMore()}
-              disabled={loadingMore}
-            >
-              {loadingMore ? "Loading..." : "More"}
-            </button>
           ) : null}
+          <div style={styles.profileActionDividerLine} />
+
+          <section style={styles.section}>
+            {posts.length > 0 ? (
+              <div style={styles.feedGrid}>
+                {posts.map((post) => (
+                  <button
+                    key={post.post_id}
+                    type="button"
+                    style={styles.feedTile}
+                    onClick={() => void openPost(post)}
+                  >
+                    <img src={getFeedImageUrl(post)} alt="" style={styles.feedTileImage} />
+                    <span style={styles.feedTileMeta}>
+                      {post.like_count} likes · {post.comment_count} comments
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </section>
+
         </>
       ) : null}
 
@@ -355,7 +507,7 @@ export default function UserFeedPage() {
                     aria-label="Like"
                   >
                     <span style={styles.actionCount}>{selectedPost.like_count}</span>
-                    <HeartIcon filled={isSelectedPostLikedByViewer} />
+                    <HeartIcon filled={selectedPost.is_liked} />
                   </button>
                   <span style={styles.commentSummary}>
                     <span style={styles.actionCount}>{selectedPost.comment_count}</span>
@@ -389,12 +541,33 @@ export default function UserFeedPage() {
           </div>
         </div>
       ) : null}
+
+      {commentDeleteTarget ? (
+        <ConfirmToast
+          title="Delete this comment?"
+          message="This action cannot be undone."
+          confirmLabel="Delete"
+          destructive
+          busy={detailBusy}
+          onCancel={() => setCommentDeleteTarget(null)}
+          onConfirm={() => void confirmCommentDelete()}
+        />
+      ) : null}
     </div>
   );
 }
 
 function getFeedImageUrl(post: FeedPost): string {
   return post.thumbnail_medium_url || post.thumbnail_small_url || post.original_url;
+}
+
+function mergeFeedPost(current: FeedPost, next: FeedPost): FeedPost {
+  return {
+    ...current,
+    ...next,
+    is_liked:
+      typeof next.is_liked === "boolean" ? next.is_liked : current.is_liked,
+  };
 }
 
 function formatMeta(value: string): string {
@@ -453,21 +626,49 @@ function CommentIcon() {
   );
 }
 
+function ChatSvg() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+function AddFriendSvg() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <line x1="19" y1="8" x2="19" y2="14" />
+      <line x1="22" y1="11" x2="16" y2="11" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon({ flipped }: { flipped: boolean }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" stroke="#606060" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      style={{ transform: flipped ? "rotate(180deg)" : "none", transition: "transform 200ms" }}>
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
-    padding: "calc(18px + var(--app-safe-top)) 0 calc(78px + var(--app-bottom-nav-reserved))",
-    background: "#ffffff",
-    fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
+    padding: "calc(18px + var(--app-safe-top)) 12px calc(78px + var(--app-bottom-nav-reserved))",
+    background: "#f5f5f5",
+    fontFamily: "'Apple SD Gothic Neo', 'Pretendard Variable', 'Nunito', sans-serif",
   },
   topBar: {
-    width: "min(430px, 100%)",
+    width: "min(500px, 100%)",
     margin: "0 auto",
     minHeight: 48,
     display: "grid",
     gridTemplateColumns: "48px minmax(0, 1fr) 48px",
     alignItems: "center",
-    padding: "0 10px",
+    padding: "0 4px",
   },
   backButton: {
     border: "none",
@@ -485,72 +686,210 @@ const styles: Record<string, CSSProperties> = {
   topSpacer: {
     width: 48,
   },
-  profileHeader: {
-    width: "min(430px, 100%)",
-    margin: "8px auto 18px",
+  socialProfile: {
+    maxWidth: 500,
+    margin: "0 auto",
+    display: "grid",
+    gridTemplateColumns: "116px minmax(0, 1fr)",
+    gap: 8,
+    alignItems: "center",
+    padding: "0 4px 20px",
+  },
+  socialProfileBody: {
+    minWidth: 0,
+  },
+  socialNameRow: {
     display: "flex",
     alignItems: "center",
-    gap: 16,
-    padding: "0 18px",
-  },
-  avatar: {
-    width: 84,
-    height: 84,
-    borderRadius: "50%",
-    objectFit: "cover",
-    background: "var(--surface-muted)",
-  },
-  profileText: {
-    minWidth: 0,
+    minHeight: 32,
   },
   name: {
     margin: 0,
-    color: "#171717",
-    fontSize: "1.3rem",
+    color: "#1a1a1a",
+    fontSize: "1.25rem",
+    fontWeight: 400,
     lineHeight: 1.15,
+    letterSpacing: "-0.02em",
   },
-  meta: {
-    margin: "6px 0 0",
-    color: "var(--brand-primary-deep)",
-    fontSize: "0.84rem",
-    fontWeight: 900,
-    overflowWrap: "anywhere",
+  profileStatsRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 22,
+    marginTop: 6,
+    marginBottom: 12,
   },
-  count: {
-    margin: "6px 0 0",
-    color: "var(--neutral-700)",
-    fontSize: "0.86rem",
-    fontWeight: 800,
+  profileStat: {
+    minWidth: 56,
+    color: "#323232",
+    fontSize: "0.862rem",
+    fontWeight: 400,
+    lineHeight: 1.28,
+    letterSpacing: "-0.02em",
+    display: "flex",
+    flexDirection: "column" as const,
+    alignItems: "flex-start",
   },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 3,
-    width: "min(430px, 100%)",
-    margin: "0 auto",
+  profileStatNumber: {
+    fontWeight: 400,
   },
-  tile: {
-    width: "100%",
-    aspectRatio: "1 / 1",
-    padding: 0,
+  profileChipBlock: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 6,
+    maxWidth: 360,
+  },
+  profileChipPreviewRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "nowrap" as const,
+    maxWidth: "100%",
+    overflow: "hidden",
+  },
+  profileChipExpandedRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap" as const,
+    maxHeight: 0,
+    opacity: 0,
+    overflow: "hidden",
+    transform: "translateY(-6px)",
+    transition: "max-height 260ms ease, opacity 220ms ease, transform 260ms ease",
+  },
+  profileChipExpandedRowOpen: {
+    maxHeight: 120,
+    opacity: 1,
+    transform: "translateY(0)",
+  },
+  profileChip: {
+    height: 22,
+    maxWidth: 116,
+    minWidth: 0,
+    padding: "0 10px",
+    border: "0.7px solid #d7d7d7",
+    borderRadius: 24,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#606060",
+    fontSize: "0.68rem",
+    fontWeight: 400,
+    lineHeight: 1,
+    letterSpacing: "-0.02em",
+    whiteSpace: "nowrap" as const,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  profileChipToggle: {
+    width: 24,
+    height: 24,
+    flex: "0 0 24px",
     border: "none",
-    background: "#050608",
+    borderRadius: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "transparent",
+    cursor: "pointer",
+    padding: 0,
+  },
+  avatarWrap: {
+    position: "relative",
+  },
+  avatarImage: {
+    width: 108,
+    height: 108,
+    borderRadius: "50%",
+    objectFit: "cover" as const,
+    border: "4px solid #ffffff",
+    background: "var(--neutral-100)",
+    boxShadow: "0 8px 18px rgba(33,33,33,0.1)",
+    display: "block",
+  },
+  profileActionBar: {
+    maxWidth: 525,
+    minHeight: 50,
+    margin: "6px auto 0",
+    border: "1px solid #bebebe",
+    borderRadius: 12,
+    background: "#ffffff",
+    boxShadow: "0 1px 8px rgba(0,0,0,0.04)",
+    display: "grid",
+    gridTemplateColumns: "1fr 1px 1fr",
+    alignItems: "center",
+  },
+  profileActionButton: {
+    height: 50,
+    border: "none",
+    padding: 0,
+    background: "transparent",
+    color: "#606060",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    fontSize: "1rem",
+    fontWeight: 400,
+    letterSpacing: "-0.02em",
     cursor: "pointer",
   },
-  tileImage: {
+  profileActionDivider: {
+    width: 1,
+    height: 31,
+    background: "#bebebe",
+  },
+  profileActionDividerLine: {
+    width: "calc(100% + 24px)",
+    height: 1,
+    margin: "16px -12px 10px",
+    background: "#d7d7d7",
+  },
+  section: {
+    width: "calc(100% + 24px)",
+    maxWidth: "none",
+    margin: "0 -12px",
+  },
+  feedGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 2,
+  },
+  feedTile: {
+    position: "relative",
+    padding: 0,
+    border: "none",
+    borderRadius: 0,
+    overflow: "hidden",
+    background: "#050608",
+    aspectRatio: "1 / 1",
+    cursor: "pointer",
+  },
+  feedTileImage: {
     width: "100%",
     height: "100%",
-    objectFit: "contain",
+    objectFit: "cover" as const,
     display: "block",
-    background: "#050608",
+  },
+  feedTileMeta: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: "18px 8px 8px",
+    background: "linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,0.62))",
+    color: "#ffffff",
+    fontSize: "0.72rem",
+    fontWeight: 900,
+    textAlign: "left",
   },
   statePanel: {
     width: "min(394px, calc(100% - 32px))",
     margin: "18px auto",
     padding: 22,
     borderRadius: 18,
-    background: "var(--surface-muted)",
-    color: "var(--neutral-700)",
+    background: "#f3f3f3",
+    color: "#555555",
     fontWeight: 800,
     textAlign: "center",
   },
@@ -620,7 +959,10 @@ const styles: Record<string, CSSProperties> = {
   },
   detailImagePane: {
     minHeight: "min(58dvh, 520px)",
+    display: "grid",
+    placeItems: "center",
     background: "#050608",
+    overflow: "hidden",
   },
   detailSidePane: {
     minHeight: 260,
@@ -670,7 +1012,7 @@ const styles: Record<string, CSSProperties> = {
   },
   commentsState: {
     padding: 16,
-    color: "var(--neutral-700)",
+    color: "#555555",
     fontWeight: 800,
     textAlign: "center",
   },

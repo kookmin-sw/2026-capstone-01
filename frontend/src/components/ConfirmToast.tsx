@@ -65,7 +65,7 @@ const styles: Record<string, CSSProperties> = {
   scrim: {
     position: "absolute",
     inset: 0,
-    background: "rgba(24,26,32,0.34)",
+    background: "rgba(24,26,32,0.28)",
     backdropFilter: "blur(2px)",
   },
   slot: {
@@ -85,7 +85,8 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid rgba(5,181,187,0.2)",
     borderRadius: 18,
     background: "rgba(255,255,255,0.98)",
-    boxShadow: "0 18px 42px rgba(24,26,32,0.2)",
+    boxShadow:
+      "0 28px 72px rgba(15,23,42,0.32), 0 10px 24px rgba(15,23,42,0.18)",
     backdropFilter: "blur(16px)",
     pointerEvents: "auto",
   },

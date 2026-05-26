@@ -6,10 +6,11 @@ import type { NavigateFunction } from "react-router-dom";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { Capacitor } from "@capacitor/core";
-import { removeToken, saveToken } from "./utils/tokens";
+import { confirmTokenSaved, readToken, removeToken, saveToken } from "./utils/tokens";
 import AppShell from "./components/AppShell";
 import LoginPage from "./pages/LoginPage";
 import OnboardingPage from "./pages/OnboardingPage";
+import DeleteAccountTermsPage from "./pages/DeleteAccountTermsPage";
 import WithdrawalPendingPage from "./pages/WithdrawalPendingPage";
 import HomePage from "./features/tour/HomePage";
 import MenuPage from "./pages/MenuPage";
@@ -18,6 +19,7 @@ import ChatPage from "./features/friend-chat/ChatPage";
 import ChatRoomPage from "./features/friend-chat/ChatRoomPage";
 import { ChatProvider } from "./features/friend-chat/ChatProvider";
 import MyPage from "./pages/MyPage";
+import HelpInfoPage from "./pages/HelpInfoPage";
 import UserFeedPage from "./pages/UserFeedPage";
 import SharedPlanPage from "./pages/SharedPlanPage";
 import PlaceholderPage from "./pages/PlaceholderPage";
@@ -26,7 +28,12 @@ import AiPlanDesignPage from "./features/plan/AiPlanDesignPage";
 import AiPlanResultPage from "./features/plan/AiPlanResultPage";
 import ManualPlanPage from "./features/plan/Manualplanpage";
 import "./lib/firebase";
-import { listenForegroundMessages, requestPermission } from "./lib/fcm";
+import {
+  consumePendingNotificationPath,
+  hasPendingNotificationPath,
+  listenForegroundMessages,
+  unregisterFcmToken,
+} from "./lib/fcm";
 import type { AppToastDetail } from "./utils/appToast";
 import {
   clearPreferences,
@@ -37,7 +44,13 @@ import {
   savePreferences,
   type AiPreferenceState,
 } from "./api/aiPlanShared";
-import { getNotificationUnreadCount } from "./api/notification";
+import {
+  getNotificationInbox,
+  getNotificationUnreadCount,
+  type InboxNotification,
+} from "./api/notification";
+
+const DEBUG_AUTH_LOG = import.meta.env.DEV && import.meta.env.VITE_DEBUG_AUTH_LOG === "true";
 
 function AiPlanDesignRoute() {
   const navigate = useNavigate();
@@ -106,7 +119,13 @@ function AiPlanResultRoute() {
 
 function ManualPlanRoute() {
   const navigate = useNavigate();
-  return <ManualPlanPage onBack={() => navigate("/plan")} />;
+  return (
+    <ManualPlanPage
+      onBack={() => navigate("/plan")}
+      onHome={() => navigate("/home")}
+      onMyPage={() => navigate("/my")}
+    />
+  );
 }
 
 function RouteScrollReset() {
@@ -150,8 +169,11 @@ type ChatToastState = {
 };
 
 const GESTURE_TAB_PATHS = ["/home", "/plan", "/menu", "/mate", "/my"] as const;
-const MIN_HORIZONTAL_SWIPE_PX: number = 76;
+const MIN_HORIZONTAL_SWIPE_PX: number = 96;
+const MAX_VERTICAL_SWIPE_PX: number = 32;
+const HORIZONTAL_SWIPE_DOMINANCE: number = 2;
 const ACTIVITY_TOAST_POLL_INTERVAL_MS: number = 5000;
+const DOUBLE_BACK_EXIT_INTERVAL_MS: number = 1800;
 
 type TouchPoint = {
   x: number;
@@ -274,7 +296,11 @@ function PageGestureController() {
       const absoluteDeltaX: number = Math.abs(deltaX);
       const absoluteDeltaY: number = Math.abs(deltaY);
 
-      if (absoluteDeltaX > absoluteDeltaY && absoluteDeltaX >= MIN_HORIZONTAL_SWIPE_PX) {
+      if (
+        absoluteDeltaX >= MIN_HORIZONTAL_SWIPE_PX &&
+        absoluteDeltaY <= MAX_VERTICAL_SWIPE_PX &&
+        absoluteDeltaX >= absoluteDeltaY * HORIZONTAL_SWIPE_DOMINANCE
+      ) {
         moveTabBySwipe(deltaX, location.pathname, navigate);
       }
     }
@@ -291,10 +317,103 @@ function PageGestureController() {
   return null;
 }
 
+function AndroidBackButtonHandler() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const locationRef = useRef(location);
+  const lastExitBackPressedAtRef = useRef(0);
+
+  useEffect(() => {
+    locationRef.current = location;
+    lastExitBackPressedAtRef.current = 0;
+  }, [location]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const listenerPromise = CapacitorApp.addListener("backButton", (event) => {
+      const backEvent = new CustomEvent("krip:android-back", { cancelable: true });
+      window.dispatchEvent(backEvent);
+      if (backEvent.defaultPrevented) return;
+
+      const pathname = locationRef.current.pathname;
+      if (isDoubleBackExitPath(pathname)) {
+        const now = window.performance.now();
+        if (now - lastExitBackPressedAtRef.current <= DOUBLE_BACK_EXIT_INTERVAL_MS) {
+          void CapacitorApp.exitApp();
+          return;
+        }
+
+        lastExitBackPressedAtRef.current = now;
+        window.dispatchEvent(
+          new CustomEvent<AppToastDetail>("krip:app-toast", {
+            detail: {
+              title: "Press back again to exit",
+              variant: "info",
+              placement: "center",
+            },
+          })
+        );
+        return;
+      }
+
+      if (pathname.startsWith("/chat/")) {
+        navigate("/mate", { replace: true, state: { mainTab: "chat" } });
+        return;
+      }
+
+      if (event.canGoBack) {
+        navigate(-1);
+        return;
+      }
+
+      if (pathname !== "/home") {
+        navigate("/home", { replace: true });
+      }
+    });
+
+    return () => {
+      void listenerPromise.then((handle) => handle.remove());
+    };
+  }, [navigate]);
+
+  return null;
+}
+
+function isDoubleBackExitPath(pathname: string): boolean {
+  return pathname === "/" || pathname === "/login" || pathname === "/home";
+}
+
+function ViewportHeightController() {
+  useEffect(() => {
+    const viewport = window.visualViewport;
+
+    function syncViewportHeight(): void {
+      const height = viewport?.height ?? window.innerHeight;
+      document.documentElement.style.setProperty("--app-viewport-height", `${height}px`);
+    }
+
+    syncViewportHeight();
+    window.addEventListener("resize", syncViewportHeight);
+    viewport?.addEventListener("resize", syncViewportHeight);
+    viewport?.addEventListener("scroll", syncViewportHeight);
+
+    return () => {
+      window.removeEventListener("resize", syncViewportHeight);
+      viewport?.removeEventListener("resize", syncViewportHeight);
+      viewport?.removeEventListener("scroll", syncViewportHeight);
+    };
+  }, []);
+
+  return null;
+}
+
 function ActivityNotificationToastWatcher() {
   const location = useLocation();
   const isAuthFreeRef = useRef(isAuthFreePath(location.pathname));
   const previousUnreadCountRef = useRef<number | null>(null);
+  const lastHandledActivityToastAtRef = useRef(0);
+  const fallbackToastTimerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const authFree = isAuthFreePath(location.pathname);
@@ -307,7 +426,7 @@ function ActivityNotificationToastWatcher() {
   useEffect(() => {
     let cancelled = false;
 
-    async function syncUnreadCount(showToast: boolean): Promise<void> {
+    async function syncUnreadCount(): Promise<void> {
       if (isAuthFreeRef.current) return;
 
       try {
@@ -317,18 +436,14 @@ function ActivityNotificationToastWatcher() {
         const previousCount = previousUnreadCountRef.current;
         previousUnreadCountRef.current = count;
 
-        if (showToast && previousCount !== null && count > previousCount) {
-          const newCount = count - previousCount;
-          window.dispatchEvent(
-            new CustomEvent<AppToastDetail>("krip:app-toast", {
-              detail: {
-                title: "New activity",
-                message: `${newCount} new notification${newCount > 1 ? "s" : ""}.`,
-                variant: "info",
-                path: "/my",
-              },
-            })
-          );
+        if (previousCount !== null && count > previousCount) {
+          const detectedAt = Date.now();
+          window.clearTimeout(fallbackToastTimerRef.current);
+          fallbackToastTimerRef.current = window.setTimeout(() => {
+            if (lastHandledActivityToastAtRef.current >= detectedAt) return;
+
+            void showLatestNotificationToastFromInbox(detectedAt);
+          }, 1000);
         }
       } catch {
         // Ignore transient notification polling failures.
@@ -336,19 +451,21 @@ function ActivityNotificationToastWatcher() {
     }
 
     function handleInboxUpdated(event: Event): void {
-      const toastHandled = Boolean(
-        (event as CustomEvent<{ toastHandled?: boolean }>).detail?.toastHandled
-      );
-      void syncUnreadCount(!toastHandled);
+      if ((event as CustomEvent<{ toastHandled?: boolean }>).detail?.toastHandled) {
+        lastHandledActivityToastAtRef.current = Date.now();
+        markActivityToastHandled();
+        window.clearTimeout(fallbackToastTimerRef.current);
+      }
+      void syncUnreadCount();
     }
 
     function handleFocus(): void {
-      void syncUnreadCount(true);
+      void syncUnreadCount();
     }
 
-    void syncUnreadCount(false);
+    void syncUnreadCount();
     const intervalId: number = window.setInterval(
-      () => void syncUnreadCount(true),
+      () => void syncUnreadCount(),
       ACTIVITY_TOAST_POLL_INTERVAL_MS
     );
 
@@ -358,6 +475,7 @@ function ActivityNotificationToastWatcher() {
 
     return () => {
       cancelled = true;
+      window.clearTimeout(fallbackToastTimerRef.current);
       window.clearInterval(intervalId);
       window.removeEventListener("focus", handleFocus);
       window.removeEventListener("krip:like-notifications-updated", handleInboxUpdated);
@@ -366,6 +484,84 @@ function ActivityNotificationToastWatcher() {
   }, []);
 
   return null;
+}
+
+async function showLatestNotificationToastFromInbox(detectedAt: number): Promise<void> {
+  if (lastActivityToastHandledAt() >= detectedAt) return;
+
+  try {
+    const inbox = await getNotificationInbox();
+    const notification =
+      inbox.notifications.find((item) => !item.is_read) ?? inbox.notifications[0];
+    if (!notification || lastActivityToastHandledAt() >= detectedAt) return;
+
+    markActivityToastHandled();
+    window.dispatchEvent(
+      new CustomEvent<AppToastDetail>("krip:app-toast", {
+        detail: {
+          title: getInboxNotificationTitle(notification),
+          message: getInboxNotificationMessage(notification),
+          variant: "info",
+          path: getInboxNotificationPath(notification),
+          imageUrl:
+            notification.actor_profile_image_url ||
+            notification.target_preview,
+        },
+      })
+    );
+  } catch {
+    if (lastActivityToastHandledAt() >= detectedAt) return;
+
+    markActivityToastHandled();
+    window.dispatchEvent(
+      new CustomEvent<AppToastDetail>("krip:app-toast", {
+        detail: {
+          title: "New notification",
+          message: "Open notifications to view the latest activity.",
+          variant: "info",
+          path: "/my",
+        },
+      })
+    );
+  }
+}
+
+function lastActivityToastHandledAt(): number {
+  return activityToastHandledAt;
+}
+
+function markActivityToastHandled(): void {
+  activityToastHandledAt = Date.now();
+}
+
+let activityToastHandledAt = 0;
+
+function getInboxNotificationTitle(item: InboxNotification): string {
+  const actor = item.actor_name || "Someone";
+
+  if (item.type === "feed_like") return `${actor} liked your feed post.`;
+  if (item.type === "feed_comment") return `${actor} commented on your feed post.`;
+  if (item.type === "tripmate_like") return `${actor} liked your tripmate post.`;
+
+  return `${actor} sent a notification.`;
+}
+
+function getInboxNotificationMessage(item: InboxNotification): string {
+  if (item.comment_preview) return item.comment_preview;
+  if (item.target_type === "feed_post") return "Feed post";
+  if (item.target_type === "tripmate_post") return "Tripmate post";
+
+  return "";
+}
+
+function getInboxNotificationPath(item: InboxNotification): string {
+  if (item.target_type === "tripmate_post") return "/mate";
+  if (item.target_type === "feed_post" && item.target_id) {
+    return `/my?feedPost=${encodeURIComponent(item.target_id)}`;
+  }
+  if (item.target_type === "feed_post") return "/my";
+
+  return "/home";
 }
 /**
  * Avoid notification requests on auth routes where a user token may not exist.
@@ -497,6 +693,75 @@ function AppToast() {
   );
 }
 
+function NotificationOpenNavigator() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    let pendingCheckAttempts = 0;
+
+    function openPath(path: string): void {
+      if (!path) return;
+
+      const roomId = path.match(/^\/chat\/([^/?#]+)/)?.[1];
+      if (roomId) {
+        window.sessionStorage.setItem("krip:chat-scroll-room", decodeURIComponent(roomId));
+      }
+
+      navigate(path, { replace: true });
+    }
+
+    function handleNotificationOpen(event: Event): void {
+      const path = (event as CustomEvent<{ path?: string }>).detail?.path;
+      if (!path) return;
+      if (!readToken()) return;
+
+      if (location.pathname !== "/home") {
+        navigate("/home", { replace: true });
+        window.setTimeout(() => {
+          window.dispatchEvent(new Event("krip:auth-ready"));
+        }, 80);
+        return;
+      }
+
+      consumePendingNotificationPath();
+      openPath(path);
+    }
+
+    function openPendingPath(): boolean {
+      if (!hasPendingNotificationPath()) return false;
+      if (!readToken()) return false;
+      if (location.pathname !== "/home") return false;
+
+      const pendingPath = consumePendingNotificationPath();
+      if (!pendingPath) return false;
+
+      openPath(pendingPath);
+      return true;
+    }
+
+    window.addEventListener("krip:notification-open", handleNotificationOpen);
+    window.addEventListener("krip:auth-ready", openPendingPath);
+    window.addEventListener("focus", openPendingPath);
+    window.setTimeout(openPendingPath, 0);
+    const pendingCheckInterval = window.setInterval(() => {
+      pendingCheckAttempts += 1;
+      if (openPendingPath() || pendingCheckAttempts >= 30) {
+        window.clearInterval(pendingCheckInterval);
+      }
+    }, 100);
+
+    return () => {
+      window.clearInterval(pendingCheckInterval);
+      window.removeEventListener("krip:notification-open", handleNotificationOpen);
+      window.removeEventListener("krip:auth-ready", openPendingPath);
+      window.removeEventListener("focus", openPendingPath);
+    };
+  }, [location.pathname, navigate]);
+
+  return null;
+}
+
 /**
  * Handles the JWT deep link callback from the native Google OAuth flow.
  * The backend redirects to krip://auth/callback?utk=...&status=...&email=...&name=...
@@ -514,63 +779,66 @@ function AppUrlOpenHandler() {
       if (!url || handledUrlRef.current === url) return;
       handledUrlRef.current = url;
 
-      console.info("[auth] appUrlOpen received url", url);
+      if (DEBUG_AUTH_LOG) {
+        console.info(
+          "[auth] appUrlOpen received",
+          JSON.stringify({ pathname: getSafeUrlPathname(url) })
+        );
+      }
       if (!url.startsWith("krip://")) return;
 
-      let parsed: URL;
-      try {
-        parsed = new URL(url);
-      } catch {
+      const callback = parseAuthCallbackUrl(url);
+      if (!callback) {
+        console.warn("[auth] appUrlOpen ignored non-auth callback");
         return;
       }
 
-      // Only handle krip://auth/callback
-      if (parsed.hostname !== "auth" || parsed.pathname !== "/callback") return;
+      const { utk, status, email, name } = callback;
 
-      const utk = parsed.searchParams.get("utk") ?? "";
-      const status = parsed.searchParams.get("status") ?? "";
-      const email = parsed.searchParams.get("email") ?? "";
-      const name = parsed.searchParams.get("name") ?? "";
-
-      console.info(
-        "[auth] appUrlOpen parsed",
-        JSON.stringify({
-          status,
-          hasUtk: Boolean(utk),
-          hasEmail: Boolean(email),
-          hasName: Boolean(name),
-          tokenPrefix: utk ? utk.slice(0, 10) : null,
-        })
-      );
-
-      try {
-        await Browser.close();
-      } catch {
-        // The browser may already be closed by the OS deep link handoff.
+      if (DEBUG_AUTH_LOG) {
+        console.info(
+          "[auth] appUrlOpen parsed",
+          JSON.stringify({
+            status,
+            hasToken: Boolean(utk),
+            hasEmail: Boolean(email),
+            hasName: Boolean(name),
+          })
+        );
       }
 
       if (!utk) {
         removeToken();
         navigate("/login", { replace: true });
+        void closeAuthBrowser();
         return;
       }
 
       saveToken(utk);
-      console.info(
-        "[auth] token saved",
-        JSON.stringify({
-          hasSavedToken: true,
-          tokenPrefix: utk.slice(0, 10),
-        })
-      );
+      const hasSavedToken = await confirmTokenSaved(utk);
 
+      if (!hasSavedToken) {
+        console.error("[auth] token save failed");
+        void closeAuthBrowser();
+        return;
+      }
       if (status === "complete") {
+        if (hasPendingNotificationPath()) {
+          navigate("/home", { replace: true });
+          window.setTimeout(() => {
+            window.dispatchEvent(new Event("krip:auth-ready"));
+          }, 120);
+          void closeAuthBrowser();
+          return;
+        }
         navigate("/home", { replace: true });
       } else if (status === "new" || status === "in_progress") {
         navigate("/register", { state: { email, name }, replace: true });
       } else if (status === "withdrawal_pending") {
         navigate("/withdrawal-pending", { replace: true });
       }
+
+      void closeAuthBrowser();
     }
 
     const listenerPromise = CapacitorApp.addListener("appUrlOpen", (data) => {
@@ -584,6 +852,40 @@ function AppUrlOpenHandler() {
   }, [navigate]);
 
   return null;
+}
+
+function getSafeUrlPathname(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return "";
+  }
+}
+
+async function closeAuthBrowser(): Promise<void> {
+  try {
+    await Browser.close();
+  } catch {
+    // The browser may already be closed by the OS deep link handoff.
+  }
+}
+
+function parseAuthCallbackUrl(
+  url: string
+): { utk: string; status: string; email: string; name: string } | null {
+  const callbackPrefix = "krip://auth/callback";
+  if (!url.startsWith(callbackPrefix)) return null;
+
+  const queryStart = url.indexOf("?");
+  const query = queryStart >= 0 ? url.slice(queryStart + 1) : "";
+  const params = new URLSearchParams(query);
+
+  return {
+    utk: params.get("utk") ?? "",
+    status: params.get("status") ?? "",
+    email: params.get("email") ?? "",
+    name: params.get("name") ?? "",
+  };
 }
 
 /**
@@ -655,6 +957,13 @@ function UnauthorizedRedirect() {
       const currentLocation = locationRef.current;
       if (isAuthFreePath(currentLocation.pathname)) return;
 
+      void unregisterFcmToken();
+
+      if (Capacitor.isNativePlatform()) {
+        window.location.replace("/login");
+        return;
+      }
+
       navigate("/login", {
         replace: true,
         state: {
@@ -675,7 +984,6 @@ function UnauthorizedRedirect() {
 
 export default function App() {
   useEffect(() => {
-    void requestPermission();
     listenForegroundMessages().catch((error) => {
       console.warn("Failed to listen for foreground FCM messages", error);
     });
@@ -700,6 +1008,8 @@ export default function App() {
             <Route path="/mate" element={<MatePage />} />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/my" element={<MyPage />} />
+            <Route path="/help" element={<HelpInfoPage />} />
+            <Route path="/account/delete" element={<DeleteAccountTermsPage />} />
             <Route path="/profile/:id" element={<UserFeedPage />} />
             <Route path="/spots/:id" element={<PlaceholderPage />} />
           </Route>
@@ -711,11 +1021,14 @@ export default function App() {
         <ForbiddenRedirect />
         <WithdrawalPendingRedirect />
         <UnauthorizedRedirect />
+        <AndroidBackButtonHandler />
+        <ViewportHeightController />
         <RouteScrollReset />
         <PageGestureController />
         <ActivityNotificationToastWatcher />
         <AppToast />
         <ChatMessageToast />
+        <NotificationOpenNavigator />
       </ChatProvider>
     </BrowserRouter>
   );
@@ -835,7 +1148,8 @@ const appToastStyles: Record<string, CSSProperties> = {
     border: "1px solid rgba(5,181,187,0.18)",
     borderRadius: 18,
     background: "rgba(255,255,255,0.97)",
-    boxShadow: "0 18px 42px rgba(24,26,32,0.16)",
+    boxShadow:
+      "0 26px 64px rgba(15,23,42,0.26), 0 8px 20px rgba(15,23,42,0.14)",
     backdropFilter: "blur(16px)",
     pointerEvents: "auto",
     textAlign: "left",

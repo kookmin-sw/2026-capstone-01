@@ -1,5 +1,12 @@
 ﻿import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent, UIEvent } from "react";
+import type {
+  CSSProperties,
+  MouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+  SyntheticEvent,
+  UIEvent,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
   addTourPlaceFavorite,
@@ -16,6 +23,8 @@ import {
   type UserProfile,
 } from "../../api/auth/auth";
 import NotificationBell from "../../components/NotificationBell";
+import { getPlaceCategoryImageUrl } from "../../data/placeCategoryImages";
+
 import { showAppToast } from "../../utils/appToast";
 
 const DEFAULT_LOCATION = { lat: 37.5665, lng: 126.978 };
@@ -25,14 +34,13 @@ const CURRENT_LOCATION_LABEL = "Using your current location";
 const GEOLOCATION_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
   maximumAge: 60000,
-  timeout: 30000,
+  timeout: 10000,
 };
 const GEOLOCATION_WATCH_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
   maximumAge: 60000,
-  timeout: 30000,
+  timeout: 10000,
 };
-const SEARCH_SUGGESTION_LIMIT = 8;
 const ALL_CATEGORY = "All";
 const CATEGORY_GROUPS = {
   FOOD_AND_DRINK: "Food & Drink",
@@ -45,13 +53,24 @@ const CATEGORY_GROUPS = {
 
 const SORT_FILTERS = ["Nearest", "Top Rated", "Most Reviewed", "Favorites"] as const;
 
+const CATEGORY_DISPLAY_ORDER = [
+  "Food & Drink",
+  "Shopping",
+  "Other",
+  "Stay",
+  "Attractions",
+  "Essentials",
+];
+
 type SortFilter = (typeof SORT_FILTERS)[number];
 type LocationStatus = "detecting" | "ready" | "approximate" | "fallback";
 type PlaceCategory = string;
 type PlaceTag = "Indoor" | "Outdoor" | "Crowded" | "Quiet";
+type PlaceDetailSheetState = "collapsed" | "expanded" | "closed";
 
 interface Place {
   id: string;
+  googlePlaceId: string;
   favoriteId?: string;
   favoriteCreatedAt?: string;
   initialIsFavorite?: boolean;
@@ -72,6 +91,7 @@ interface Place {
   website?: string;
   googleMapsUrl?: string;
   googleMapReviewLink?: string;
+  photos: string[];
   openingHours: string[];
   services: string[];
   payment: string[];
@@ -337,6 +357,56 @@ function getPlaceCoordinates(item: TourPlaceApiItem): {
   };
 }
 
+function getPlacePhotos(item: TourPlaceApiItem): string[] {
+  return Array.isArray(item.photos)
+    ? item.photos
+        .map((photo) => String(photo).trim())
+        .filter(Boolean)
+    : [];
+}
+
+
+function getPlaceThumbnailUrl(place: Place): string {
+  const categoryImageUrl = getPlaceCategoryImageUrl(place.category);
+  return place.photos[0] || categoryImageUrl || "";
+}
+
+function getDetailPhotos(place: Place, failedUrls: Set<string>): string[] {
+  const fallbackImageUrl = getPlaceCategoryImageUrl(place.category);
+
+  return place.photos.filter((photo) => {
+    const normalizedPhoto = photo.trim();
+    if (!normalizedPhoto || failedUrls.has(normalizedPhoto)) return false;
+    if (fallbackImageUrl && normalizedPhoto === fallbackImageUrl) return false;
+    return !isDefaultPlaceImageUrl(normalizedPhoto);
+  });
+}
+
+function isDefaultPlaceImageUrl(url: string): boolean {
+  const normalized = url.trim().toLowerCase();
+  return (
+    normalized.includes("default") ||
+    normalized.includes("placeholder") ||
+    normalized.includes("fallback")
+  );
+}
+
+function handlePlaceThumbnailError(
+  event: SyntheticEvent<HTMLImageElement>,
+  place: Place
+): void {
+  const image = event.currentTarget;
+  const fallbackImageUrl = getPlaceCategoryImageUrl(place.category);
+
+  if (!fallbackImageUrl || image.dataset.fallbackApplied === "true") {
+    image.style.display = "none";
+    return;
+  }
+
+  image.dataset.fallbackApplied = "true";
+  image.src = fallbackImageUrl;
+}
+  
 function mapTourPlace(item: TourPlaceApiItem): Place {
   const coordinates = getPlaceCoordinates(item);
   const description =
@@ -350,7 +420,8 @@ function mapTourPlace(item: TourPlaceApiItem): Place {
     "No description available yet.";
 
   return {
-    id: String(item.id || item.place_id || crypto.randomUUID()),
+    id: String(item.id || item.place_id || createFallbackPlaceId()),
+    googlePlaceId: String(item.place_id || item.id || ""),
     initialIsFavorite: item.is_favorite === true,
     name: String(item.display_name || item.name || item.title || "Unnamed place"),
     category: formatCategoryLabel(getBackendCategory(item)),
@@ -376,6 +447,7 @@ function mapTourPlace(item: TourPlaceApiItem): Place {
     googleMapReviewLink: item.google_map_review_link
       ? String(item.google_map_review_link)
       : undefined,
+    photos: getPlacePhotos(item),
     openingHours: Array.isArray(item.opening_hours)
       ? item.opening_hours.map((value) => String(value))
       : [],
@@ -422,6 +494,14 @@ function mapTourPlace(item: TourPlaceApiItem): Place {
   };
 }
 
+function createFallbackPlaceId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `place_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
 function mapFavoritePlace(item: FavoritePlaceApiItem): Place | null {
   if (!item.place) {
     return null;
@@ -462,12 +542,14 @@ export default function HomePage() {
   const categoryFilterRef = useRef<HTMLDivElement | null>(null);
   const bodyScrollerRef = useRef<HTMLDivElement | null>(null);
   const lastScrollTopRef = useRef(0);
+  const loadingCursorRef = useRef<string | null>(null);
 
   const [categoryFilterFade, setCategoryFilterFade] = useState({
     left: false,
     right: false,
   });
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
@@ -485,6 +567,20 @@ export default function HomePage() {
   const [recentSearches, setRecentSearches] = useState<SearchHistoryItem[]>([]);
   const [locationLabel, setLocationLabel] = useState(DEFAULT_LOCATION_LABEL);
   const [selectedPlace, setSelectedPlace] = useState<PlaceWithMeta | null>(null);
+  const [modalTab, setModalTab] = useState<"home" | "reviews" | "service">("home");
+  const [placeDetailSheetState, setPlaceDetailSheetState] =
+    useState<PlaceDetailSheetState>("closed");
+  const [failedDetailPhotoUrls, setFailedDetailPhotoUrls] = useState<Set<string>>(
+    () => new Set()
+  );
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const searchSheetRef = useRef<HTMLDivElement>(null);
+  const dragStartYRef = useRef(0);
+  const dragPointerIdRef = useRef<number | null>(null);
+  const searchDragStartYRef = useRef(0);
+  const searchDragPointerIdRef = useRef<number | null>(null);
+  const dragRafRef = useRef<number | null>(null);
+  const dragBaseTranslateRef = useRef(0);
   const [placesError, setPlacesError] = useState("");
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [currentLocation, setCurrentLocation] = useState(DEFAULT_LOCATION);
@@ -658,6 +754,10 @@ export default function HomePage() {
       append?: boolean;
     } = {}
   ): Promise<void> {
+    const cursorKey = options.cursor || "__initial__";
+    if (loadingCursorRef.current === cursorKey) return;
+    loadingCursorRef.current = cursorKey;
+
     const params: TourPlacesParams = {
       lat: currentLocation.lat,
       lng: currentLocation.lng,
@@ -665,19 +765,23 @@ export default function HomePage() {
       cursor: options.cursor,
     };
 
-    const response = await getTourPlaces(params);
-    const mappedItems = response.items.map(mapTourPlace);
+    try {
+      const response = await getTourPlaces(params);
+      const mappedItems = response.items.map(mapTourPlace);
 
-    setPlacesSource((current) =>
-      options.append ? [...current, ...mappedItems] : mappedItems
-    );
-    setNextCursor(response.nextCursor || null);
-    setPlacesError("");
+      setPlacesSource((current) =>
+        options.append ? [...current, ...mappedItems] : mappedItems
+      );
+      setNextCursor(response.nextCursor || null);
+      setPlacesError("");
 
-    if (!options.cursor && searchInput.trim()) {
-      fetchSearchHistory().catch(() => {
-        // Keep the places UI usable even if history refresh fails.
-      });
+      if (!options.cursor && searchInput.trim()) {
+        fetchSearchHistory().catch(() => {
+          // Keep the places UI usable even if history refresh fails.
+        });
+      }
+    } finally {
+      loadingCursorRef.current = null;
     }
   }
 
@@ -706,7 +810,7 @@ export default function HomePage() {
         const message =
           error instanceof Error ? error.message : "Failed to load places.";
         setPlacesError(message);
-        setPlacesSource([]);
+        setPlacesSource((current) => current);
       });
   }, [currentLocation.lat, currentLocation.lng, locationStatus, searchInput]);
 
@@ -762,17 +866,23 @@ export default function HomePage() {
   );
 
   const categoryFilters = useMemo<string[]>(() => {
-    const source = activeSort === "Favorites" ? favoritePlacesWithMeta : places;
     const categories = Array.from(
       new Set(
-        source
+        places
           .map((place) => place.groupCategory.trim())
           .filter(Boolean)
       )
-    ).sort((left, right) => left.localeCompare(right, "ko"));
+    ).sort((left, right) => {
+      const li = CATEGORY_DISPLAY_ORDER.indexOf(left);
+      const ri = CATEGORY_DISPLAY_ORDER.indexOf(right);
+      if (li === -1 && ri === -1) return left.localeCompare(right, "ko");
+      if (li === -1) return 1;
+      if (ri === -1) return -1;
+      return li - ri;
+    });
 
     return [ALL_CATEGORY, ...categories];
-  }, [activeSort, favoritePlacesWithMeta, places]);
+  }, [places]);
 
   useEffect(() => {
     if (!categoryFilters.includes(activeCategory)) {
@@ -849,27 +959,6 @@ export default function HomePage() {
   const hasMore = activeSort !== "Favorites" && Boolean(nextCursor);
   const sentinelText = isFetchingMore ? "Loading..." : "";
 
-  const suggestionPool = useMemo(() => {
-    return Array.from(
-      new Set(
-        placesSource.flatMap((place) => [
-          place.name,
-          place.category,
-          place.groupCategory,
-          ...place.tags,
-        ])
-      )
-    );
-  }, [placesSource]);
-
-  const relatedSuggestions = useMemo(() => {
-    const keyword = searchDraft.trim().toLowerCase();
-    const matched = suggestionPool.filter((item) =>
-      !keyword ? true : item.toLowerCase().includes(keyword)
-    );
-    return matched.slice(0, SEARCH_SUGGESTION_LIMIT);
-  }, [searchDraft, suggestionPool]);
-
   const recentSearchKeywords = useMemo(
     () => recentSearches.map((item) => item.search_name),
     [recentSearches]
@@ -883,7 +972,12 @@ export default function HomePage() {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && nextCursor && !isFetchingMore) {
+        if (
+          entries[0]?.isIntersecting &&
+          nextCursor &&
+          !isFetchingMore &&
+          loadingCursorRef.current !== nextCursor
+        ) {
           setIsFetchingMore(true);
           fetchPlaces({ cursor: nextCursor, append: true })
             .catch((error) => {
@@ -932,10 +1026,10 @@ export default function HomePage() {
 
     try {
       if (place.isFavorite) {
-        await removeTourPlaceFavorite(place.favoriteId || place.id, place.id);
+        await removeTourPlaceFavorite(place.googlePlaceId || place.id, place.googlePlaceId || place.id);
         syncPlaceFavoriteState(place.id, false);
       } else {
-        await addTourPlaceFavorite(place.id);
+        await addTourPlaceFavorite(place.googlePlaceId || place.id);
         syncPlaceFavoriteState(place.id, true);
         await fetchFavoritePlaces();
       }
@@ -951,20 +1045,144 @@ export default function HomePage() {
   }
 
   function openPlaceDetail(place: PlaceWithMeta): void {
-    setSelectedPlace(place);
-  }
+  setSelectedPlace(place);
+  setModalTab("home");
+  setPlaceDetailSheetState("collapsed");
+  setFailedDetailPhotoUrls(new Set());
+
+  requestAnimationFrame(() => {
+    const el = sheetRef.current;
+    if (!el) return;
+
+    // 시작 위치: 화면 아래
+    el.style.transition = "none";
+    el.style.transform = "translate3d(0, 100vh, 0)";
+
+    // 다음 frame에서 collapsed까지 자연스럽게 올라오기
+    requestAnimationFrame(() => {
+      applySheetTransform("collapsed", true);
+    });
+  });
+}
 
   function closePlaceDetail(): void {
+    dragPointerIdRef.current = null;
+    if (dragRafRef.current !== null) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = null; }
+    setPlaceDetailSheetState("closed");
     setSelectedPlace(null);
+    setFailedDetailPhotoUrls(new Set());
+  }
+
+  function handleModalHandlePointerDown(event: ReactPointerEvent<HTMLButtonElement>): void {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragPointerIdRef.current = event.pointerId;
+    dragStartYRef.current = event.clientY;
+    dragBaseTranslateRef.current = placeDetailSheetState === "expanded" ? 0 : getCollapsedY();
+    const el = sheetRef.current;
+    if (el) el.style.transition = "none";
+  }
+
+  function handleModalHandlePointerMove(event: ReactPointerEvent<HTMLButtonElement>): void {
+    if (dragPointerIdRef.current !== event.pointerId) return;
+    const rawY = dragBaseTranslateRef.current + (event.clientY - dragStartYRef.current);
+    const clampedY = Math.max(0, rawY);
+    if (dragRafRef.current !== null) cancelAnimationFrame(dragRafRef.current);
+    dragRafRef.current = requestAnimationFrame(() => {
+      if (sheetRef.current) sheetRef.current.style.transform = `translate3d(0, ${clampedY}px, 0)`;
+      dragRafRef.current = null;
+    });
+  }
+function animateClosePlaceDetail(): void {
+  const el = sheetRef.current;
+
+  if (!el) {
+    closePlaceDetail();
+    return;
+  }
+
+  el.style.transition = "transform 360ms cubic-bezier(0.22, 1, 0.36, 1)";
+  el.style.transform = "translate3d(0, 100vh, 0)";
+
+  window.setTimeout(() => {
+    closePlaceDetail();
+  }, 360);
+}
+  function handleModalHandlePointerEnd(event: ReactPointerEvent<HTMLButtonElement>): void {
+    if (dragPointerIdRef.current !== event.pointerId) return;
+    dragPointerIdRef.current = null;
+    if (dragRafRef.current !== null) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = null; }
+
+    const deltaY = event.clientY - dragStartYRef.current;
+    const vh = window.innerHeight;
+    const expandThreshold = -80;
+    const collapseThreshold = 80;
+    const closeThreshold = Math.max(150, vh * 0.22);
+
+    if (placeDetailSheetState === "collapsed" && deltaY < expandThreshold) {
+      setPlaceDetailSheetState("expanded");
+      applySheetTransform("expanded");
+    } else if (placeDetailSheetState === "expanded" && deltaY > collapseThreshold && deltaY < closeThreshold) {
+      setPlaceDetailSheetState("collapsed");
+      applySheetTransform("collapsed");
+    } else if (deltaY > closeThreshold) {
+      animateClosePlaceDetail();
+    } else {
+      applySheetTransform(placeDetailSheetState);
+    }
+  }
+
+  function handleDetailPhotoError(photoUrl: string): void {
+    setFailedDetailPhotoUrls((current) => {
+      const next = new Set(current);
+      next.add(photoUrl);
+      return next;
+    });
   }
 
   function openSearchSheet(): void {
     setSearchDraft(searchInput);
+    setSelectedPlace(null);
+    setPlaceDetailSheetState("closed");
     setIsSearchOpen(true);
   }
 
   function closeSearchSheet(): void {
+    if (searchSheetRef.current) {
+      searchSheetRef.current.style.transform = "";
+      searchSheetRef.current.style.transition = "";
+    }
     setIsSearchOpen(false);
+  }
+
+  function handleSearchHandlePointerDown(event: ReactPointerEvent<HTMLButtonElement>): void {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    searchDragPointerIdRef.current = event.pointerId;
+    searchDragStartYRef.current = event.clientY;
+    if (searchSheetRef.current) {
+      searchSheetRef.current.style.transition = "none";
+    }
+  }
+
+  function handleSearchHandlePointerMove(event: ReactPointerEvent<HTMLButtonElement>): void {
+    if (searchDragPointerIdRef.current !== event.pointerId) return;
+    const deltaY = Math.max(0, event.clientY - searchDragStartYRef.current);
+    if (searchSheetRef.current) {
+      searchSheetRef.current.style.transform = `translate3d(0, ${deltaY}px, 0)`;
+    }
+  }
+
+  function handleSearchHandlePointerEnd(event: ReactPointerEvent<HTMLButtonElement>): void {
+    if (searchDragPointerIdRef.current !== event.pointerId) return;
+    searchDragPointerIdRef.current = null;
+    const deltaY = Math.max(0, event.clientY - searchDragStartYRef.current);
+    if (deltaY > 90) {
+      closeSearchSheet();
+      return;
+    }
+    if (searchSheetRef.current) {
+      searchSheetRef.current.style.transition = "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)";
+      searchSheetRef.current.style.transform = "translate3d(0, 0, 0)";
+    }
   }
 
   function submitSearch(nextValue: string = searchDraft): void {
@@ -1017,7 +1235,29 @@ export default function HomePage() {
       setIsHeaderHidden(false);
     }
 
+    setShowScrollTop(nextScrollTop > 800);
+
     lastScrollTopRef.current = nextScrollTop;
+  }
+
+  function scrollToTop() {
+    bodyScrollerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  const isModalOpen = Boolean(selectedPlace) || isSearchOpen;
+
+  function getCollapsedY(): number {
+    return Math.round(window.innerHeight * 0.2);
+  }
+  function applySheetTransform(state: PlaceDetailSheetState, withTransition = true): void {
+    const el = sheetRef.current;
+    if (!el) return;
+    el.style.transition = withTransition
+      ? "transform 300ms cubic-bezier(0.22, 1, 0.36, 1)"
+      : "none";
+    el.style.transform = state === "expanded"
+      ? "translate3d(0, 0, 0)"
+      : `translate3d(0, ${getCollapsedY()}px, 0)`;
   }
 
   return (
@@ -1025,7 +1265,10 @@ export default function HomePage() {
       <div style={styles.shell}>
         <div
           ref={bodyScrollerRef}
-          style={styles.bodyScroller}
+          style={{
+            ...styles.bodyScroller,
+            ...(isModalOpen ? styles.bodyScrollerLocked : {}),
+          }}
           onScroll={handleBodyScroll}
         >
           <HomeHeader
@@ -1034,24 +1277,13 @@ export default function HomePage() {
             isHidden={isHeaderHidden}
           />
 
-          <section style={styles.locationSection}>
-            <div style={styles.locationBar}>
-              <button
-                type="button"
-                style={styles.locationButton}
-                onClick={requestCurrentLocation}
-              >
-                Use my location
-              </button>
-            </div>
-          </section>
 
           <section style={styles.filtersSection}>
             <div ref={categoryFilterRef}
               className="filter-group-scroll"
               style={{
                 ...styles.filterGroup,
-                justifyContent: "flex-start",
+                justifyContent: "center",
                 WebkitMaskImage: getFilterMask(
                   categoryFilterFade.left,
                   categoryFilterFade.right
@@ -1111,6 +1343,15 @@ export default function HomePage() {
                   onClick={() => openPlaceDetail(place)}
                 >
                   <div style={styles.thumbnail}>
+                    {getPlaceThumbnailUrl(place) ? (
+                      <img
+                        src={getPlaceThumbnailUrl(place)}
+                        alt={place.name}
+                        loading="lazy"
+                        onError={(event) => handlePlaceThumbnailError(event, place)}
+                        style={styles.thumbnailImage}
+                      />
+                    ) : null}
                   </div>
 
                   <div style={styles.cardBody}>
@@ -1186,106 +1427,182 @@ export default function HomePage() {
       </div>
 
       {selectedPlace ? (
-        <div style={styles.modalOverlay} onClick={closePlaceDetail}>
-          <div style={styles.modalCard} onClick={(event) => event.stopPropagation()}>
-            <div style={styles.modalHero}>
-              <div style={styles.modalHeroTop}>
-                <span style={styles.modalCategory}>{selectedPlace.category}</span>
-                <button
-                  type="button"
-                  style={styles.modalCloseButton}
-                  onClick={closePlaceDetail}
-                  aria-label="Close details"
-                >
-                  x
-                </button>
-              </div>
-              <div>
-                <h2 style={styles.modalTitle}>{selectedPlace.name}</h2>
-                <p style={styles.modalDistance}>
-                  {locationLabel} / {formatDistance(selectedPlace.distanceKm)}
-                </p>
-              </div>
+        <div
+          ref={sheetRef}
+          style={styles.modalCard}
+          onClick={(event) => event.stopPropagation()}
+        >
+            {/* Drag handle */}
+            <button
+              type="button"
+              style={styles.modalHandleButton}
+              onPointerDown={handleModalHandlePointerDown}
+              onPointerMove={handleModalHandlePointerMove}
+              onPointerUp={handleModalHandlePointerEnd}
+              onPointerCancel={handleModalHandlePointerEnd}
+              aria-label="Expand place detail"
+            >
+              <span style={styles.modalHandle} />
+            </button>
+
+            {/* Category + feature tags */}
+            <div style={styles.modalTagRow}>
+              <span style={styles.modalCategoryTag}>{selectedPlace.groupCategory}</span>
+              {selectedPlace.tags.map((tag) => (
+                <span key={tag} style={styles.modalFeatureTag}>{tag}</span>
+              ))}
             </div>
 
-            <div style={styles.modalBody}>
-              <p style={styles.modalDescription}>{selectedPlace.description}</p>
-
-              <div style={styles.detailStack}>
-                <DetailRow
-                  label="Address"
-                  value={selectedPlace.shortAddress || selectedPlace.address}
-                />
-                <DetailRow
-                  label="Rating"
-                  value={formatRating(selectedPlace.rating, selectedPlace.reviewCount)}
-                />
-                <DetailRow
-                  label="Price"
-                  value={formatPriceRange(
-                    selectedPlace.priceLevel,
-                    selectedPlace.priceRange
-                  )}
-                />
-                <DetailRow label="Phone" value={selectedPlace.phone} />
-                <DetailRow
-                  label="International Phone"
-                  value={selectedPlace.phoneInternational}
-                />
-              </div>
-
-              <div style={styles.modalInfoGrid}>
-                <div style={styles.modalInfoCard}>
-                  <span style={styles.modalInfoLabel}>Reviews</span>
-                  <strong style={styles.modalInfoValue}>
-                    {selectedPlace.reviewCount.toLocaleString()}
-                  </strong>
-                </div>
-                <div style={styles.modalInfoCard}>
-                  <span style={styles.modalInfoLabel}>Opening Hours</span>
-                  <strong style={styles.modalInfoValue}>
-                    {selectedPlace.openingHours[0] || "Not available"}
-                  </strong>
+            {/* Title + bookmark */}
+            <div style={styles.modalTitleRow}>
+              <div style={styles.modalTitleBlock}>
+                <h2 style={styles.modalTitle}>{selectedPlace.name}</h2>
+                <div style={styles.modalMetaRow}>
+                  {Number.isFinite(selectedPlace.rating) ? (
+                    <>
+                      <StarIconSmall />
+                      <span style={styles.modalMetaText}>{selectedPlace.rating!.toFixed(1)}</span>
+                      <span style={styles.modalMetaSep}>|</span>
+                      <span style={styles.modalMetaText}>{selectedPlace.reviewCount} reviews</span>
+                      <span style={styles.modalMetaSep}>·</span>
+                    </>
+                  ) : null}
+                  <PinIconSmall />
+                  <span style={styles.modalMetaText}>{formatDistance(selectedPlace.distanceKm)}</span>
                 </div>
               </div>
+              <button
+                type="button"
+                style={{
+                  ...styles.modalBookmarkBtn,
+                  ...(favoriteActionIds.includes(selectedPlace.id)
+                    ? styles.favoriteButtonPending
+                    : {}),
+                }}
+                onClick={() => void toggleFavorite(selectedPlace)}
+                disabled={favoriteActionIds.includes(selectedPlace.id)}
+                aria-label={`Toggle favorite for ${selectedPlace.name}`}
+              >
+                <BookmarkIcon filled={selectedPlace.isFavorite} />
+              </button>
+            </div>
 
-              {selectedPlace.services.length > 0 ? (
-                <DetailChipSection label="Services" items={selectedPlace.services} />
-              ) : null}
+            {/* Photo gallery */}
+            {getDetailPhotos(selectedPlace, failedDetailPhotoUrls).length > 0 ? (
+              <div style={styles.photoGallery}>
+                {getDetailPhotos(selectedPlace, failedDetailPhotoUrls).slice(0, 3).map((photo, index) => (
+                  <div key={index} style={styles.galleryPhotoWrap}>
+                    <img
+                      src={photo}
+                      alt={`${selectedPlace.name} photo ${index + 1}`}
+                      style={styles.galleryPhoto}
+                      onError={() => handleDetailPhotoError(photo)}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
-              {selectedPlace.payment.length > 0 ? (
-                <DetailChipSection label="Payment" items={selectedPlace.payment} />
-              ) : null}
+            {/* Tab bar */}
+            <div style={styles.modalTabBar}>
+              {(["home", "reviews", "service"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  style={styles.modalTabBtn}
+                  onClick={() => setModalTab(tab)}
+                >
+                  <span style={modalTab === tab ? styles.modalTabLabelActive : styles.modalTabLabel}>
+                    {tab === "home" ? "Home" : tab === "reviews" ? "Reviews" : "Service"}
+                  </span>
+                  <div
+                    style={
+                      modalTab === tab
+                        ? styles.modalTabUnderlineActive
+                        : styles.modalTabUnderline
+                    }
+                  />
+                </button>
+              ))}
+            </div>
 
-              {selectedPlace.accessibility.length > 0 ? (
-                <DetailChipSection label="Accessibility" items={selectedPlace.accessibility} />
-              ) : null}
-
-              {selectedPlace.parking.length > 0 ? (
-                <DetailChipSection label="Parking" items={selectedPlace.parking} />
-              ) : null}
-
-              <div style={styles.detailLinkRow}>
+            {/* Tab: Home */}
+            {modalTab === "home" ? (
+              <div style={styles.modalTabContent}>
+                {selectedPlace.shortAddress || selectedPlace.address ? (
+                  <PlaceInfoRow icon={<PinIconInline />}>
+                    {selectedPlace.shortAddress || selectedPlace.address}
+                  </PlaceInfoRow>
+                ) : null}
+                {selectedPlace.phone || selectedPlace.phoneInternational ? (
+                  <PlaceInfoRow icon={<PhoneIconInline />}>
+                    <div>
+                      {selectedPlace.phone ? <div>{selectedPlace.phone}</div> : null}
+                      {selectedPlace.phoneInternational &&
+                      selectedPlace.phoneInternational !== selectedPlace.phone ? (
+                        <div>{selectedPlace.phoneInternational}</div>
+                      ) : null}
+                    </div>
+                  </PlaceInfoRow>
+                ) : null}
                 {selectedPlace.website ? (
-                  <a
-                    href={selectedPlace.website}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={styles.detailLink}
-                  >
-                    Website
-                  </a>
+                  <PlaceInfoRow icon={<GlobeIconInline />}>
+                    <a
+                      href={selectedPlace.website}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={styles.infoLink}
+                    >
+                      {selectedPlace.website}
+                    </a>
+                  </PlaceInfoRow>
                 ) : null}
                 {selectedPlace.googleMapsUrl ? (
-                  <a
-                    href={selectedPlace.googleMapsUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={styles.detailLink}
-                  >
-                    Open Map
-                  </a>
+                  <PlaceInfoRow icon={<MapIconInline />}>
+                    <a
+                      href={selectedPlace.googleMapsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={styles.infoLink}
+                    >
+                      [Google Maps URL]
+                    </a>
+                  </PlaceInfoRow>
                 ) : null}
+                {selectedPlace.openingHours.length > 0 ? (
+                  <PlaceInfoRow icon={<ClockIconInline />}>
+                    {selectedPlace.openingHours[0]}
+                  </PlaceInfoRow>
+                ) : null}
+                {selectedPlace.description && !isDuplicatePlaceDescription(selectedPlace) ? (
+                  <p style={styles.modalDescription}>{selectedPlace.description}</p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Tab: Reviews */}
+            {modalTab === "reviews" ? (
+              <div style={styles.modalTabContent}>
+                {selectedPlace.reviews.length > 0 ? (
+                  selectedPlace.reviews.map((review, index) => (
+                    <div key={`${review.author}-${index}`} style={styles.reviewCard}>
+                      <div style={styles.reviewHeader}>
+                        <strong>{review.author}</strong>
+                        <span>
+                          {[
+                            review.rating ? `★ ${review.rating}` : null,
+                            review.relativeTime,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      </div>
+                      <p style={styles.reviewBody}>{review.text || "No review text"}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p style={styles.searchEmpty}>No reviews available yet.</p>
+                )}
                 {selectedPlace.googleMapReviewLink ? (
                   <a
                     href={selectedPlace.googleMapReviewLink}
@@ -1293,54 +1610,63 @@ export default function HomePage() {
                     rel="noreferrer"
                     style={styles.detailLink}
                   >
-                    View Reviews
+                    View all reviews on Google Maps
                   </a>
                 ) : null}
               </div>
+            ) : null}
 
-              {selectedPlace.reviews.length > 0 ? (
-                <div style={styles.reviewSection}>
-                  <p style={styles.sectionLabel}>Reviews</p>
-                  {selectedPlace.reviews.slice(0, 3).map((review, index) => (
-                    <div key={`${review.author}-${index}`} style={styles.reviewCard}>
-                      <div style={styles.reviewHeader}>
-                        <strong>{review.author}</strong>
-                        <span>
-                          {[review.rating ? `${review.rating}` : null, review.relativeTime]
-                            .filter(Boolean)
-                            .join(" / ")}
-                        </span>
-                      </div>
-                      <p style={styles.reviewBody}>
-                        {review.text || "No review text"}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+            {/* Tab: Service */}
+            {modalTab === "service" ? (
+              <div style={styles.modalTabContent}>
+                {selectedPlace.services.length > 0 ? (
+                  <DetailChipSection label="Services" items={selectedPlace.services} />
+                ) : null}
+                {selectedPlace.payment.length > 0 ? (
+                  <DetailChipSection label="Payment" items={selectedPlace.payment} />
+                ) : null}
+                {selectedPlace.accessibility.length > 0 ? (
+                  <DetailChipSection label="Accessibility" items={selectedPlace.accessibility} />
+                ) : null}
+                {selectedPlace.parking.length > 0 ? (
+                  <DetailChipSection label="Parking" items={selectedPlace.parking} />
+                ) : null}
+                {selectedPlace.priceLevel || selectedPlace.priceRange ? (
+                  <DetailRow
+                    label="Price"
+                    value={formatPriceRange(selectedPlace.priceLevel, selectedPlace.priceRange)}
+                  />
+                ) : null}
+                {selectedPlace.services.length === 0 &&
+                selectedPlace.payment.length === 0 &&
+                selectedPlace.accessibility.length === 0 &&
+                selectedPlace.parking.length === 0 ? (
+                  <p style={styles.searchEmpty}>No service information available.</p>
+                ) : null}
+              </div>
+            ) : null}
 
-              <button
-                type="button"
-                style={{
-                  ...styles.modalFavoriteButton,
-                  ...(favoriteActionIds.includes(selectedPlace.id)
-                    ? styles.favoriteButtonPending
-                    : {}),
-                }}
-                onClick={() => void toggleFavorite(selectedPlace)}
-                disabled={favoriteActionIds.includes(selectedPlace.id)}
-              >
-                {selectedPlace.isFavorite ? "Remove Favorite" : "Add to Favorites"}
-              </button>
-            </div>
           </div>
-        </div>
       ) : null}
 
       {isSearchOpen ? (
         <div style={styles.modalOverlay} onClick={closeSearchSheet}>
-          <div style={styles.searchSheet} onClick={(event) => event.stopPropagation()}>
-            <div style={styles.searchSheetHandle} />
+          <div
+            ref={searchSheetRef}
+            style={styles.searchSheet}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              style={styles.searchSheetHandleButton}
+              onPointerDown={handleSearchHandlePointerDown}
+              onPointerMove={handleSearchHandlePointerMove}
+              onPointerUp={handleSearchHandlePointerEnd}
+              onPointerCancel={handleSearchHandlePointerEnd}
+              aria-label="Close search"
+            >
+              <span style={styles.searchSheetHandle} />
+            </button>
             <div style={styles.searchSheetHeader}>
               <label style={styles.searchSheetInputWrap}>
                 <SearchIcon />
@@ -1357,42 +1683,6 @@ export default function HomePage() {
                   style={styles.searchSheetInput}
                 />
               </label>
-              <button
-                type="button"
-                style={styles.searchSheetClose}
-                onClick={closeSearchSheet}
-              >
-                Cancel
-              </button>
-            </div>
-
-            <div style={styles.searchSheetSection}>
-              <div style={styles.searchSheetLabelRow}>
-                <p style={styles.searchSheetTitle}>Suggested Searches</p>
-                <button
-                  type="button"
-                  style={styles.linkButton}
-                  onClick={() => submitSearch()}
-                >
-                  Search
-                </button>
-              </div>
-              <div style={styles.searchSuggestionGrid}>
-                {relatedSuggestions.length > 0 ? (
-                  relatedSuggestions.map((keyword) => (
-                    <button
-                      key={keyword}
-                      type="button"
-                      style={styles.searchKeywordChip}
-                      onClick={() => submitSearch(keyword)}
-                    >
-                      {keyword}
-                    </button>
-                  ))
-                ) : (
-                  <p style={styles.searchEmpty}>No suggestions yet.</p>
-                )}
-              </div>
             </div>
 
             <div style={styles.searchSheetSection}>
@@ -1416,7 +1706,7 @@ export default function HomePage() {
                         onClick={() => void removeRecentSearch(keyword)}
                         aria-label={`Delete ${keyword}`}
                       >
-                        Delete
+                        <img src="/icon-close.svg" alt="" style={styles.recentDeleteIcon} />
                       </button>
                     </div>
                   ))}
@@ -1429,21 +1719,44 @@ export default function HomePage() {
         </div>
       ) : null}
 
+      <button
+        type="button"
+        style={{
+          ...styles.scrollTopButton,
+          ...(showScrollTop && !isSearchOpen
+            ? styles.scrollTopButtonVisible
+            : styles.scrollTopButtonHidden),
+        }}
+        onClick={scrollToTop}
+        aria-label="Scroll to top"
+        aria-hidden={!showScrollTop || isSearchOpen}
+        tabIndex={showScrollTop && !isSearchOpen ? 0 : -1}
+      >
+        ↑
+      </button>
+
     </div>
+  );
+}
+
+function isDuplicatePlaceDescription(place: Place): boolean {
+  const description = place.description.trim();
+  return (
+    description === "" ||
+    description === place.shortAddress?.trim() ||
+    description === place.address?.trim()
   );
 }
 
 function SearchIcon() {
   return (
-    <svg width="25" height="25" viewBox="0 0 24 24" fill="#848484" aria-hidden="true">
-      <path
-        d="M10.5 18a7.5 7.5 0 1 1 5.303-12.803A7.5 7.5 0 0 1 10.5 18Zm0-13a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11Zm10 15l-4.35-4.35"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <img
+      src="/SearchIcon.svg"
+      alt="search"
+      width={20}
+      height={20}
+      style={{ display: "block", objectFit: "contain" }}
+    />
   );
 }
 
@@ -1456,6 +1769,8 @@ function HomeHeader({
   onOpenSearch: () => void;
   isHidden: boolean;
 }) {
+  const navigate = useNavigate();
+
   return (
     <header
       style={{
@@ -1468,11 +1783,22 @@ function HomeHeader({
       }}
     >
       <div style={styles.header}>
-        <div>
-          <p style={styles.eyebrow}>Trip Finder</p>
-          <h1 style={styles.headerTitle}>Explore Nearby Places</h1>
+        <div style={styles.headerLogoWrap}>
+          <img
+            src="/kripInAppLogo.svg"
+            alt="KRIP"
+            style={styles.headerLogo}
+          />
         </div>
         <div style={styles.headerActions}>
+          <button
+            type="button"
+            style={styles.helpButton}
+            onClick={() => navigate("/help")}
+            aria-label="Open help guide"
+          >
+            <InfoIcon />
+          </button>
           <NotificationBell buttonStyle={styles.myPageButton} />
         </div>
       </div>
@@ -1488,6 +1814,7 @@ function HomeHeader({
                 onOpenSearch();
               }}
               placeholder="Search places by name or keyword"
+              className="search-input"
               style={styles.searchInput}
               readOnly
             />
@@ -1506,23 +1833,26 @@ function HomeHeader({
   );
 }
 
+function InfoIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+      <path d="M12 10.5v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy="7.5" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
 function BookmarkIcon({ filled }: { filled: boolean }) {
   return (
-    <svg
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
+    <img
+      src={filled ? "/FavoriteIcon_active.svg" : "/FavoriteIcon.svg"}
+      alt=""
       aria-hidden="true"
-    >
-      <path
-        d="M6.5 4.5C6.5 3.67 7.17 3 8 3H16C16.83 3 17.5 3.67 17.5 4.5V20.25L12 16.75L6.5 20.25V4.5Z"
-        fill={filled ? "#9f9f9f" : "transparent"}
-        stroke="#6f6f6f"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-    </svg>
+      width={24}
+      height={24}
+      style={{ display: "block" }}
+    />
   );
 }
 
@@ -1558,13 +1888,141 @@ function DetailChipSection({
   );
 }
 
+function ChevronLeftIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    >
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function StarIconSmall() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="#F8B400" stroke="none">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  );
+}
+
+function PinIconSmall() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="#848484">
+      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+    </svg>
+  );
+}
+
+function PinIconInline() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="#01C0C0">
+      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+    </svg>
+  );
+}
+
+function PhoneIconInline() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="#01C0C0">
+      <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
+    </svg>
+  );
+}
+
+function GlobeIconInline() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#01C0C0"
+      strokeWidth="1.8"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </svg>
+  );
+}
+
+function MapIconInline() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#01C0C0"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+      <line x1="8" y1="2" x2="8" y2="18" />
+      <line x1="16" y1="6" x2="16" y2="22" />
+    </svg>
+  );
+}
+
+function ClockIconInline() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#01C0C0"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
+function PlaceInfoRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <div style={styles.infoRow}>
+      <span style={styles.infoIcon}>{icon}</span>
+      <span style={styles.infoText}>{children}</span>
+    </div>
+  );
+}
+
 const styles: Record<string, CSSProperties> = {
   loading: {
     minHeight: "var(--app-viewport-height)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "transparent",
+    background: "#f5f5f5",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   loadingShell: {
@@ -1592,8 +2050,7 @@ const styles: Record<string, CSSProperties> = {
     height: "calc(var(--app-viewport-height) - var(--app-bottom-nav-reserved))",
     minHeight: "calc(var(--app-viewport-height) - var(--app-bottom-nav-reserved))",
     overflow: "visible",
-    background:
-      "linear-gradient(180deg, #d5f6f5 0%, #d9f5f2 30%, #eef4ef 58%, #fafafa 100%)",
+    background: "#f5f5f5",
     fontFamily: "'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   shell: {
@@ -1617,9 +2074,11 @@ const styles: Record<string, CSSProperties> = {
     overscrollBehavior: "contain",
     WebkitOverflowScrolling: "touch",
     paddingBottom: 40,
-    background:
-      "linear-gradient(180deg, rgba(221,246,244,0.98) 0%, rgba(230,244,240,0.94) 28%, rgba(250,250,250,1) 52%)",
+    background: "#f5f5f5",
     transition: "padding-top 220ms ease",
+  },
+  bodyScrollerLocked: {
+    overflowY: "hidden",
   },
 
   /* ── Header ─────────────────────────────── */
@@ -1630,44 +2089,42 @@ const styles: Record<string, CSSProperties> = {
     flexShrink: 0,
     display: "flex",
     flexDirection: "column",
-    gap: 12,
-    paddingTop: "calc(20px + var(--app-safe-top))",
-    paddingBottom: 12,
+    gap: 7,
+    paddingTop: "calc(12px + var(--app-safe-top))",
+    paddingBottom: 14,
     boxSizing: "border-box",
     marginBottom: -1,
-    background:
-      "linear-gradient(180deg, rgba(211,246,245,1) 0%, rgba(220,247,245,0.98) 68%, rgba(221,246,244,0.98) 100%)",
+    background: "#f5f5f5",
     transition:
       "transform 240ms ease, opacity 180ms ease",
     willChange: "transform, opacity",
   },
   header: {
     display: "flex",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
-    gap: 16,
     padding: "16px 16px 0",
   },
-  eyebrow: {
-    margin: 0,
-    color: "var(--brand-primary-deep)",
-    fontSize: "0.7rem",
-    fontWeight: 800,
-    letterSpacing: "0.14em",
-    textTransform: "uppercase",
+  headerLogoWrap: {
+    display: "flex",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    marginLeft: 4,
   },
-  headerTitle: {
-    margin: "2px 0 0",
-    fontSize: "clamp(1.15rem, 3.7vw, 2rem)",
-    fontWeight: 800,
-    lineHeight: 1.25,
-    color: "var(--text-primary)",
+  headerLogo: {
+    height: "clamp(22px, 4.8vw, 32px)",
+    width: "auto",
+    objectFit: "contain",
+    display: "block",
   },
   headerActions: {
     display: "flex",
     alignItems: "center",
     gap: 10,
     flexShrink: 0,
+    alignSelf: "flex-start",
+    marginRight: 8,
+    marginTop: -8,
   },
   notificationButton: {
     position: "relative",
@@ -1703,19 +2160,34 @@ const styles: Record<string, CSSProperties> = {
     position: "relative",
     width: 40,
     height: 40,
-    border: "1px solid rgba(5,181,187,0.18)",
+    border: "none",
     borderRadius: "50%",
     display: "grid",
     placeItems: "center",
-    background: "rgba(255,255,255,0.94)",
+    background: "transparent",
     color: "var(--brand-primary-deep)",
-    boxShadow: "var(--shadow-soft)",
+    boxShadow: "none",
     cursor: "pointer",
     flexShrink: 0,
     fontWeight: 900,
   },
+  helpButton: {
+    position: "relative",
+    width: 40,
+    height: 40,
+    border: "none",
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "transparent",
+    color: "var(--brand-primary-deep)",
+    boxShadow: "none",
+    cursor: "pointer",
+    flexShrink: 0,
+    padding: 0,
+  },
   searchPanel: {
-    padding: "0 16px",
+    padding: "8px 16px 0",
     borderRadius: 28,
     background: "transparent",
   },
@@ -1732,7 +2204,7 @@ const styles: Record<string, CSSProperties> = {
     flex: 1,
     display: "flex",
     alignItems: "center",
-    padding: "0 0.7rem 0 1.3rem",
+    padding: "0 1rem 0 1.7rem",
     minHeight: "2.75rem",
     borderRadius: "3rem",
     background: "#fff",
@@ -1781,8 +2253,8 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     margin: "0",
-    padding: "0 16px 0.8rem",
-    gap: 8,
+    padding: "0 16px 0.4rem",
+    gap: 6,
     minHeight: 54,
     overflow: "visible",
   },
@@ -1790,7 +2262,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexWrap: "nowrap",
     gap: "0.3rem",
-    justifyContent: "flex-start",
+    justifyContent: "center",
     alignItems: "center",
     overflowX: "auto",
     overflowY: "hidden",
@@ -1804,7 +2276,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexWrap: "nowrap",
     gap: "0.3rem",
-    justifyContent: "flex-start",
+    justifyContent: "center",
     alignItems: "center",
     minWidth: "100%",
     width: "max-content",
@@ -1812,16 +2284,21 @@ const styles: Record<string, CSSProperties> = {
   },
   filterChip: {
     border: "transparent",
-    borderRadius: 999,
-    padding: "0.3rem 0.7rem 0.35rem",
-    lineHeight: 1.4,
+    borderRadius: "9999px",
+    minHeight: 22,
+    padding: "0 0.48rem",
+    lineHeight: 1,
     background: "#fff",
     color: "var(--neutral-500)",
     fontWeight: 500,
-    fontSize: "0.7rem",
+    fontSize: "0.55rem",
     cursor: "pointer",
     whiteSpace: "nowrap",
     flexShrink: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   filterChipActive: {
     background: "#01C0C0",
@@ -1829,16 +2306,21 @@ const styles: Record<string, CSSProperties> = {
   },
   secondaryChip: {
     border: "transparent",
-    borderRadius: 999,
-    padding: "0.3rem 0.7rem 0.35rem",
-    lineHeight: 1.4,
+    borderRadius: "9999px",
+    minHeight: 22,
+    padding: "0 0.48rem",
+    lineHeight: 1,
     background: "#fff",
     color: "var(--neutral-500)",
     fontWeight: 500,
-    fontSize: "0.7rem",
+    fontSize: "0.55rem",
     cursor: "pointer",
     whiteSpace: "nowrap",
     flexShrink: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   secondaryChipActive: {
     background: "#01C0C0",
@@ -1849,8 +2331,8 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     background: "#fff",
     borderRadius: "1.8rem",
-    boxShadow: "var(--shadow-soft)",
-    paddingTop: 12,
+    boxShadow: "none",
+    paddingTop: 6,
   },
   emptyListSection: {
     display: "flex",
@@ -1859,24 +2341,32 @@ const styles: Record<string, CSSProperties> = {
   },
   card: {
     display: "grid",
-    gridTemplateColumns: "minmax(5.75rem, 6.5rem) minmax(0, 1fr)",
+    gridTemplateColumns: "minmax(3.8rem, 4.4rem) minmax(0, 1fr)",
     gap: 14,
-    padding: "0.8rem 16px",
-    minHeight: "9.25rem",
+    padding: "0.35rem 16px",
+    minHeight: "6rem",
     cursor: "pointer",
   },
   thumbnail: {
     width: "100%",
     aspectRatio: "1 / 1.24",
-    minHeight: 108,
-    maxHeight: 132,
-    borderRadius: 22,
+    minHeight: 68,
+    maxHeight: 84,
+    borderRadius: 14,
+    overflow: "hidden",
     display: "flex",
     alignItems: "flex-end",
     justifyContent: "flex-start",
-    padding: 8,
+    padding: 6,
     boxSizing: "border-box",
     background: "linear-gradient(160deg, rgba(5,181,187,0.18), rgba(248,180,0,0.14))",
+  },
+  thumbnailImage: {
+    width: "calc(100% + 16px)",
+    height: "calc(100% + 16px)",
+    margin: -8,
+    display: "block",
+    objectFit: "cover",
   },
   cardBody: {
     display: "flex",
@@ -1894,16 +2384,16 @@ const styles: Record<string, CSSProperties> = {
   cardCategory: {
     margin: 0,
     color: "var(--brand-primary-deep)",
-    fontSize: "0.8rem",
+    fontSize: "0.68rem",
     fontWeight: 700,
     lineHeight: 1.25,
   },
   cardTitle: {
-    margin: "2px 0 0",
+    margin: "1px 0 0",
     color: "var(--text-primary)",
-    fontSize: "1.1rem",
+    fontSize: "0.92rem",
     fontWeight: 700,
-    lineHeight: 1.35,
+    lineHeight: 1.3,
     display: "-webkit-box",
     WebkitLineClamp: 2,
     WebkitBoxOrient: "vertical",
@@ -1916,6 +2406,7 @@ const styles: Record<string, CSSProperties> = {
     background: "transparent",
     cursor: "pointer",
     flexShrink: 0,
+    opacity: 0.65,
   },
   favoriteButtonPending: {
     opacity: 0.4,
@@ -1924,10 +2415,10 @@ const styles: Record<string, CSSProperties> = {
   cardDescription: {
     margin: 0,
     color: "var(--neutral-500)",
-    lineHeight: 1.5,
-    fontSize: "0.75rem",
+    lineHeight: 1.4,
+    fontSize: "0.68rem",
     display: "-webkit-box",
-    WebkitLineClamp: 2,
+    WebkitLineClamp: 1,
     WebkitBoxOrient: "vertical",
     overflow: "hidden",
   },
@@ -1957,21 +2448,20 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     alignItems: "flex-end",
-    gap: 4,
+    gap: 2,
     marginLeft: "auto",
     flexShrink: 0,
   },
   distance: {
-    color: "var(--neutral-600)",
-    fontWeight: 800,
-    fontSize: "0.9rem",
+    color: "var(--neutral-500)",
+    fontWeight: 500,
+    fontSize: "0.82rem",
     whiteSpace: "nowrap",
   },
   reviewText: {
-    color: "var(--neutral-600)",
-    textAlign: "left",
-    fontSize: "0.7rem",
-    paddingBottom: 2,
+    color: "var(--neutral-400)",
+    textAlign: "right",
+    fontSize: "0.62rem",
     whiteSpace: "nowrap",
   },
   emptyState: {
@@ -2004,82 +2494,238 @@ const styles: Record<string, CSSProperties> = {
   modalOverlay: {
     position: "fixed",
     inset: 0,
-    padding: "calc(16px + var(--app-safe-top)) 16px 0",
     background: "rgba(24, 26, 32, 0.42)",
     display: "flex",
     alignItems: "flex-end",
     justifyContent: "center",
     zIndex: 20,
     animation: "fadeInOverlay 220ms ease-out",
+    overscrollBehavior: "contain",
   },
   modalCard: {
-    width: "100%",
-    maxWidth: 760,
-    minHeight: "78dvh",
-    maxHeight: "88dvh",
+    position: "fixed",
+    inset: 0,
+    zIndex: 50,
+    background: "#fff",
+    height: "100dvh",
+    borderRadius: "20px 20px 0 0",
+    boxShadow: "0 -12px 40px rgba(15, 23, 42, 0.10)",
     overflowY: "auto",
-    borderRadius: "32px 32px 0 0",
-    background: "var(--surface-panel)",
-    boxShadow: "0 28px 72px rgba(24, 26, 32, 0.18)",
-    animation: "slideUpModal 280ms cubic-bezier(0.22, 1, 0.36, 1)",
+    overflowX: "hidden",
+    overscrollBehavior: "contain",
+    WebkitOverflowScrolling: "touch",
+
+    willChange: "transform",
+    transform: "translate3d(0, 100vh, 0)",
+    backfaceVisibility: "hidden",
+    WebkitBackfaceVisibility: "hidden",
+
+    contain: "layout style paint",
+    paddingTop: "var(--app-safe-top, 0px)",
+    paddingBottom: "calc(16px + var(--app-safe-bottom, 0px))",
   },
-  modalHero: {
-    padding: 22,
-    minHeight: 220,
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
-    borderRadius: "32px 32px 0 0",
-    background: "linear-gradient(160deg, rgba(5,181,187,0.2), rgba(248,180,0,0.18))",
+  modalCardDragging: {
+    cursor: "grabbing",
   },
-  modalHeroTop: {
+  modalHandleButton: {
+    width: "100%",
+    minHeight: 28,
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    display: "grid",
+    placeItems: "center",
+    cursor: "grab",
+    touchAction: "none",
+    userSelect: "none",
+  },
+  modalHandle: {
+    display: "block",
+    width: 48,
+    height: 5,
+    borderRadius: 999,
+    background: "#dadada",
+  },
+  modalNavBar: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
+    padding: "0 14px 8px",
+  },
+  modalNavBtn: {
+    width: 32,
+    height: 32,
+    border: "none",
+    borderRadius: "50%",
+    background: "transparent",
+    color: "#222",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+  },
+  modalTagRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 4,
+    padding: "0 16px 12px",
+  },
+  modalCategoryTag: {
+    padding: "6px 12px",
+    borderRadius: 999,
+    background: "#fff5d9",
+    color: "#936b00",
+    fontSize: "0.875rem",
+    fontWeight: 700,
+  },
+  modalFeatureTag: {
+    padding: "6px 12px",
+    borderRadius: 999,
+    background: "#dffcfc",
+    color: "#01c0c0",
+    fontSize: "0.8125rem",
+    fontWeight: 600,
+  },
+  modalTitleRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    padding: "0 16px 12px",
     gap: 12,
   },
-  modalCategory: {
-    padding: "8px 12px",
-    borderRadius: 999,
-    background: "rgba(255,255,255,0.7)",
-    fontSize: "0.8rem",
-    fontWeight: 800,
-    color: "var(--text-secondary)",
-  },
-  modalCloseButton: {
-    width: 38,
-    height: 38,
-    border: "1px solid rgba(255,255,255,0.6)",
-    borderRadius: "50%",
-    background: "rgba(255,255,255,0.82)",
-    color: "var(--text-secondary)",
-    fontSize: "1.5rem",
-    lineHeight: 1,
-    cursor: "pointer",
+  modalTitleBlock: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    flex: 1,
+    minWidth: 0,
   },
   modalTitle: {
     margin: 0,
-    fontSize: "2rem",
+    fontSize: "1.5rem",
     fontWeight: 800,
-    lineHeight: 1.05,
-    color: "var(--text-primary)",
+    lineHeight: 1.15,
+    color: "#222",
   },
-  modalDistance: {
-    marginTop: 10,
-    fontSize: "0.92rem",
-    color: "var(--text-secondary)",
+  modalMetaRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    flexWrap: "wrap",
   },
-  modalBody: {
-    padding: 22,
+  modalMetaText: {
+    fontSize: "0.9375rem",
+    color: "#848484",
+  },
+  modalMetaSep: {
+    fontSize: "0.875rem",
+    color: "#dadada",
+    margin: "0 1px",
+  },
+  modalBookmarkBtn: {
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+    padding: 4,
+    flexShrink: 0,
+  },
+  photoGallery: {
+    display: "flex",
+    gap: 8,
+    overflowX: "auto",
+    padding: "0 16px 16px",
+    scrollbarWidth: "none",
+  },
+  galleryPhotoWrap: {
+    flexShrink: 0,
+    width: 200,
+    height: 240,
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+  galleryPhoto: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    display: "block",
+  },
+  modalTabBar: {
+    display: "flex",
+    borderBottom: "1px solid #dadada",
+  },
+  modalTabBtn: {
+    flex: 1,
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+    padding: 0,
     display: "flex",
     flexDirection: "column",
-    gap: 18,
+    alignItems: "center",
+    gap: 8,
+  },
+  modalTabLabel: {
+    padding: "10px 0",
+    fontSize: "0.9375rem",
+    fontWeight: 700,
+    color: "#dadada",
+  },
+  modalTabLabelActive: {
+    padding: "10px 0",
+    fontSize: "0.9375rem",
+    fontWeight: 700,
+    color: "#01c0c0",
+  },
+  modalTabUnderline: {
+    height: 2,
+    width: "100%",
+    background: "#dadada",
+    borderRadius: "5px 5px 0 0",
+  },
+  modalTabUnderlineActive: {
+    height: 2,
+    width: "100%",
+    background: "#01c0c0",
+    borderRadius: "5px 5px 0 0",
+  },
+  modalTabContent: {
+    padding: "16px 16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+  infoRow: {
+    display: "flex",
+    gap: 8,
+    alignItems: "flex-start",
+  },
+  infoIcon: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    paddingTop: 1,
+  },
+  infoText: {
+    fontSize: "0.9375rem",
+    color: "#222",
+    lineHeight: 1.5,
+    wordBreak: "break-all",
+  },
+  infoLink: {
+    color: "#008888",
+    textDecoration: "none",
+    fontSize: "0.9375rem",
+    wordBreak: "break-all",
   },
   modalDescription: {
     margin: 0,
     color: "var(--text-secondary)",
     lineHeight: 1.65,
-    fontSize: "0.98rem",
+    fontSize: "0.9375rem",
+  },
+  modalFooter: {
+    padding: "8px 16px 16px",
   },
   detailStack: {
     display: "flex",
@@ -2322,18 +2968,34 @@ const styles: Record<string, CSSProperties> = {
     width: "100%",
     maxWidth: 760,
     minHeight: "56dvh",
-    borderRadius: "30px 30px 0 0",
+    maxHeight: "88dvh",
+    overflowY: "auto",
+    overscrollBehavior: "contain",
+    WebkitOverflowScrolling: "touch",
+    borderRadius: "20px 20px 0 0",
     background: "var(--surface-panel)",
     boxShadow: "0 28px 72px rgba(24, 26, 32, 0.18)",
-    padding: "10px 18px 26px",
+    padding: "22px 18px 26px",
     animation: "slideUpModal 280ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
+  searchSheetHandleButton: {
+    width: "100%",
+    height: 24,
+    border: "none",
+    background: "transparent",
+    display: "grid",
+    placeItems: "center",
+    padding: 0,
+    margin: "-8px 0 10px",
+    cursor: "grab",
+    touchAction: "none",
+  },
   searchSheetHandle: {
-    width: 56,
-    height: 6,
+    width: 58,
+    height: 5,
     borderRadius: 999,
-    background: "rgba(5,181,187,0.24)",
-    margin: "4px auto 16px",
+    background: "rgba(24,26,32,0.18)",
+    display: "block",
   },
   searchSheetHeader: {
     display: "flex",
@@ -2359,16 +3021,8 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--text-primary)",
     fontSize: "1rem",
   },
-  searchSheetClose: {
-    border: "none",
-    background: "transparent",
-    color: "var(--neutral-700)",
-    fontWeight: 700,
-    cursor: "pointer",
-    padding: "10px 4px",
-  },
   searchSheetSection: {
-    marginTop: 24,
+    marginTop: 26,
     display: "flex",
     flexDirection: "column",
     gap: 14,
@@ -2385,32 +3039,14 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     fontSize: "0.96rem",
   },
-  linkButton: {
-    border: "none",
-    background: "transparent",
-    color: "var(--brand-primary-deep)",
-    fontWeight: 800,
-    cursor: "pointer",
-    padding: 0,
-  },
-  searchSuggestionGrid: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  searchKeywordChip: {
-    border: "1px solid #dfdfdf",
-    borderRadius: 999,
-    padding: "11px 14px",
-    background: "rgba(248,180,0,0.12)",
-    color: "var(--text-secondary)",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
   recentList: {
     display: "flex",
     flexDirection: "column",
     gap: 10,
+    maxHeight: 290,
+    overflowY: "auto",
+    WebkitOverflowScrolling: "touch",
+    overscrollBehavior: "contain",
   },
   recentItem: {
     display: "flex",
@@ -2432,17 +3068,55 @@ const styles: Record<string, CSSProperties> = {
   },
   recentDeleteButton: {
     border: "none",
-    borderRadius: "25rem",
-    background: "rgba(248,180,0,0.5)",
-    color: "var(--text-secondary)",
-    fontSize: "1rem",
+    borderRadius: "50%",
+    background: "transparent",
     lineHeight: 1,
     cursor: "pointer",
-    padding: "0.4rem 1rem",
+    padding: 0,
+    width: 34,
+    height: 34,
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+  },
+  recentDeleteIcon: {
+    width: 16,
+    height: 16,
+    display: "block",
   },
   searchEmpty: {
     margin: 0,
     color: "var(--neutral-700)",
     lineHeight: 1.5,
+  },
+  scrollTopButton: {
+    position: "fixed",
+    bottom: "calc(24px + var(--app-bottom-nav-reserved, 0px))",
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: "50%",
+    border: "none",
+    background: "rgba(24,26,32,0.72)",
+    color: "#ffffff",
+    fontSize: "1.4rem",
+    fontWeight: 900,
+    lineHeight: 1,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "opacity 220ms ease, transform 220ms ease",
+    zIndex: 30,
+  },
+  scrollTopButtonVisible: {
+    opacity: 1,
+    transform: "translate3d(0, 0, 0)",
+    pointerEvents: "auto",
+  },
+  scrollTopButtonHidden: {
+    opacity: 0,
+    transform: "translate3d(0, 12px, 0)",
+    pointerEvents: "none",
   },
 };

@@ -6,7 +6,9 @@ interface ImportMetaEnv {
   readonly VITE_AUTHORIZATION_BEARER?: string;
   readonly VITE_TOUR_PLACES_AUTHORIZATION_BEARER?: string;
   readonly VITE_AUTH_IS_LOCAL?: string;
-  readonly VITE_KAKAO_JS_KEY?: string;s
+  readonly VITE_DEBUG_AUTH_LOG?: string;
+  readonly VITE_DEBUG_FCM_LOG?: string;
+  readonly VITE_KAKAO_JS_KEY?: string;
   readonly VITE_LEGACY_TOKEN_STORAGE_KEY?: string;
   readonly VITE_FIREBASE_API_KEY?: string;
   readonly VITE_FIREBASE_AUTH_DOMAIN?: string;
@@ -16,6 +18,7 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_APP_ID?: string;
   readonly VITE_FIREBASE_MEASUREMENT_ID?: string;
   readonly VITE_FIREBASE_VAPID_KEY?: string;
+  readonly VITE_FCM_REGISTER_PATH?: string;
 }
 
 interface ImportMeta {

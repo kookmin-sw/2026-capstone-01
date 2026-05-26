@@ -1,12 +1,14 @@
-import type { CSSProperties } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import type { CSSProperties, PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getMyProfile } from "../../api/auth";
 import {
   createGroupChatRoom,
+  leaveChatRoom,
   type ChatRoom,
   type SystemContent,
 } from "../../api/chat";
+import { setChatRoomNotificationMuted } from "../../api/notification";
 import {
   acceptFriendRequest,
   blockUser,
@@ -28,11 +30,11 @@ import {
 import { useChat } from "./ChatProvider";
 import { reportChatNetworkError } from "../../utils/chatDiagnostics";
 import ConfirmToast from "../../components/ConfirmToast";
-import FeedPopup from "../../components/FeedPopup";
 import { navigateBackOrFallback } from "../../utils/navigation";
 
 type FriendManagerTab = "friend" | "request";
 type LoadingKey = "received" | "sent" | "friends" | "blocks";
+type GroupSheetMode = "collapsed" | "expanded";
 
 const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
@@ -42,12 +44,14 @@ export default function ChatPage({
   hideSearch = false,
   searchQuery: controlledSearchQuery,
   onSearchQueryChange,
+  initialFriendManagerTab,
 }: {
   embedded?: boolean;
   hideHeader?: boolean;
   hideSearch?: boolean;
   searchQuery?: string;
   onSearchQueryChange?: (value: string) => void;
+  initialFriendManagerTab?: FriendManagerTab;
 }) {
   const navigate = useNavigate();
   const {
@@ -78,18 +82,29 @@ export default function ChatPage({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [currentUserName, setCurrentUserName] = useState<string | null>(null);
-  const [feedPopupUserId, setFeedPopupUserId] = useState<string | null>(null);
   const [internalSearchQuery, setInternalSearchQuery] = useState("");
   const [isFriendManagerOpen, setIsFriendManagerOpen] = useState(false);
-  const [friendManagerTab, setFriendManagerTab] = useState<FriendManagerTab>("friend");
+  const [friendManagerTab, setFriendManagerTab] = useState<FriendManagerTab>(
+    initialFriendManagerTab ?? "friend"
+  );
   const [friendSearchQuery, setFriendSearchQuery] = useState("");
   const [friendSearchResults, setFriendSearchResults] = useState<FriendSearchUser[]>([]);
   const [friendSearchLoading, setFriendSearchLoading] = useState(false);
   const [friendSearchError, setFriendSearchError] = useState("");
   const [isGroupCreateOpen, setIsGroupCreateOpen] = useState(false);
+  const [groupSheetMode, setGroupSheetMode] = useState<GroupSheetMode>("collapsed");
+  const [isGroupSheetDragging, setIsGroupSheetDragging] = useState(false);
   const [groupTitle, setGroupTitle] = useState("");
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
   const [isGroupCreateConfirmOpen, setIsGroupCreateConfirmOpen] = useState(false);
+  const [openActionRoomId, setOpenActionRoomId] = useState("");
+  const [leaveConfirmRoom, setLeaveConfirmRoom] = useState<ChatRoom | null>(null);
+  const groupSheetRef = useRef<HTMLElement | null>(null);
+  const groupSheetStartYRef = useRef(0);
+  const groupSheetStartHeightRef = useRef(0);
+  const groupSheetPointerIdRef = useRef<number | null>(null);
+  const groupSheetDragYRef = useRef(0);
+  const groupSheetAnimationFrameRef = useRef<number | null>(null);
 
   const pendingCount = receivedRequests.length;
   const displayNamesById = useMemo(() => {
@@ -122,6 +137,10 @@ export default function ChatPage({
       userId === null ? "Unknown user" : displayNamesById.get(userId) || "Unknown user",
     [displayNamesById]
   );
+  const roomById = useMemo(
+    () => new Map(chatRooms.map((room) => [room.chat_room_id, room])),
+    [chatRooms]
+  );
   const chatRows = useMemo(
     () => chatRooms.map((room) => toChatRow(room, resolveDisplayName)),
     [chatRooms, resolveDisplayName]
@@ -137,8 +156,29 @@ export default function ChatPage({
     [chatRows, normalizedSearchQuery]
   );
   useEffect(() => {
+    if (initialFriendManagerTab) {
+      setFriendManagerTab(initialFriendManagerTab);
+      setIsFriendManagerOpen(true);
+    }
+  }, [initialFriendManagerTab]);
+
+  useEffect(() => {
     void refreshAll();
   }, []);
+
+  useEffect(() => {
+    if (!isGroupCreateOpen && !isFriendManagerOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const previousTouchAction = document.body.style.touchAction;
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.touchAction = previousTouchAction;
+    };
+  }, [isGroupCreateOpen, isFriendManagerOpen]);
 
   useEffect(() => {
     function openGroupCreate(): void {
@@ -264,6 +304,9 @@ export default function ChatPage({
 
     try {
       const room = await openDirectChat(userId);
+      if (!room?.chat_room_id) {
+        throw new Error("Failed to open chat room.");
+      }
       navigate(`/chat/${room.chat_room_id}`);
     } catch (chatError) {
       reportChatNetworkError({
@@ -300,12 +343,15 @@ export default function ChatPage({
 
   async function handleCreateGroupChat(): Promise<void> {
     const title = groupTitle.trim();
-    if (!title || selectedGroupMemberIds.length === 0 || actionId) return;
+    if (!title || selectedGroupMemberIds.length < 2 || actionId) return;
 
     setActionId("create-group");
     setError("");
     try {
       const room = await createGroupChatRoom(title, selectedGroupMemberIds);
+      if (!room?.chat_room_id) {
+        throw new Error("Failed to create group chat.");
+      }
       setIsGroupCreateOpen(false);
       setGroupTitle("");
       setSelectedGroupMemberIds([]);
@@ -320,8 +366,42 @@ export default function ChatPage({
   }
 
   function requestCreateGroupChat(): void {
-    if (!groupTitle.trim() || selectedGroupMemberIds.length === 0 || actionId) return;
+    if (!groupTitle.trim() || selectedGroupMemberIds.length < 2 || actionId) return;
     setIsGroupCreateConfirmOpen(true);
+  }
+
+  async function handleToggleRoomMute(room: ChatRoom): Promise<void> {
+    const nextMuted = room.notification_muted !== true;
+    setActionId(`mute:${room.chat_room_id}`);
+    try {
+      await setChatRoomNotificationMuted(room.chat_room_id, nextMuted);
+      await refreshRooms();
+      setNotice(nextMuted ? "Chat notifications muted." : "Chat notifications enabled.");
+      setOpenActionRoomId("");
+    } catch (muteError) {
+      setError(toErrorMessage(muteError, "Failed to update chat notifications."));
+    } finally {
+      setActionId("");
+    }
+  }
+
+  function requestLeaveRoom(room: ChatRoom): void {
+    setLeaveConfirmRoom(room);
+  }
+
+  async function handleLeaveRoom(room: ChatRoom): Promise<void> {
+    setActionId(`leave:${room.chat_room_id}`);
+    try {
+      await leaveChatRoom(room.chat_room_id);
+      await refreshRooms();
+      setNotice("Left chat room.");
+      setOpenActionRoomId("");
+      setLeaveConfirmRoom(null);
+    } catch (leaveError) {
+      setError(toErrorMessage(leaveError, "Failed to leave chat room."));
+    } finally {
+      setActionId("");
+    }
   }
 
   function toggleGroupMember(userId: string): void {
@@ -330,6 +410,110 @@ export default function ChatPage({
         ? current.filter((item) => item !== userId)
         : [...current, userId]
     );
+  }
+
+  function closeGroupCreateSheet(): void {
+    const sheet = groupSheetRef.current;
+    if (sheet) {
+      sheet.style.transform = "translate3d(0, 0, 0)";
+      sheet.style.height = "";
+      sheet.style.maxHeight = "";
+      sheet.scrollTop = 0;
+    }
+    groupSheetDragYRef.current = 0;
+    setIsGroupSheetDragging(false);
+    setGroupSheetMode("collapsed");
+    setIsGroupCreateOpen(false);
+  }
+
+  function applyGroupSheetDrag(deltaY: number): void {
+    const sheet = groupSheetRef.current;
+    if (!sheet) return;
+
+    if (groupSheetMode === "collapsed" && deltaY < 0) {
+      const nextHeight = Math.min(window.innerHeight, groupSheetStartHeightRef.current + Math.abs(deltaY));
+      sheet.style.transform = "translate3d(0, 0, 0)";
+      sheet.style.height = `${nextHeight}px`;
+      sheet.style.maxHeight = `${nextHeight}px`;
+      return;
+    }
+
+    sheet.style.height = "";
+    sheet.style.maxHeight = "";
+    sheet.style.transform = `translate3d(0, ${Math.max(0, deltaY)}px, 0)`;
+  }
+
+  function handleGroupSheetPointerDown(event: PointerEvent<HTMLButtonElement>): void {
+    const sheet = groupSheetRef.current;
+    if (sheet) {
+      sheet.style.transition = "none";
+      sheet.style.transform = "translate3d(0, 0, 0)";
+      groupSheetStartHeightRef.current = sheet.getBoundingClientRect().height;
+    }
+    groupSheetPointerIdRef.current = event.pointerId;
+    groupSheetStartYRef.current = event.clientY;
+    groupSheetDragYRef.current = 0;
+    setIsGroupSheetDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleGroupSheetPointerMove(event: PointerEvent<HTMLButtonElement>): void {
+    if (groupSheetPointerIdRef.current !== event.pointerId) return;
+    groupSheetDragYRef.current = event.clientY - groupSheetStartYRef.current;
+
+    if (groupSheetAnimationFrameRef.current !== null) return;
+    groupSheetAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      groupSheetAnimationFrameRef.current = null;
+      applyGroupSheetDrag(groupSheetDragYRef.current);
+    });
+  }
+
+  function handleGroupSheetPointerEnd(event: PointerEvent<HTMLButtonElement>): void {
+    if (groupSheetPointerIdRef.current !== event.pointerId) return;
+
+    const deltaY = groupSheetDragYRef.current || event.clientY - groupSheetStartYRef.current;
+    const sheet = groupSheetRef.current;
+    groupSheetPointerIdRef.current = null;
+    groupSheetDragYRef.current = 0;
+    if (groupSheetAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(groupSheetAnimationFrameRef.current);
+      groupSheetAnimationFrameRef.current = null;
+    }
+    setIsGroupSheetDragging(false);
+
+    if (deltaY < -56) {
+      setGroupSheetMode("expanded");
+      if (sheet) {
+        sheet.scrollTop = 0;
+        sheet.style.transition = "height 280ms cubic-bezier(0.22, 1, 0.36, 1), max-height 280ms cubic-bezier(0.22, 1, 0.36, 1)";
+        sheet.style.transform = "translate3d(0, 0, 0)";
+        sheet.style.height = "";
+        sheet.style.maxHeight = "";
+      }
+      return;
+    }
+
+    if (deltaY > 120 || (groupSheetMode === "expanded" && deltaY > 72)) {
+      if (groupSheetMode === "expanded" && deltaY <= 180) {
+        setGroupSheetMode("collapsed");
+        if (sheet) {
+          sheet.style.transition = "height 280ms cubic-bezier(0.22, 1, 0.36, 1), max-height 280ms cubic-bezier(0.22, 1, 0.36, 1)";
+          sheet.style.transform = "translate3d(0, 0, 0)";
+          sheet.style.height = "";
+          sheet.style.maxHeight = "";
+        }
+      } else {
+        closeGroupCreateSheet();
+      }
+      return;
+    }
+
+    if (sheet) {
+      sheet.style.transition = "transform 240ms cubic-bezier(0.22, 1, 0.36, 1), height 240ms cubic-bezier(0.22, 1, 0.36, 1)";
+      sheet.style.transform = "translate3d(0, 0, 0)";
+      sheet.style.height = "";
+      sheet.style.maxHeight = "";
+    }
   }
 
   async function handleSendFriendRequest(user: FriendSearchUser): Promise<void> {
@@ -392,7 +576,7 @@ export default function ChatPage({
                 }}
                 aria-label="Manage friends"
               >
-                <img src="/user-add-alt.png" alt="" style={styles.friendManagerIcon} />
+                <img src="/chatFriendIcon.svg" alt="" style={styles.friendManagerIcon} />
                 {pendingCount > 0 ? <span style={styles.addButtonDot} /> : null}
               </button>
             </div>
@@ -419,33 +603,24 @@ export default function ChatPage({
           {chatLoading && filteredChatRows.length === 0 ? (
             <p style={styles.mutedText}>Loading chats...</p>
           ) : filteredChatRows.length > 0 ? (
-            filteredChatRows.map((chat) => (
-              <button
-                key={chat.id}
-                type="button"
-                style={styles.chatRow}
-                onClick={() => navigate(`/chat/${chat.id}`)}
-              >
-                <Avatar name={chat.name} imageUrl={chat.imageUrl} />
-                <span style={styles.rowMain}>
-                  <strong style={styles.rowTitle}>
-                    {chat.name}
-                    {chat.memberCount ? (
-                      <span style={styles.rowTitleMeta}>{chat.memberCount}</span>
-                    ) : null}
-                  </strong>
-                  <span style={styles.rowSubtitle}>{chat.preview}</span>
-                </span>
-                <span style={styles.chatRowMeta}>
-                  <span style={styles.chatRowTime}>{chat.time}</span>
-                  {chat.unreadCount > 0 ? (
-                    <span style={styles.unreadBadge}>
-                      {chat.unreadCount >= 999 ? "999+" : chat.unreadCount}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
-            ))
+            filteredChatRows.map((chat) => {
+              const room = roomById.get(chat.id);
+              if (!room) return null;
+              return (
+                <SwipeChatRow
+                  key={chat.id}
+                  chat={chat}
+                  room={room}
+                  isOpen={openActionRoomId === chat.id}
+                  busy={actionId.endsWith(`:${chat.id}`)}
+                  onOpenActions={() => setOpenActionRoomId(chat.id)}
+                  onCloseActions={() => setOpenActionRoomId("")}
+                  onNavigate={() => navigate(`/chat/${chat.id}`)}
+                  onMute={() => void handleToggleRoomMute(room)}
+                  onLeave={() => requestLeaveRoom(room)}
+                />
+              );
+            })
           ) : (
             <EmptyCard
               title={searchQuery.trim() ? "No matching chats" : "No chats yet"}
@@ -713,71 +888,95 @@ export default function ChatPage({
         ) : null}
 
         {isGroupCreateOpen ? (
-          <div style={styles.managerBackdrop} onClick={() => setIsGroupCreateOpen(false)}>
-            <section style={styles.managerPanel} onClick={(event) => event.stopPropagation()}>
-              <div style={styles.managerHeader}>
+          <div
+            style={{ ...styles.managerBackdrop, ...styles.groupManagerBackdrop }}
+            onClick={closeGroupCreateSheet}
+          >
+            <section
+              ref={groupSheetRef}
+              style={{
+                ...styles.managerPanel,
+                ...styles.groupManagerPanel,
+                ...(groupSheetMode === "expanded" ? styles.groupManagerPanelExpanded : {}),
+                ...(isGroupSheetDragging ? styles.groupManagerPanelDragging : {}),
+              }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                style={styles.groupSheetHandleButton}
+                onPointerDown={handleGroupSheetPointerDown}
+                onPointerMove={handleGroupSheetPointerMove}
+                onPointerUp={handleGroupSheetPointerEnd}
+                onPointerCancel={handleGroupSheetPointerEnd}
+                aria-label="Drag group creation sheet"
+              >
+                <span style={styles.groupSheetHandle} />
+              </button>
+
+              <div style={{ ...styles.managerHeader, ...styles.groupManagerHeader }}>
                 <h2 style={styles.managerTitle}>New Group</h2>
-                <button
-                  type="button"
-                  style={styles.managerCloseButton}
-                  onClick={() => setIsGroupCreateOpen(false)}
-                >
-                  <img src="/icon-close.svg" alt="" style={styles.closeIcon} />
-                </button>
               </div>
 
-              <label style={styles.managerSearchWrap}>
+              <label style={{ ...styles.managerSearchWrap, ...styles.groupNameWrap }}>
                 <input
                   type="text"
                   value={groupTitle}
                   onChange={(event) => setGroupTitle(event.target.value)}
                   placeholder="Group name"
-                  style={styles.managerSearchInput}
+                  style={{ ...styles.managerSearchInput, ...styles.groupNameInput }}
                 />
+                {selectedGroupMemberIds.length >= 2 ? (
+                  <button
+                    type="button"
+                    style={{
+                      ...styles.groupNameCreateButton,
+                      ...(!groupTitle.trim() ? styles.disabledButton : {}),
+                    }}
+                    disabled={!groupTitle.trim() || actionId === "create-group"}
+                    onClick={requestCreateGroupChat}
+                  >
+                    {actionId === "create-group" ? "Creating..." : "Create"}
+                  </button>
+                ) : null}
               </label>
 
-              <div style={styles.friendList}>
-                {friends.length > 0 ? (
-                  friends.map((friend) => {
-                    const selected = selectedGroupMemberIds.includes(friend.peer.user_id);
+              <div style={styles.groupFriendListSection}>
+                <div style={styles.groupFriendListHeader}>
+                  <span style={styles.groupFriendListTitle}>Friends</span>
+                  <span style={styles.groupFriendListHint}>Select at least 2 friends</span>
+                </div>
+                <div style={{ ...styles.friendList, ...styles.groupFriendList }}>
+                  {friends.length > 0 ? (
+                    friends.map((friend) => {
+                      const selected = selectedGroupMemberIds.includes(friend.peer.user_id);
 
-                    return (
-                      <label key={friend.friendship_id} style={styles.groupFriendRow}>
-                        <PeerSummary peer={friend.peer} />
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          onChange={() => toggleGroupMember(friend.peer.user_id)}
-                          style={styles.groupCheckbox}
-                        />
-                      </label>
-                    );
-                  })
-                ) : (
-                  <p style={styles.mutedText}>Add friends before creating a group.</p>
-                )}
+                      return (
+                        <label key={friend.friendship_id} style={styles.groupFriendRow}>
+                          <PeerSummary peer={friend.peer} />
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => toggleGroupMember(friend.peer.user_id)}
+                            style={styles.groupCheckboxInput}
+                          />
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              ...styles.groupCheckbox,
+                              ...(selected
+                                ? styles.groupCheckboxSelected
+                                : styles.groupCheckboxUnselected),
+                            }}
+                          />
+                        </label>
+                      );
+                    })
+                  ) : (
+                    <p style={styles.mutedText}>Add friends before creating a group.</p>
+                  )}
+                </div>
               </div>
-
-              <button
-                type="button"
-                style={{
-                  ...styles.primaryButton,
-                  ...styles.groupCreateButton,
-                  ...(!groupTitle.trim() || selectedGroupMemberIds.length === 0
-                    ? styles.disabledButton
-                    : {}),
-                }}
-                disabled={
-                  !groupTitle.trim() ||
-                  selectedGroupMemberIds.length === 0 ||
-                  actionId === "create-group"
-                }
-                onClick={requestCreateGroupChat}
-              >
-                {actionId === "create-group"
-                  ? "Creating..."
-                  : `Create Group (${selectedGroupMemberIds.length})`}
-              </button>
             </section>
           </div>
         ) : null}
@@ -793,13 +992,21 @@ export default function ChatPage({
           />
         ) : null}
 
-        {feedPopupUserId ? (
-          <FeedPopup
-            key={feedPopupUserId}
-            userId={feedPopupUserId}
-            onClose={() => setFeedPopupUserId(null)}
+        {leaveConfirmRoom ? (
+          <ConfirmToast
+            title="Leave this chat?"
+            message={`You will leave "${getRoomDisplayName(
+              leaveConfirmRoom,
+              resolveDisplayName
+            )}".`}
+            confirmLabel="Leave"
+            destructive
+            busy={actionId === `leave:${leaveConfirmRoom.chat_room_id}`}
+            onConfirm={() => void handleLeaveRoom(leaveConfirmRoom)}
+            onCancel={() => setLeaveConfirmRoom(null)}
           />
         ) : null}
+
       </div>
     </div>
   );
@@ -849,6 +1056,83 @@ function RequestSection({
       ) : (
         <EmptyCard title={emptyTitle} copy={emptyCopy} />
       )}
+    </div>
+  );
+}
+
+type ChatRowView = ReturnType<typeof toChatRow>;
+
+function SwipeChatRow({
+  chat,
+  room,
+  isOpen,
+  busy,
+  onOpenActions,
+  onCloseActions,
+  onNavigate,
+  onMute,
+  onLeave,
+}: {
+  chat: ChatRowView;
+  room: ChatRoom;
+  isOpen: boolean;
+  busy: boolean;
+  onOpenActions: () => void;
+  onCloseActions: () => void;
+  onNavigate: () => void;
+  onMute: () => void;
+  onLeave: () => void;
+}) {
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+  return (
+    <div
+      style={styles.chatSwipeWrap}
+      onTouchStart={(event) => setTouchStartX(event.touches[0]?.clientX ?? null)}
+      onTouchEnd={(event) => {
+        if (touchStartX === null) return;
+        const deltaX = event.changedTouches[0].clientX - touchStartX;
+        setTouchStartX(null);
+        if (deltaX < -44) onOpenActions();
+        if (deltaX > 44) onCloseActions();
+      }}
+    >
+      {isOpen ? (
+        <div style={styles.chatSwipeActions}>
+          <button type="button" style={styles.muteRoomButton} disabled={busy} onClick={onMute}>
+            {room.notification_muted ? "Unmute" : "Mute"}
+          </button>
+          <button type="button" style={styles.leaveRoomButton} disabled={busy} onClick={onLeave}>
+            Leave
+          </button>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        style={{ ...styles.chatRow, ...(isOpen ? styles.chatRowShifted : {}) }}
+        onClick={() => {
+          if (isOpen) onCloseActions();
+          else onNavigate();
+        }}
+      >
+        <Avatar name={chat.name} imageUrl={chat.imageUrl} />
+        <span style={styles.rowMain}>
+          <strong style={styles.rowTitle}>
+            {chat.name}
+            {chat.memberCount ? <span style={styles.rowTitleMeta}>{chat.memberCount}</span> : null}
+          </strong>
+          <span style={styles.rowSubtitle}>{chat.preview}</span>
+        </span>
+        <span style={styles.chatRowMeta}>
+          <span style={styles.chatRowTime}>{chat.time}</span>
+          {room.notification_muted ? <span style={styles.mutedBadge}>Muted</span> : null}
+          {chat.unreadCount > 0 ? (
+            <span style={styles.unreadBadge}>
+              {chat.unreadCount >= 999 ? "999+" : chat.unreadCount}
+            </span>
+          ) : null}
+        </span>
+      </button>
     </div>
   );
 }
@@ -973,6 +1257,27 @@ function toChatRow(
   };
 }
 
+function getRoomDisplayName(
+  room: ChatRoom,
+  resolveDisplayName: (userId: string | null) => string
+): string {
+  if (room.type === "direct") {
+    return room.peer?.user_name || "Deleted User";
+  }
+
+  if (room.title) {
+    return room.title;
+  }
+
+  const memberNames =
+    room.members
+      ?.filter((member) => member.user_id)
+      .map((member) => member.user_name || resolveDisplayName(member.user_id))
+      .filter(Boolean) ?? [];
+
+  return memberNames.length > 0 ? memberNames.join(", ") : "Group Chat";
+}
+
 function renderLastMessage(
   lastMessage: ChatRoom["last_message"],
   resolveDisplayName: (userId: string | null) => string
@@ -1054,16 +1359,29 @@ function getErrorStatus(error: unknown): number | undefined {
   return apiError.response?.status;
 }
 
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error) return error;
+
+  const apiError = error as {
+    response?: { data?: { detail?: unknown; message?: unknown } };
+  };
+  const detail = apiError.response?.data?.detail || apiError.response?.data?.message;
+  if (typeof detail === "string" && detail) return detail;
+
+  return fallback;
+}
+
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "var(--app-viewport-height)",
     padding: "calc(20px + var(--app-safe-top)) 0 34px",
-    background: "#ffffff",
+    background: "#f5f5f5",
     fontFamily: "'Pretendard Variable', 'Nunito', 'Apple SD Gothic Neo', sans-serif",
   },
   shell: {
     width: "100%",
-    maxWidth: 393,
+    maxWidth: 430,
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
@@ -1260,7 +1578,7 @@ const styles: Record<string, CSSProperties> = {
   panel: {
     padding: "8px 0",
     borderRadius: 0,
-    background: "#ffffff",
+    background: "#f5f5f5",
     border: "none",
     borderTop: "1px solid #f0f0f0",
   },
@@ -1305,7 +1623,7 @@ const styles: Record<string, CSSProperties> = {
     gap: 8,
     padding: "10px 16px",
     borderRadius: 0,
-    background: "#ffffff",
+    background: "#f5f5f5",
     border: "none",
     borderBottom: "1px solid #f0f0f0",
     minWidth: 0,
@@ -1324,12 +1642,48 @@ const styles: Record<string, CSSProperties> = {
     gap: 12,
     width: "100%",
     minHeight: 76,
-    padding: "10px 17px",
+    padding: "12px 10px",
     borderRadius: 0,
-    background: "#ffffff",
+    background: "#f5f5f5",
     border: "none",
     cursor: "pointer",
     textAlign: "left",
+    transition: "transform 180ms ease",
+    position: "relative",
+    zIndex: 1,
+  },
+  chatRowShifted: {
+    transform: "translateX(-148px)",
+  },
+  chatSwipeWrap: {
+    position: "relative",
+    overflow: "hidden",
+    borderBottom: "1px solid #f0f0f0",
+  },
+  chatSwipeActions: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    display: "flex",
+    width: 148,
+    zIndex: 0,
+  },
+  muteRoomButton: {
+    width: 74,
+    border: "none",
+    background: "#f6c453",
+    color: "#222",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  leaveRoomButton: {
+    width: 74,
+    border: "none",
+    background: "#ef4444",
+    color: "#fff",
+    fontWeight: 900,
+    cursor: "pointer",
   },
   avatar: {
     width: 56,
@@ -1339,7 +1693,7 @@ const styles: Record<string, CSSProperties> = {
     placeItems: "center",
     flexShrink: 0,
     background: "linear-gradient(135deg, var(--brand-primary), var(--brand-primary-deep))",
-    color: "#ffffff",
+    color: "#ffffffff",
     fontWeight: 800,
     overflow: "hidden",
   },
@@ -1391,6 +1745,14 @@ const styles: Record<string, CSSProperties> = {
     color: "#848484",
     fontSize: "0.688rem",
     whiteSpace: "nowrap",
+  },
+  mutedBadge: {
+    padding: "2px 6px",
+    borderRadius: 999,
+    background: "#ededed",
+    color: "#777",
+    fontSize: "0.62rem",
+    fontWeight: 900,
   },
   userId: {
     color: "var(--neutral-500)",
@@ -1505,17 +1867,20 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     justifyContent: "center",
     alignItems: "flex-end",
-    padding: "18px 14px 0",
+    padding: "18px 0 0",
     background: "rgba(15,23,42,0.36)",
   },
+  groupManagerBackdrop: {
+    padding: 0,
+  },
   managerPanel: {
-    width: "min(760px, 100%)",
+    width: "min(430px, 100%)",
     maxHeight: "88dvh",
     overflowY: "auto",
     display: "flex",
     flexDirection: "column",
     gap: 14,
-    padding: "0 18px 18px",
+    padding: "0 10px 18px",
     borderRadius: "26px 26px 0 0",
     background: "#ffffff",
     boxShadow: "0 22px 70px rgba(15,23,42,0.22)",
@@ -1535,6 +1900,45 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+  },
+  groupManagerPanel: {
+    height: "min(78dvh, calc(100dvh - var(--app-safe-top, 0px)))",
+    maxHeight: "calc(100dvh - var(--app-safe-top, 0px))",
+    gap: 14,
+    padding: "6px 0 calc(20px + var(--app-safe-bottom))",
+    overflow: "hidden",
+    transition: "height 280ms cubic-bezier(0.22, 1, 0.36, 1), max-height 280ms cubic-bezier(0.22, 1, 0.36, 1), transform 240ms cubic-bezier(0.22, 1, 0.36, 1)",
+    willChange: "height, max-height, transform",
+  },
+  groupManagerPanelExpanded: {
+    height: "calc(100dvh - var(--app-safe-top, 0px))",
+    maxHeight: "calc(100dvh - var(--app-safe-top, 0px))",
+    borderRadius: "20px 20px 0 0",
+  },
+  groupManagerPanelDragging: {
+    transition: "none",
+  },
+  groupManagerHeader: {
+    padding: "0 20px",
+  },
+  groupSheetHandleButton: {
+    width: "100%",
+    minHeight: 18,
+    border: "none",
+    background: "#ffffff",
+    display: "grid",
+    placeItems: "center",
+    padding: "4px 0",
+    cursor: "grab",
+    touchAction: "none",
+    userSelect: "none",
+  },
+  groupSheetHandle: {
+    width: 52,
+    height: 5,
+    borderRadius: 999,
+    background: "#d9d9d9",
+    display: "block",
   },
   managerTitle: {
     margin: 0,
@@ -1595,7 +1999,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 12,
-    padding: 16,
+    padding: "14px 10px",
     borderRadius: 20,
     border: "1px solid #eeeeee",
     background: "#ffffff",
@@ -1605,6 +2009,12 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: "minmax(0, 1fr) auto",
     gap: 8,
   },
+  groupNameWrap: {
+    width: "calc(100% - 40px)",
+    maxWidth: "calc(100% - 40px)",
+    margin: "0 20px",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+  },
   managerSearchInput: {
     minHeight: 44,
     border: "1px solid #e8e8e8",
@@ -1613,6 +2023,20 @@ const styles: Record<string, CSSProperties> = {
     outline: "none",
     color: "#171717",
     fontWeight: 800,
+  },
+  groupNameInput: {
+    border: "none",
+    background: "#f3f3f3",
+  },
+  groupNameCreateButton: {
+    minHeight: 44,
+    border: "none",
+    borderRadius: 14,
+    padding: "0 14px",
+    background: "#04bfbf",
+    color: "#ffffff",
+    fontWeight: 900,
+    cursor: "pointer",
   },
   managerSearchButton: {
     minHeight: 44,
@@ -1625,20 +2049,76 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   groupFriendRow: {
+    position: "relative",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    padding: 12,
-    borderRadius: 16,
-    background: "#ffffff",
-    border: "1px solid #eeeeee",
+    width: "100%",
+    padding: "12px 20px",
+    borderRadius: 0,
+    background: "transparent",
+    border: "none",
+  },
+  groupFriendListSection: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    marginTop: 8,
+    flex: 1,
+    minHeight: 0,
+    overflow: "hidden",
+  },
+  groupFriendListHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: "0 20px",
+  },
+  groupFriendListTitle: {
+    color: "#171717",
+    fontSize: "0.9rem",
+    fontWeight: 900,
+  },
+  groupFriendListHint: {
+    color: "#9a9a9a",
+    fontSize: "0.72rem",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+  groupFriendList: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    WebkitOverflowScrolling: "touch",
+    overscrollBehavior: "contain",
+  },
+  groupCheckboxInput: {
+    position: "absolute",
+    right: 20,
+    width: 28,
+    height: 28,
+    opacity: 0,
+    cursor: "pointer",
+    zIndex: 1,
   },
   groupCheckbox: {
-    width: 20,
-    height: 20,
-    accentColor: "#04bfbf",
+    width: 24,
+    height: 24,
+    borderRadius: "50%",
     flexShrink: 0,
+    transition: "background-color 160ms ease, border-color 160ms ease",
+  },
+  groupCheckboxUnselected: {
+    border: "1.5px solid #d8d8d8",
+    background: "#ffffff",
+    boxShadow: "none",
+  },
+  groupCheckboxSelected: {
+    border: "1.5px solid #04bfbf",
+    background: "#04bfbf",
+    boxShadow: "inset 0 0 0 5px #ffffff",
   },
   groupCreateButton: {
     width: "100%",
