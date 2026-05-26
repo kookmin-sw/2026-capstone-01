@@ -2,6 +2,7 @@ from typing import List, Optional
 import re
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.ai.tour_planner.v2.prompt_manager import CLUSTER_COORDINATES
 from app.core.ai.tour_planner.v2.data_state import (
     Companion,
     FoodPreference,
@@ -9,7 +10,6 @@ from app.core.ai.tour_planner.v2.data_state import (
     Transport,
     TravelStyle,
 )
-from app.core.ai.tour_planner.v2.prompt_manager import CLUSTER_COORDINATES
 
 
 # HH:MM (24h) 정규식 — 00:00 ~ 23:59
@@ -46,12 +46,14 @@ class TourDayRequest(BaseModel):
             raise ValueError(f"Unknown cluster name: {v}")
         return v
 
+
     @field_validator("start_time", "end_time")
     @classmethod
     def _validate_time_format(cls, v: str) -> str:
         if not _TIME_PATTERN.match(v):
             raise ValueError(f"Invalid time format (expected HH:MM 24h): {v}")
         return v
+
 
     @model_validator(mode="after")
     def _validate_time_range(self) -> "TourDayRequest":

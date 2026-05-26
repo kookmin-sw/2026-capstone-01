@@ -1,6 +1,6 @@
-from sqlalchemy import Column, String, Integer, Date, DateTime, Enum, Boolean, ForeignKey, Index, CheckConstraint
-from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, Integer, Date, DateTime, Enum, Boolean, ForeignKey, Index, CheckConstraint
 import enum
 
 from app.util.id_generator import generate_tripmate_post_id

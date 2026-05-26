@@ -1,14 +1,13 @@
 from typing import Optional
-
 from sqlalchemy.exc import IntegrityError
 
-from app.database.session import UnitOfWork, transactional
-from app.domain.friend.repository.friendship import FriendshipRepository, PAGE_SIZE
 from app.domain.friend.repository.user_block import UserBlockRepository
+from app.domain.friend.repository.friendship import FriendshipRepository, PAGE_SIZE
 from app.domain.friend.model.friendship import Friendship, FriendshipStatus
 from app.domain.friend.dto.friendship import FriendshipData, FriendshipListData, FriendPeerData
 from app.domain.auth.repository.user import UserRepository
 from app.domain.auth.model.user import User
+from app.database.session import UnitOfWork, transactional
 
 
 class FriendshipService:
@@ -228,6 +227,7 @@ class FriendshipService:
             return friendship.addressee
         return friendship.requester
 
+
     @staticmethod
     def _to_peer_dto(peer: User) -> FriendPeerData:
         detail = peer.detail
@@ -240,6 +240,7 @@ class FriendshipService:
             profile_image_url=detail.profile_image_url,
         )
 
+
     @classmethod
     def _to_dto(cls, friendship: Friendship, viewer_id: str, peer: User) -> FriendshipData:
         return FriendshipData(
@@ -250,6 +251,7 @@ class FriendshipService:
             created_at=friendship.created_at,
             updated_at=friendship.updated_at,
         )
+
 
     def _to_list_dto(self, items: list[Friendship], viewer_id: str) -> FriendshipListData:
         dtos = [

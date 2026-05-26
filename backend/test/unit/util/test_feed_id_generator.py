@@ -9,7 +9,6 @@
 prefix 가 깨지면 piggyback 인덱스 (string LIKE 'FDP_%') 도 깨질 수 있으므로 명시적 회귀.
 """
 import re
-
 import pytest
 
 from app.util.id_generator import generate_feed_post_comment_id, generate_feed_post_id
@@ -24,8 +23,10 @@ class TestGenerateFeedPostId:
     def test_prefix_is_FDP(self):
         assert generate_feed_post_id().startswith("FDP_")
 
+
     def test_format_matches_pattern(self):
         assert _FDP_PATTERN.match(generate_feed_post_id())
+
 
     def test_n_calls_are_all_unique(self):
         ids = {generate_feed_post_id() for _ in range(100)}
@@ -37,8 +38,10 @@ class TestGenerateFeedPostCommentId:
     def test_prefix_is_FDC(self):
         assert generate_feed_post_comment_id().startswith("FDC_")
 
+
     def test_format_matches_pattern(self):
         assert _FDC_PATTERN.match(generate_feed_post_comment_id())
+
 
     def test_n_calls_are_all_unique(self):
         ids = {generate_feed_post_comment_id() for _ in range(100)}

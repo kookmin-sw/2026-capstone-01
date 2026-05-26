@@ -59,6 +59,7 @@ class PlaceRawFactory:
         raw.update(extra)
         return raw
 
+
     @classmethod
     def reset_counter(cls) -> None:
         cls._counter = 0

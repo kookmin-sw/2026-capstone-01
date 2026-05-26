@@ -3,7 +3,6 @@
 repo (Mongo beanie) 단일 의존 — service 인스턴스화 후 `service.search_repo` 직접 치환.
 """
 from unittest.mock import AsyncMock
-
 import pytest
 
 from app.domain.tour.service.tour_search_history import TourSearchHistoryService

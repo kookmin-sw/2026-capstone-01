@@ -1,6 +1,6 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Index, CheckConstraint
-from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Index, CheckConstraint
 
 from app.util.id_generator import generate_tour_plan_id
 from app.database.session import Base

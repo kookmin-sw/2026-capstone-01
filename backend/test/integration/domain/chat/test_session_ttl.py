@@ -6,9 +6,8 @@ SESSION_TTL 을 테스트에서 2 초로 낮춘 뒤, heartbeat 없이 방치하�
 sessions ZSET 은 TTL 이 아닌 ZREMRANGEBYSCORE 자가 치유로 청소되므로, 여기서는
 `sess` 키 존재 여부를 권위있는 "세션 살아있음" 판정 지표로 간주한다 (§3.4).
 """
-import asyncio
-
 import pytest
+import asyncio
 
 from app.core.chat.redis_key import sess_key, sessions_key, ws_route_key
 
@@ -47,6 +46,7 @@ class TestSessionAutoExpiresOnTtl:
         assert await redis_hot.exists(sess_key(sid)) == 0
         assert await redis_hot.exists(ws_route_key(sid)) == 0
         assert await session_service.session_exists(sid) is False
+
 
     async def test_heartbeat_revives_ttl(
         self, session_service, redis_hot, monkeypatch,

@@ -2,11 +2,11 @@ from typing import Optional
 from fastapi import APIRouter, Request, Depends, Query
 from dependency_injector.wiring import Provide, inject
 
+from app.schema.common import MessageResponse
 from app.domain.tripmate.service.tripmate_search_history import TripmateSearchHistoryService
 from app.domain.tripmate.schema.tripmate_search_history import (
     SearchHistoryResponse, SearchHistoryListResponse,
 )
-from app.schema.common import MessageResponse
 from app.core.logger import get_logger
 from app.container import Container
 

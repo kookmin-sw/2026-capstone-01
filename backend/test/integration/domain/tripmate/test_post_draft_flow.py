@@ -13,9 +13,8 @@ unique 인덱스가 실 mongo 에 적용되어 idempotent 갱신 흐름이 보�
     | get_draft 미존재               | None                                 |
     | delete_draft                   | row 사라짐                           |
 """
-from datetime import date
-
 import pytest
+from datetime import date
 
 from app.domain.tripmate.model.tripmate_post_draft import TripmatePostDraft
 
@@ -42,6 +41,7 @@ class TestSaveDraft:
         assert doc["title"] == "여행"
         assert doc["image_urls"] == ["https://img/1"]
 
+
     async def test_second_save_overwrites_same_user(
         self, tripmate_post_draft_service,
     ):
@@ -60,6 +60,7 @@ class TestSaveDraft:
         doc = await coll.find_one({"user_id": "USER_a"})
         assert doc["title"] == "수정됨"
         assert doc["content"] == "second"
+
 
     async def test_image_urls_none_normalized_to_empty_list(
         self, tripmate_post_draft_service,
@@ -93,6 +94,7 @@ class TestGetDraft:
         assert result.preferred_age_min == 20
         assert result.travel_start_date == date(2026, 6, 1)
 
+
     async def test_returns_none_when_no_draft(
         self, tripmate_post_draft_service,
     ):
@@ -111,6 +113,7 @@ class TestDeleteDraft:
 
         coll = TripmatePostDraft.get_motor_collection()
         assert await coll.count_documents({"user_id": "USER_a"}) == 0
+
 
     async def test_idempotent_when_no_draft(self, tripmate_post_draft_service):
         """draft 없는 상태에서 delete → 에러 없이 정상 종료."""

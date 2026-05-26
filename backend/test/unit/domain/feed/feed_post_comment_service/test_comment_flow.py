@@ -9,11 +9,10 @@
       service 의 `_to_dto` 가 닉네임/프로필 이미지를 정확 매핑 + detail 결손 fallback (chat
       / like 도메인 컨벤션 일치).
 """
+from test.unit.domain.feed.mock_factory import make_feed_post_comment_mock
 import pytest
 
 from app.domain.feed.service.exception import FeedPostCommentNotFoundError
-
-from test.unit.domain.feed.mock_factory import make_feed_post_comment_mock
 
 
 # ──────────────────── create ────────────────────
@@ -39,6 +38,7 @@ class TestCreateComment:
         comment_repo_mock.save.assert_awaited_once()
         comment_repo_mock.find_by_id.assert_awaited_once()  # reload 호출 검증
 
+
     async def test_strips_leading_trailing_whitespace(self, service, comment_repo_mock):
         """비-빈 댓글의 양끝 공백은 제거 (캡션과 다른 정책)."""
         comment_repo_mock.find_by_id.return_value = make_feed_post_comment_mock(
@@ -50,6 +50,7 @@ class TestCreateComment:
         # service 가 strip 후 INSERT — repo.save 의 인자 검증
         saved_arg = comment_repo_mock.save.await_args.args[0]
         assert saved_arg.content == "hello"
+
 
     async def test_missing_detail_falls_back_to_empty(
         self, service, comment_repo_mock,
@@ -67,6 +68,7 @@ class TestCreateComment:
         assert result.user_id == "USER_v"
         assert result.user_name == ""
         assert result.profile_image_url is None
+
 
     @pytest.mark.parametrize("content", ["", "   ", "\n\t", "  \n  "])
     async def test_blank_content_raises_value_error(
@@ -98,6 +100,7 @@ class TestListComments:
         result = await service.list_comments(viewer_id="USER_v", post_id="FDP_x")
         assert result.next_cursor == "FDC_1"
 
+
     async def test_next_cursor_none_when_partial_page(
         self, service, comment_repo_mock, monkeypatch,
     ):
@@ -110,6 +113,7 @@ class TestListComments:
         result = await service.list_comments(viewer_id="USER_v", post_id="FDP_x")
         assert result.next_cursor is None
 
+
     async def test_cursor_passes_through_to_repo(
         self, service, comment_repo_mock,
     ):
@@ -118,6 +122,7 @@ class TestListComments:
             viewer_id="USER_v", post_id="FDP_x", cursor="FDC_seed",
         )
         assert comment_repo_mock.find_by_post.await_args.kwargs["cursor"] == "FDC_seed"
+
 
     async def test_maps_author_profile_per_comment(self, service, comment_repo_mock):
         """find_by_post 의 단일 JOIN 결과가 작성자 프로필까지 정확 매핑 + 결손 fallback."""
@@ -153,6 +158,7 @@ class TestDeleteComment:
         )
         comment_repo_mock.delete.assert_awaited_once_with(comment)
 
+
     async def test_non_author_cannot_delete(
         self, service, comment_repo_mock,
     ):
@@ -164,6 +170,7 @@ class TestDeleteComment:
                 user_id="USER_intruder", post_id="FDP_x", comment_id="FDC_x",
             )
         comment_repo_mock.delete.assert_not_called()
+
 
     async def test_post_owner_cannot_delete_others_comment(
         self, service, comment_repo_mock,
@@ -177,6 +184,7 @@ class TestDeleteComment:
                 user_id="USER_owner_of_post", post_id="FDP_x", comment_id="FDC_x",
             )
 
+
     async def test_missing_comment_raises_not_found(
         self, service, comment_repo_mock,
     ):
@@ -185,6 +193,7 @@ class TestDeleteComment:
             await service.delete_comment(
                 user_id="USER_v", post_id="FDP_x", comment_id="FDC_missing",
             )
+
 
     async def test_post_id_mismatch_treated_as_not_found(
         self, service, comment_repo_mock,

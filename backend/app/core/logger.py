@@ -56,13 +56,12 @@ logger.bind(user_id=123, user_type="he").info("서비스 완료")
     logger.info("유저: {}", user_id)               # (O) 레벨 비활성이면 포맷팅 생략
 """
 import sys
-import logging
 from pathlib import Path
 from loguru._logger import Logger
 from loguru import logger  
+import logging
 
 from app.config.setting import settings
-
 
 
 def setup_logging() -> None:
@@ -159,8 +158,6 @@ def setup_logging() -> None:
         )
 
     logger.info("Logging system initialized with level: {}", settings.LOG_LEVEL)
-
-
 
 
 def get_logger(name: str) -> Logger:

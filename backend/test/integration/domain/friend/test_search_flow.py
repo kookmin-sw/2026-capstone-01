@@ -1,18 +1,17 @@
 """FriendSearchService 통합 테스트 — 실 PostgreSQL 로 검색 / 필터 / 페이지네이션 검증."""
 
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 from sqlalchemy import delete, update
+import pytest
 
-from app.domain.auth.model.user import User, UserStatus
-from app.domain.auth.model.user_detail_inform import UserDetailInform
-from app.domain.auth.model.user_travel_style import TravelStyle, UserTravelStyle
-from app.domain.friend.model.friendship import FriendshipStatus
-from app.domain.friend.repository.search import PAGE_SIZE
-from app.domain.friend.service.friendship import FriendshipService
-from app.domain.friend.service.search import FriendSearchService
 from app.domain.friend.service.user_block import UserBlockService
+from app.domain.friend.service.search import FriendSearchService
+from app.domain.friend.service.friendship import FriendshipService
+from app.domain.friend.repository.search import PAGE_SIZE
+from app.domain.friend.model.friendship import FriendshipStatus
+from app.domain.auth.model.user_travel_style import TravelStyle, UserTravelStyle
+from app.domain.auth.model.user_detail_inform import UserDetailInform
+from app.domain.auth.model.user import User, UserStatus
 
 
 pytestmark = pytest.mark.integration
@@ -38,12 +37,14 @@ class TestKeywordValidation:
         with pytest.raises(ValueError, match="검색어"):
             await service.search(viewer_id=a, keyword="")
 
+
     async def test_raises_value_error_on_whitespace_only(self, uow, seed_users):
         (a,) = await seed_users(1)
         service = FriendSearchService(uow=uow)
 
         with pytest.raises(ValueError, match="검색어"):
             await service.search(viewer_id=a, keyword="   ")
+
 
     async def test_strips_whitespace_in_keyword(self, uow, seed_users):
         a, b, _ = await seed_users(3)
@@ -71,6 +72,7 @@ class TestExclusions:
         assert b in item_ids
         assert c in item_ids
 
+
     async def test_excludes_inactive_users(self, uow, seed_users, session_factory):
         a, b, c = await seed_users(3)
 
@@ -86,6 +88,7 @@ class TestExclusions:
         item_ids = {item.user_id for item in result.items}
         assert b not in item_ids
         assert c in item_ids
+
 
     async def test_excludes_suspended_users(self, uow, seed_users, session_factory):
         a, b, c = await seed_users(3)
@@ -103,6 +106,7 @@ class TestExclusions:
         assert b not in item_ids
         assert c in item_ids
 
+
     async def test_excludes_users_blocked_by_me(
         self, uow, seed_users, block_cache_stub,
     ):
@@ -117,6 +121,7 @@ class TestExclusions:
         item_ids = {item.user_id for item in result.items}
         assert b not in item_ids
         assert c in item_ids
+
 
     async def test_excludes_users_who_blocked_me(
         self, uow, seed_users, block_cache_stub,
@@ -133,6 +138,7 @@ class TestExclusions:
         item_ids = {item.user_id for item in result.items}
         assert b not in item_ids
         assert c in item_ids
+
 
     async def test_excludes_users_without_detail(
         self, uow, seed_users, session_factory,
@@ -170,6 +176,7 @@ class TestMatching:
         assert b in item_ids
         assert c not in item_ids
 
+
     async def test_matches_user_name_case_insensitive(self, uow, seed_users):
         a, b, _ = await seed_users(3)
         service = FriendSearchService(uow=uow)
@@ -179,6 +186,7 @@ class TestMatching:
 
         item_ids = {item.user_id for item in result.items}
         assert b in item_ids
+
 
     async def test_matches_user_id_partial(self, uow, seed_users):
         """user_name 엔 없는 토큰이지만 user_id 에는 있는 키워드로 매칭."""
@@ -190,6 +198,7 @@ class TestMatching:
 
         item_ids = {item.user_id for item in result.items}
         assert b in item_ids
+
 
     async def test_no_match_returns_empty(self, uow, seed_users):
         (a,) = await seed_users(1)
@@ -218,6 +227,7 @@ class TestFriendshipMapping:
         assert item.friendship_status == FriendshipStatus.PENDING
         assert item.is_requester is True
 
+
     async def test_pending_as_addressee(self, uow, seed_users):
         a, b, _ = await seed_users(3)
         friendship_service = FriendshipService(uow=uow)
@@ -229,6 +239,7 @@ class TestFriendshipMapping:
         item = next(it for it in result.items if it.user_id == b)
         assert item.friendship_status == FriendshipStatus.PENDING
         assert item.is_requester is False
+
 
     async def test_accepted_yields_null_is_requester(self, uow, seed_users):
         a, b, _ = await seed_users(3)
@@ -244,6 +255,7 @@ class TestFriendshipMapping:
         item = next(it for it in result.items if it.user_id == b)
         assert item.friendship_status == FriendshipStatus.ACCEPTED
         assert item.is_requester is None
+
 
     async def test_rejected_yields_null_is_requester(self, uow, seed_users):
         a, b, _ = await seed_users(3)
@@ -279,6 +291,7 @@ class TestProfileFields:
 
         item = next(it for it in result.items if it.user_id == b)
         assert set(item.travel_styles) == {TravelStyle.FOOD_TOUR, TravelStyle.ACTIVITY}
+
 
     async def test_returns_public_profile_fields_only(self, uow, seed_users):
         """민감 정보(email, phone_number, age, gender 등) 는 응답 DTO 에 없음."""

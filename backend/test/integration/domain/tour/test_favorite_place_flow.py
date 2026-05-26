@@ -16,11 +16,11 @@ unit 으로 검증 못 하는 영역:
     | get_favorites 순서 유지          | RDB 최신순 그대로                    |
     | get_favorites Mongo 결손         | 해당 row skip (전체는 통과)          |
 """
-import pytest
 from sqlalchemy import select
+import pytest
 
-from app.domain.tour.model.favorite_place import FavoritePlace
 from app.domain.tour.model.place import Place
+from app.domain.tour.model.favorite_place import FavoritePlace
 
 
 pytestmark = pytest.mark.integration
@@ -45,6 +45,7 @@ class TestAddFavorite:
             assert len(favorites) == 1
             assert favorites[0].place_id == place_id
 
+
     async def test_raises_when_place_not_found_in_mongo(
         self, favorite_place_service, seed_users, session_factory,
     ):
@@ -60,6 +61,7 @@ class TestAddFavorite:
         async with session_factory() as session:
             result = await session.execute(select(FavoritePlace))
             assert list(result.scalars().all()) == []
+
 
     async def test_raises_when_already_favorited(
         self, favorite_place_service, seed_users, seed_place,
@@ -92,6 +94,7 @@ class TestRemoveFavorite:
         async with session_factory() as session:
             result = await session.execute(select(FavoritePlace))
             assert list(result.scalars().all()) == []
+
 
     async def test_raises_when_not_favorited(
         self, favorite_place_service, seed_users,
@@ -128,6 +131,7 @@ class TestGetFavorites:
         assert place_ids == ["P_3", "P_2", "P_1"]
         assert result.total_count == 3
 
+
     async def test_skips_favorite_when_place_missing_in_mongo(
         self, favorite_place_service, seed_users, seed_place, session_factory,
     ):
@@ -148,6 +152,7 @@ class TestGetFavorites:
         # Mongo 결손 row 는 skip — total_count = 매칭된 1건
         assert result.total_count == 1
         assert result.favorites[0].place.place_id == "P_alive"
+
 
     async def test_returns_empty_when_no_favorites(
         self, favorite_place_service, seed_users,

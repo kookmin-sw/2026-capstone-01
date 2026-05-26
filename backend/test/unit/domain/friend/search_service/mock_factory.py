@@ -1,7 +1,6 @@
 """friendship_service 쪽 Mock 팩토리 재사용 + search 전용 mock 추가."""
 
 from unittest.mock import AsyncMock
-
 from test.unit.domain.friend.friendship_service.mock_factory import (
     FakeAsyncContextManager,
     FakeUnitOfWork,

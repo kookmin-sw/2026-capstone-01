@@ -1,8 +1,8 @@
 from typing import List
 from datetime import datetime
 
-from app.core.instrumentation import measure_mongo_op
 from app.domain.auth.model.withdrawal_request import WithdrawalRequest
+from app.core.instrumentation import measure_mongo_op
 
 
 class WithdrawalRequestRepository:

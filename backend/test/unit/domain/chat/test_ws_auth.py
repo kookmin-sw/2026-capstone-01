@@ -12,13 +12,11 @@ WS 업그레이드는 BaseHTTPMiddleware 를 거치지 않아 인증을 핸들�
 - ``_verify_jwt``               : 서명/만료 검증 + user_id/jti 추출
 """
 
-from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
-
-import jwt
 import pytest
+import jwt
+from datetime import datetime, timedelta, timezone
 
-from app.config.setting import settings
 from app.domain.chat.router.ws import (
     SUBPROTOCOL_AUTH_PREFIX,
     SUBPROTOCOL_VERSION,
@@ -28,6 +26,7 @@ from app.domain.chat.router.ws import (
     _verify_jwt,
     _ws_subprotocols,
 )
+from app.config.setting import settings
 
 
 pytestmark = pytest.mark.unit
@@ -80,8 +79,10 @@ class TestIsAllowedOrigin:
     def test_allows_configured_frontend_origin(self):
         assert _is_allowed_origin(settings.FRONTEND_URL) is True
 
+
     def test_allows_local_frontend_origin(self):
         assert _is_allowed_origin(settings.LOCAL_FRONTEND_URL) is True
+
 
     def test_allows_app_origin_from_whitelist(self, monkeypatch):
         """APP_ALLOWED_ORIGINS 쉼표 리스트가 set 으로 파싱되어 합집합에 들어가는지 확인."""
@@ -92,8 +93,10 @@ class TestIsAllowedOrigin:
         assert _is_allowed_origin("capacitor://localhost") is True
         assert _is_allowed_origin("https://localhost") is True
 
+
     def test_rejects_unknown_origin(self):
         assert _is_allowed_origin("https://evil.example.com") is False
+
 
     def test_rejects_none(self):
         """Origin 헤더 부재 — 브라우저 외 임의 클라이언트 차단."""
@@ -110,9 +113,11 @@ class TestWsSubprotocolsParsing:
 
         assert _ws_subprotocols(ws) == ["krip.chat.v1", "auth.abc.def"]
 
+
     def test_returns_empty_list_when_header_absent(self):
         ws = _make_ws()
         assert _ws_subprotocols(ws) == []
+
 
     def test_drops_empty_segments(self):
         """비어 있는 segment (` ,, `) 는 무시 — 헬퍼가 strip 후 falsy 필터링."""
@@ -131,9 +136,11 @@ class TestExtractJwt:
         ws = _make_ws(cookie_token="cookie-tok")
         assert _extract_jwt(ws) == "cookie-tok"
 
+
     def test_falls_back_to_subprotocol_auth_prefix(self):
         ws = _make_ws(subprotocols=[SUBPROTOCOL_VERSION, f"{SUBPROTOCOL_AUTH_PREFIX}sub-tok"])
         assert _extract_jwt(ws) == "sub-tok"
+
 
     def test_cookie_wins_when_both_present(self):
         """주석에 명시된 우선순위 — 기존 웹 동작을 그대로 보존."""
@@ -143,14 +150,17 @@ class TestExtractJwt:
         )
         assert _extract_jwt(ws) == "cookie-tok"
 
+
     def test_returns_none_when_neither(self):
         ws = _make_ws()
         assert _extract_jwt(ws) is None
+
 
     def test_returns_none_when_only_version_subprotocol(self):
         """클라가 인증 subprotocol 없이 버전만 보낸 경우 — 토큰 없음으로 판정."""
         ws = _make_ws(subprotocols=[SUBPROTOCOL_VERSION])
         assert _extract_jwt(ws) is None
+
 
     def test_returns_none_when_auth_prefix_is_empty(self):
         """`auth.` 만 있고 토큰 부분이 비면 None — close(4001) 분기로 정확히 전달."""
@@ -167,6 +177,7 @@ class TestSelectAcceptSubprotocol:
         ws = _make_ws(subprotocols=[SUBPROTOCOL_VERSION, f"{SUBPROTOCOL_AUTH_PREFIX}t"])
         assert _select_accept_subprotocol(ws) == SUBPROTOCOL_VERSION
 
+
     def test_never_echoes_auth_subprotocol(self):
         """auth.<jwt> 만 보내고 버전이 없으면 None — 토큰을 응답 헤더로 절대 노출하지 않는다.
 
@@ -175,6 +186,7 @@ class TestSelectAcceptSubprotocol:
         """
         ws = _make_ws(subprotocols=[f"{SUBPROTOCOL_AUTH_PREFIX}leaked-token"])
         assert _select_accept_subprotocol(ws) is None
+
 
     def test_returns_none_when_no_subprotocols(self):
         """웹 쿠키 흐름 — Sec-WebSocket-Protocol 자체를 안 보내므로 응답에도 미포함."""
@@ -195,6 +207,7 @@ class TestVerifyJwt:
 
         assert result == ("USER_jwt", "jti-explicit")
 
+
     def test_falls_back_to_token_prefix_when_jti_missing(self):
         """jti claim 이 없으면 raw token 앞 32자를 jti 로 사용 — SessionService 기록과 일관."""
         token = _make_token("USER_jwt")  # jti 없음
@@ -207,24 +220,29 @@ class TestVerifyJwt:
         assert user_id == "USER_jwt"
         assert token_jti == token[:32]
 
+
     def test_returns_none_when_no_token(self):
         ws = _make_ws()
         assert _verify_jwt(ws) is None
+
 
     def test_returns_none_when_token_expired(self):
         token = _make_token("USER_jwt", expires_in=timedelta(seconds=-10))
         ws = _make_ws(cookie_token=token)
         assert _verify_jwt(ws) is None
 
+
     def test_returns_none_when_signature_invalid(self):
         token = _make_token("USER_jwt", secret="wrong-secret")
         ws = _make_ws(cookie_token=token)
         assert _verify_jwt(ws) is None
 
+
     def test_returns_none_when_payload_has_no_user_id(self):
         token = _make_token(user_id=None)
         ws = _make_ws(cookie_token=token)
         assert _verify_jwt(ws) is None
+
 
     def test_accepts_token_via_app_subprotocol(self):
         """앱 흐름 — 쿠키 없이 `auth.<jwt>` subprotocol 만으로 인증."""

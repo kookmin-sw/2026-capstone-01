@@ -1,8 +1,8 @@
-import time
 from typing import List
+import time
 
-from app.core.ai.menu_ocr.v1.model import MenuOcrModel, MenuOcrResult
 from app.core.instrumentation import ai_inference, ai_model_load_duration_set
+from app.core.ai.menu_ocr.v1.model import MenuOcrModel, MenuOcrResult
 
 
 class MenuOcr:

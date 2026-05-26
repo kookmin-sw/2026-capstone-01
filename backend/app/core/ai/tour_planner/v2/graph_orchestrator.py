@@ -1,17 +1,13 @@
 from typing import Any, Dict, List, Optional, Tuple
 import time
-from langgraph.graph import StateGraph, START, END
 import math
+from langgraph.graph import StateGraph, START, END
 from functools import lru_cache
 import asyncio
 
 from app.domain.tour.repository.place import PlaceRepository
-from app.core.ai.tour_planner.v2.category import (
-    GROUP_OTHER,
-    GROUPS,
-    classify,
-    compute_caps,
-)
+from app.core.logger import get_logger
+from app.core.ai.tour_planner.v2.prompt_manager import CLUSTER_COORDINATES
 from app.core.ai.tour_planner.v2.data_state import (
     FoodPreference,
     TourBudgetItem,
@@ -25,8 +21,12 @@ from app.core.ai.tour_planner.v2.data_state import (
     TourTimelineSlot,
 )
 from app.core.ai.tour_planner.v2.chain_builder import get_tour_planner_chain_builder
-from app.core.ai.tour_planner.v2.prompt_manager import CLUSTER_COORDINATES
-from app.core.logger import get_logger
+from app.core.ai.tour_planner.v2.category import (
+    GROUP_OTHER,
+    GROUPS,
+    classify,
+    compute_caps,
+)
 
 
 logger = get_logger("Tour Planner v2 Graph Orchestrator")

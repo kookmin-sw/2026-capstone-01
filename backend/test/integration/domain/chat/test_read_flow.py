@@ -3,15 +3,15 @@
 RDB 의 `GREATEST(COALESCE(last_read, 0), :new_seq)` 규약이 실제 Postgres 에서
 작동하는지 + Redis unread 리셋 + fan-out 이벤트 구조 end-to-end 검증.
 """
-import pytest
-import pytest_asyncio
 from sqlalchemy import select
+import pytest_asyncio
+import pytest
 
-from app.core.chat.redis_key import unread_key
-from app.domain.chat.model.chat_room_member import ChatRoomMember
-from app.domain.chat.service.exception import ChatRoomNotFoundError
-from app.domain.chat.service.room import RoomService
 from app.domain.friend.model.friendship import Friendship, FriendshipStatus
+from app.domain.chat.service.room import RoomService
+from app.domain.chat.service.exception import ChatRoomNotFoundError
+from app.domain.chat.model.chat_room_member import ChatRoomMember
+from app.core.chat.redis_key import unread_key
 
 
 pytestmark = pytest.mark.integration
@@ -82,6 +82,7 @@ class TestMarkReadFlow:
             "up_to_server_seq": 10,
         }
 
+
     async def test_greatest_prevents_regress(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, message_service,
         session_factory, patch_external_clients,
@@ -112,6 +113,7 @@ class TestMarkReadFlow:
             b_row = await s.get(ChatRoomMember, (room.chat_room_id, b))
             assert b_row.last_read_message_server_seq == 20
 
+
     async def test_room_not_found_raises(
         self, uow, chat_fanout_stub, message_service, patch_external_clients,
     ):
@@ -123,6 +125,7 @@ class TestMarkReadFlow:
                 me_id="U_ghost", me_session_id="WS_x", room_id="CR_none",
                 up_to_server_seq=1,
             )
+
 
     async def test_left_member_cannot_mark_read(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, message_service,
@@ -142,6 +145,7 @@ class TestMarkReadFlow:
                 me_id=b, me_session_id="WS_B", room_id=room.chat_room_id,
                 up_to_server_seq=5,
             )
+
 
     async def test_count_readers_up_to_excludes_sender_and_left(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, message_service,

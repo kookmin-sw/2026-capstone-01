@@ -3,11 +3,11 @@
 실제 PostgreSQL, 실제 Repository 를 사용해 서비스 전체 플로우를 검증한다.
 """
 
-import pytest
 from sqlalchemy import select
+import pytest
 
-from app.domain.friend.model.friendship import Friendship, FriendshipStatus
 from app.domain.friend.service.friendship import FriendshipService
+from app.domain.friend.model.friendship import Friendship, FriendshipStatus
 
 
 pytestmark = pytest.mark.integration
@@ -34,6 +34,7 @@ class TestSendRequestFlow:
             assert row.addressee_id == b
             assert row.status == FriendshipStatus.PENDING
 
+
     async def test_self_request_rejected(self, uow, seed_users):
         (a,) = await seed_users(1)
         service = FriendshipService(uow=uow)
@@ -41,12 +42,14 @@ class TestSendRequestFlow:
         with pytest.raises(ValueError, match="자기 자신"):
             await service.send_request(requester_id=a, addressee_id=a)
 
+
     async def test_unknown_addressee_rejected(self, uow, seed_users):
         (a,) = await seed_users(1)
         service = FriendshipService(uow=uow)
 
         with pytest.raises(ValueError, match="존재하지 않는 유저"):
             await service.send_request(requester_id=a, addressee_id="USER_ghost")
+
 
     async def test_duplicate_pending_by_me_rejected(self, uow, seed_users):
         a, b, _ = await seed_users(3)
@@ -56,6 +59,7 @@ class TestSendRequestFlow:
         with pytest.raises(ValueError, match="이미 친구 요청을 보낸"):
             await service.send_request(requester_id=a, addressee_id=b)
 
+
     async def test_reverse_pending_hints_accept(self, uow, seed_users):
         a, b, _ = await seed_users(3)
         service = FriendshipService(uow=uow)
@@ -64,6 +68,7 @@ class TestSendRequestFlow:
 
         with pytest.raises(ValueError, match="수락해주세요"):
             await service.send_request(requester_id=b, addressee_id=a)
+
 
     async def test_rejected_can_be_reissued_via_upsert(self, uow, seed_users, session_factory):
         a, b, _ = await seed_users(3)
@@ -82,6 +87,7 @@ class TestSendRequestFlow:
             rows = (await s.execute(select(Friendship))).scalars().all()
             assert len(rows) == 1
             assert rows[0].status == FriendshipStatus.PENDING
+
 
     async def test_rejected_swap_direction_on_reverse_reissue(self, uow, seed_users, session_factory):
         """A→B 거절 이력이 있는 상태에서 이번엔 B→A 요청 → 방향이 swap 되어야 한다."""
@@ -116,6 +122,7 @@ class TestAcceptFlow:
         async with session_factory() as s:
             row = (await s.execute(select(Friendship))).scalar_one()
             assert row.status == FriendshipStatus.ACCEPTED
+
 
     async def test_wrong_user_forbidden(self, uow, seed_users):
         a, b, c = await seed_users(3)
@@ -165,6 +172,7 @@ class TestRemoveFriendFlow:
             rows = (await s.execute(select(Friendship))).scalars().all()
             assert rows == []
 
+
     async def test_third_party_forbidden(self, uow, seed_users):
         a, b, c = await seed_users(3)
         service = FriendshipService(uow=uow)
@@ -199,6 +207,7 @@ class TestListFlow:
         assert len(sent.items) == 1
         assert sent.items[0].peer.user_id == b
         assert sent.items[0].is_requester is True
+
 
     async def test_friends_returns_only_accepted(self, uow, seed_users):
         a, b, c = await seed_users(3)

@@ -1,7 +1,7 @@
 from typing import Optional
-from sqlalchemy import select, or_, exists
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, or_, exists
 
 from app.domain.friend.model.user_block import UserBlock
 from app.domain.auth.model.user import User

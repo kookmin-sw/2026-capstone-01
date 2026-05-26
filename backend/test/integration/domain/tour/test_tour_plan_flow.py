@@ -5,18 +5,17 @@ PlaceRepository 는 MongoDB 의존이라 Mock 으로 대체 (RDB 플로우만 �
 """
 
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 from sqlalchemy import select
+import pytest
 
-from app.domain.tour.dto.tour_plan import TourPlanItemCreateInput
-from app.domain.tour.model.tour_plan import TourPlan
-from app.domain.tour.model.tour_plan_item import TourPlanItem
+from app.domain.tour.service.tour_plan import TourPlanService
 from app.domain.tour.service.exception import (
     TourPlanItemNotFoundError,
     TourPlanNotFoundError,
 )
-from app.domain.tour.service.tour_plan import TourPlanService
+from app.domain.tour.model.tour_plan_item import TourPlanItem
+from app.domain.tour.model.tour_plan import TourPlan
+from app.domain.tour.dto.tour_plan import TourPlanItemCreateInput
 
 
 pytestmark = pytest.mark.integration
@@ -105,10 +104,12 @@ class TestGetPlanFlow:
         assert len(result.items) == 1
         assert result.items[0].rating == 4.5  # MongoDB 라이브 매핑
 
+
     async def test_raises_not_found(self, plan_service, seed_users):
         (a,) = await seed_users(1)
         with pytest.raises(TourPlanNotFoundError):
             await plan_service.get_plan(plan_id="TP_ghost", user_id=a)
+
 
     async def test_raises_permission_for_other_user(self, plan_service, seed_users):
         a, b, _ = await seed_users(3)
@@ -128,6 +129,7 @@ class TestGetPlansFlow:
         result = await plan_service.get_plans(user_id=a)
 
         assert result.plans == []
+
 
     async def test_returns_only_own_plans(self, plan_service, seed_users):
         a, b, _ = await seed_users(3)
@@ -166,6 +168,7 @@ class TestUpdatePlanTitleFlow:
             row = (await s.execute(select(TourPlan).where(TourPlan.plan_id == created.plan_id))).scalar_one()
             assert row.title == "New"
             assert row.updated_at >= original_updated_at  # 갱신됨
+
 
     async def test_clears_title(self, plan_service, seed_users, session_factory):
         (a,) = await seed_users(1)
@@ -244,6 +247,7 @@ class TestRemoveDayFlow:
             day_numbers = sorted(i.day_number for i in items)
             assert day_numbers == [1, 3]  # day=2 만 사라짐 (gap)
 
+
     async def test_then_add_day_assigns_max_plus_one(
         self, plan_service, seed_users, session_factory,
     ):
@@ -265,6 +269,7 @@ class TestRemoveDayFlow:
             row = (await s.execute(select(TourPlan).where(TourPlan.plan_id == created.plan_id))).scalar_one()
             # travel_days = 4 (3+1, gap 재사용 X)
             assert row.travel_days == 4
+
 
     async def test_idempotent_for_empty_day(self, plan_service, seed_users):
         (a,) = await seed_users(1)
@@ -327,6 +332,7 @@ class TestUpdateItemFlow:
         async with session_factory() as s:
             row = (await s.execute(select(TourPlanItem).where(TourPlanItem.item_id == item_id))).scalar_one()
             assert row.visit_time == "15:30"
+
 
     async def test_url_mismatch_raises_404_equivalent(self, plan_service, seed_users):
         (a,) = await seed_users(1)

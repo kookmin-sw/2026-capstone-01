@@ -7,9 +7,8 @@
 
 JPEG / 정적 PNG / 정적 WEBP 가 통과하는지도 같이 검증 — `getattr` 기본값으로 오탐 없는지 확인.
 """
-import io
-
 import pytest
+import io
 from PIL import Image
 
 from app.domain.feed.service.thumbnail import process_feed_image
@@ -51,6 +50,7 @@ class TestAnimatedRejection:
         with pytest.raises(ValueError, match="애니메이션"):
             process_feed_image(_make_webp(animated=True))
 
+
     def test_apng_raises_value_error(self):
         with pytest.raises(ValueError, match="애니메이션"):
             process_feed_image(_make_png(animated=True))
@@ -66,9 +66,11 @@ class TestStaticImagesPass:
         assert result.small.content_type == "image/jpeg"
         assert result.medium.content_type == "image/jpeg"
 
+
     def test_static_png_passes(self):
         result = process_feed_image(_make_png(animated=False))
         assert result.original.content_type == "image/png"
+
 
     def test_jpeg_passes(self):
         # JPEG 는 `is_animated` 속성 자체가 없는 경로 — getattr 기본값 False 검증.

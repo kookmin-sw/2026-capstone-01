@@ -5,8 +5,7 @@ from datetime import datetime
 from app.domain.chat.model.chat_room import ChatRoomType
 
 
-# 그룹 방 멤버 수 상한 — 본인 포함 100명 (99 초대 + 본인). 상한 자체는 협의 값으로
-# 운영하면서 조정. Redis `room:members:{R}` SADD 크기 + fan-out 지연을 고려.
+# 본인 포함 100명. fan-out 지연 + SADD 크기 고려한 협의 값.
 _MAX_GROUP_MEMBERS = 99
 _MAX_INVITE_BATCH = 50
 
@@ -137,7 +136,7 @@ class ChatRoomResponse(BaseModel):
 class ChatRoomListResponse(BaseModel):
     items: List[ChatRoomResponse] = Field(..., description="방 리스트")
     next_cursor: Optional[str] = Field(
-        None, description="다음 페이지 커서 (마지막 페이지면 null). Phase 1 은 항상 null"
+        None, description="다음 페이지 커서 (마지막 페이지면 null)"
     )
 
 

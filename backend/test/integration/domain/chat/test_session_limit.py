@@ -3,9 +3,8 @@
 단위 테스트가 Redis mock 기반으로 이미 존재하지만, ZREMRANGEBYSCORE + ZRANGE + 삭제
 pipeline 이 실 Redis ZSET 에서 정확히 동작하는지는 통합에서 증명해야 한다.
 """
-import asyncio
-
 import pytest
+import asyncio
 
 from app.core.chat.redis_key import (
     MAX_SESSIONS_PER_USER,
@@ -59,6 +58,7 @@ class TestSessionLimitOnRealRedis:
             assert await redis_hot.exists(sess_key(sid)) == 1
             assert await redis_hot.exists(ws_route_key(sid)) == 1
             assert await redis_hot.zscore(sessions_key(user_id), sid) is not None
+
 
     async def test_under_limit_does_not_revoke(
         self, session_service, redis_hot, chat_fanout_stub,

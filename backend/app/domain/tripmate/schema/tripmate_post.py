@@ -1,6 +1,6 @@
 from typing import List, Optional
-from datetime import date, datetime
 from pydantic import BaseModel, Field
+from datetime import date, datetime
 
 from app.domain.tripmate.model.tripmate_post import PreferredGender, CompanionType
 from app.domain.auth.model.user_detail_inform import Gender

@@ -1,6 +1,6 @@
 from typing import Optional
-from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete, func
 
 from app.domain.tour.model.favorite_place import FavoritePlace
 
@@ -59,6 +59,7 @@ class FavoritePlaceRepository:
         )
         result = await self.session.execute(stmt)
         return result.scalar_one()
+
 
     async def find_favorited_place_ids(self, user_id: str, place_ids: list[str]) -> set[str]:
         """주어진 place_id 목록 중 유저가 즐겨찾기한 것만 반환 (배치 조회)"""

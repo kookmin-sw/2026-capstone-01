@@ -4,15 +4,13 @@
 `SessionService` 는 생성자 주입 → mock 객체 그대로 전달.
 """
 from unittest.mock import AsyncMock
-
-import pytest
-
-from app.domain.chat.service.user_purge_cache import UserPurgeCacheService
-
 from test.unit.domain.chat.user_purge_cache_service.mock_factory import (
     make_redis_mock,
     make_session_service_mock,
 )
+import pytest
+
+from app.domain.chat.service.user_purge_cache import UserPurgeCacheService
 
 
 @pytest.fixture

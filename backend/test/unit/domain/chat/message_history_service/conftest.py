@@ -1,7 +1,3 @@
-import pytest
-
-from app.domain.chat.service.message_history import MessageHistoryService
-
 from test.unit.domain.chat.message_history_service.mock_factory import (
     FakeUnitOfWork,
     make_chat_member_repo_mock,
@@ -12,6 +8,9 @@ from test.unit.domain.chat.message_history_service.mock_factory import (
     make_redis_mock,
     make_user_repo_mock,
 )
+import pytest
+
+from app.domain.chat.service.message_history import MessageHistoryService
 
 
 @pytest.fixture

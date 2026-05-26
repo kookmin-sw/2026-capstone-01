@@ -4,18 +4,16 @@
 ChatRoomRepository 는 `@transactional` 안에서 인스턴스화 → 클래스 자체 monkeypatch.
 """
 from unittest.mock import AsyncMock
-
-import pytest
-
-from app.domain.chat.service.block_cache import BlockCacheService
-
+from test.unit.domain.chat.block_cache_service.model_factory import ChatRoomFactory
 from test.unit.domain.chat.block_cache_service.mock_factory import (
     FakeUnitOfWork,
     make_chat_room_repo_mock,
     make_mock_session,
     make_redis_mock,
 )
-from test.unit.domain.chat.block_cache_service.model_factory import ChatRoomFactory
+import pytest
+
+from app.domain.chat.service.block_cache import BlockCacheService
 
 
 @pytest.fixture

@@ -12,13 +12,11 @@
     - 가시성 raise 는 catch 안 함 (그대로 propagate → router 가 매핑)
 """
 from unittest.mock import AsyncMock
-
-import pytest
+from test.unit.domain.feed.mock_factory import make_feed_post_like_mock
 from sqlalchemy.exc import IntegrityError
+import pytest
 
 from app.domain.feed.service.exception import FeedNotFoundError
-
-from test.unit.domain.feed.mock_factory import make_feed_post_like_mock
 
 
 # ──────────────────── add ────────────────────
@@ -37,11 +35,13 @@ class TestAddLike:
         assert saved.user_id == "USER_v"
         assert saved.post_id == "FDP_x"
 
+
     async def test_duplicate_raises_value_error(self, service, like_repo_mock):
         like_repo_mock.find_by_user_and_post.return_value = object()  # 이미 누름
         with pytest.raises(ValueError, match="이미 좋아요"):
             await service.add_like(user_id="USER_v", post_id="FDP_x")
         like_repo_mock.save.assert_not_called()
+
 
     async def test_race_integrity_error_treated_as_duplicate(
         self, service, like_repo_mock,
@@ -69,6 +69,7 @@ class TestRemoveLike:
         count = await service.remove_like(user_id="USER_v", post_id="FDP_x")
         assert count == 4
         like_repo_mock.delete_by_user_and_post.assert_awaited_once_with("USER_v", "FDP_x")
+
 
     async def test_not_liked_raises_value_error(self, service, like_repo_mock):
         like_repo_mock.find_by_user_and_post.return_value = None
@@ -102,6 +103,7 @@ class TestGetLikedUsers:
         assert result[1].user_name == "Bob"
         assert result[1].profile_image_url is None
 
+
     async def test_missing_detail_falls_back_to_empty(self, service, like_repo_mock):
         """detail 결손 (회원가입 미완료) → user_name='' / profile_image_url=None.
 
@@ -115,10 +117,12 @@ class TestGetLikedUsers:
         assert result[0].user_name == ""
         assert result[0].profile_image_url is None
 
+
     async def test_empty_list_when_no_likes(self, service, like_repo_mock):
         like_repo_mock.find_with_user_by_post.return_value = []
         result = await service.get_liked_users(viewer_id="USER_v", post_id="FDP_x")
         assert result == []
+
 
     async def test_repo_call_uses_resolved_post_id(self, service, like_repo_mock):
         """service 가 viewable post 의 post_id 로 repo 호출 (path post_id 그대로 X)."""
@@ -143,6 +147,7 @@ class TestVisibilityPropagation:
             await service.add_like(user_id="USER_v", post_id="FDP_missing")
         # 가시성 실패 시 좋아요 INSERT 자체 안 일어남
         like_repo_mock.save.assert_not_called()
+
 
     async def test_remove_propagates_not_found(
         self, monkeypatch, service, like_repo_mock,

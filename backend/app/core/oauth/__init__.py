@@ -1,8 +1,8 @@
 from typing import Dict, Type
 
-from app.config.oauth import OAuthProvider
-from app.core.oauth.base import OAuthClient
 from app.core.oauth.google import GoogleOAuthClient
+from app.core.oauth.base import OAuthClient
+from app.config.oauth import OAuthProvider
 
 
 # provider → client 클래스 매핑. web/app 로그인 라우터가 공유한다.

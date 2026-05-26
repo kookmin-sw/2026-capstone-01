@@ -5,10 +5,10 @@
 attribute 할당 패턴이라 `_sa_instance_state` 가 자동 부여되어 unit 테스트에서도 동작.
 별도 stub 불필요 (mute_service test 와 동일 패턴).
 """
-import pytest
-
-from app.domain.auth.service.register import RegisterService
-
+from test.unit.domain.auth.register_service.model_factory import (
+    UserDetailInformFactory,
+    UserFactory,
+)
 from test.unit.domain.auth.mock_factory import (
     FakeUnitOfWork,
     make_mock_session,
@@ -16,10 +16,9 @@ from test.unit.domain.auth.mock_factory import (
     make_user_repo_mock,
     make_user_travel_style_repo_mock,
 )
-from test.unit.domain.auth.register_service.model_factory import (
-    UserDetailInformFactory,
-    UserFactory,
-)
+import pytest
+
+from app.domain.auth.service.register import RegisterService
 
 
 @pytest.fixture

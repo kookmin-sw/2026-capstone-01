@@ -2,12 +2,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from dependency_injector.wiring import Provide, inject
 
+from app.schema.common import MessageResponse
 from app.domain.friend.service.friendship import FriendshipService
 from app.domain.friend.schema.friendship import (
     SendFriendRequestBody,
     FriendshipResponse, FriendshipListResponse, FriendPeerResponse,
 )
-from app.schema.common import MessageResponse
 from app.container import Container
 
 

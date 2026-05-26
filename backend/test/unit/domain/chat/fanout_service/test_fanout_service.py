@@ -1,10 +1,8 @@
 """FanoutService 단위 테스트 — in-process dict fan-out 의 핵심 동작 검증."""
-import json
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
-
 from test.unit.domain.chat.fanout_service.conftest import make_ws
+import pytest
+import json
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -19,6 +17,7 @@ class TestRegister:
 
         assert ws in fanout._user_subs["U_A"]
         assert fanout._local_ws_by_session["WS_1"] is ws
+
 
     def test_register_ws_to_room_adds_to_room_subs_and_back_index(self, fanout):
         ws = make_ws("WS_1", "U_A")
@@ -50,6 +49,7 @@ class TestUnregister:
         assert ws_a not in fanout._room_subs["CR_1"]
         assert ws_b in fanout._room_subs["CR_1"]
         assert "CR_2" not in fanout._room_subs  # 혼자 있던 방은 key 까지 제거
+
 
     def test_unregister_tolerates_missing_attributes(self, fanout):
         """속성이 없는 WS 라도 예외 없이 지나가야 한다 (방어적)."""
@@ -87,9 +87,11 @@ class TestFanOutToRoom:
         pc.send_json.assert_awaited_once()         # 같은 유저 다른 세션
         bob.send_json.assert_awaited_once()        # 다른 유저
 
+
     async def test_no_recipients_noop(self, fanout):
         """빈 방에 발행해도 예외 없이 통과."""
         await fanout.fan_out_to_room("CR_empty", {"type": "message.new", "sender_session_id": "?"})
+
 
     async def test_missing_sender_session_id_delivers_to_all(self, fanout):
         """payload 에 sender_session_id 없으면 전원에게 전달 (시스템 메시지 등의 경우)."""
@@ -124,6 +126,7 @@ class TestFanOutToUser:
         pc.send_json.assert_awaited_once()
         bob.send_json.assert_not_called()
 
+
     async def test_no_sessions_noop(self, fanout):
         await fanout.fan_out_to_user("U_ghost", {"type": "room_joined", "room_id": "?"})
 
@@ -140,6 +143,7 @@ class TestFanOutToSession:
 
         phone.send_json.assert_awaited_once()
         pc.send_json.assert_not_called()
+
 
     async def test_missing_session_silent(self, fanout):
         """이미 close 된 세션은 dict 에서 pop 된 상태 — 조용히 무시."""
@@ -180,6 +184,7 @@ class TestFanoutModeGuard:
         with pytest.raises(NotImplementedError, match="미지원"):
             FanoutService()
 
+
     def test_node_channel_mode_initializes(self, monkeypatch):
         """`node_channel` 모드로 부팅하면 생성자 통과 (디스패처/레지스트리 와이어링은 lifespan 책임)."""
         from app.config import setting as setting_module
@@ -213,6 +218,7 @@ class TestNodeChannelDispatch:
         from app.domain.chat.service.fanout import FanoutService
         return FanoutService()
 
+
     async def test_dispatch_room_envelope_delivers_locally(self, node_fanout):
         ws = make_ws("WS_a", "U_A")
         node_fanout.register_session(ws)
@@ -225,6 +231,7 @@ class TestNodeChannelDispatch:
         })
 
         ws.send_json.assert_awaited_once()
+
 
     async def test_dispatch_user_envelope_delivers_to_all_user_sessions(self, node_fanout):
         phone = make_ws("WS_phone", "U_A")
@@ -241,6 +248,7 @@ class TestNodeChannelDispatch:
         phone.send_json.assert_awaited_once()
         pc.send_json.assert_awaited_once()
 
+
     async def test_dispatch_session_envelope_delivers_to_target_only(self, node_fanout):
         a = make_ws("WS_a", "U_A")
         b = make_ws("WS_b", "U_B")
@@ -256,6 +264,7 @@ class TestNodeChannelDispatch:
         a.send_json.assert_awaited_once()
         b.send_json.assert_not_called()
 
+
     async def test_dispatch_subscribe_envelope_adds_local_user_to_room(self, node_fanout):
         ws = make_ws("WS_a", "U_A")
         node_fanout.register_session(ws)
@@ -266,6 +275,7 @@ class TestNodeChannelDispatch:
 
         assert ws in node_fanout._room_subs["CR_new"]
         assert "CR_new" in ws.subscribed_rooms
+
 
     async def test_dispatch_unsubscribe_envelope_removes_local_user_from_room(self, node_fanout):
         ws = make_ws("WS_a", "U_A")
@@ -279,9 +289,11 @@ class TestNodeChannelDispatch:
         assert "CR_1" not in node_fanout._room_subs   # 마지막 구독자 빠지면 키 정리
         assert "CR_1" not in ws.subscribed_rooms
 
+
     async def test_dispatch_unknown_op_drops_silently(self, node_fanout):
         # 미래 버전이 새 op 를 추가했고 본 노드가 구버전인 경우 — 다운되지 않고 drop.
         await node_fanout.dispatch_envelope({"op": "future_op", "data": 1})
+
 
     async def test_dispatch_envelope_missing_field_drops_silently(self, node_fanout):
         # payload 누락 등 손상된 envelope 도 drop.
@@ -375,6 +387,7 @@ class TestNodeChannelPublish:
         }
         redis_mock._pipe.execute.assert_awaited_once()
 
+
     async def test_fan_out_skips_publish_when_no_active_nodes(
         self, node_channel_env,
     ):
@@ -385,6 +398,7 @@ class TestNodeChannelPublish:
         await fanout.fan_out_to_room("CR_1", {"type": "system"})
 
         redis_mock.pipeline.assert_not_called()
+
 
     async def test_fan_out_to_user_publishes_user_envelope(self, node_channel_env):
         fanout, redis_mock, set_active_nodes = node_channel_env
@@ -401,6 +415,7 @@ class TestNodeChannelPublish:
             "traceparent": "",
         }
 
+
     async def test_subscribe_publishes_subscribe_envelope(self, node_channel_env):
         """control-plane subscribe 도 동일 broadcast 경로로 모든 노드에 전파."""
         fanout, redis_mock, set_active_nodes = node_channel_env
@@ -415,6 +430,7 @@ class TestNodeChannelPublish:
             "request_id": "", "traceparent": "",
         }
 
+
     async def test_unsubscribe_publishes_unsubscribe_envelope(self, node_channel_env):
         fanout, redis_mock, set_active_nodes = node_channel_env
         set_active_nodes(["node-A"])
@@ -426,6 +442,7 @@ class TestNodeChannelPublish:
             "op": "unsubscribe", "user_id": "U_A", "room_id": "CR_1",
             "request_id": "", "traceparent": "",
         }
+
 
     async def test_fan_out_to_session_publishes_to_target_node_only(
         self, node_channel_env,
@@ -450,6 +467,7 @@ class TestNodeChannelPublish:
             "request_id": "",
             "traceparent": "",
         }
+
 
     async def test_fan_out_to_session_drops_when_route_missing(
         self, node_channel_env,

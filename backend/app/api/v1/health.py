@@ -14,14 +14,14 @@ api_router 의 /api prefix 를 우회해 k8s probe 와 blackbox 가 직접 도�
 """
 import time
 from sqlalchemy import text
-from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Request
 import asyncio
 
 from app.database.session import mongodb
-from app.core.logger import get_logger
-from app.core.metric import DEEP_CANARY_DURATION
 from app.core.redis import get_redis_client, get_redis_dedupe_client
+from app.core.metric import DEEP_CANARY_DURATION
+from app.core.logger import get_logger
 from app.core.ai.tour_planner.load import TourPlanner
 from app.core.ai.papago_translator.load import PapagoTranslator
 from app.core.ai.menu_ocr.load import MenuOcr

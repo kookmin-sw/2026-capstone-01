@@ -2,8 +2,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from dependency_injector.wiring import Provide, inject
 
-from app.domain.friend.service.search import FriendSearchService
 from app.domain.friend.service.search_history import FriendSearchHistoryService
+from app.domain.friend.service.search import FriendSearchService
 from app.domain.friend.schema.search import (
     FriendSearchItemResponse,
     FriendSearchListResponse,

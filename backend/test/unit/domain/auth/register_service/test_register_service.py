@@ -6,15 +6,14 @@
     - 인자 검증: detail 의 모든 field 가 입력대로 매핑
     - 빈 travel_styles 도 허용 (save_all 빈 리스트 호출)
 """
-import pytest
-
-from app.domain.auth.model.user_detail_inform import Gender
-from app.domain.auth.model.user_travel_style import TravelStyle
-
 from test.unit.domain.auth.register_service.model_factory import (
     UserDetailInformFactory,
     UserFactory,
 )
+import pytest
+
+from app.domain.auth.model.user_travel_style import TravelStyle
+from app.domain.auth.model.user_detail_inform import Gender
 
 
 def _kwargs_baseline(**overrides):
@@ -48,6 +47,7 @@ class TestRegisterDetail:
         detail_repo_mock.save.assert_awaited_once()
         style_repo_mock.save_all.assert_awaited_once()
 
+
     async def test_detail_fields_mapped_correctly(
         self, service, user_repo_mock, detail_repo_mock,
     ):
@@ -71,6 +71,7 @@ class TestRegisterDetail:
         assert saved_detail.gender == Gender.FEMALE
         assert saved_detail.nationality == "JP"
 
+
     async def test_saves_multiple_travel_styles(
         self, service, user_repo_mock, detail_repo_mock, style_repo_mock,
     ):
@@ -86,6 +87,7 @@ class TestRegisterDetail:
         assert [s.style for s in saved_styles] == styles_input
         assert all(s.user_id == "USER_a" for s in saved_styles)
 
+
     async def test_saves_empty_travel_styles(
         self, service, user_repo_mock, detail_repo_mock, style_repo_mock,
     ):
@@ -97,6 +99,7 @@ class TestRegisterDetail:
 
         style_repo_mock.save_all.assert_awaited_once_with([])
 
+
     async def test_raises_when_user_not_found(
         self, service, user_repo_mock, detail_repo_mock, style_repo_mock,
     ):
@@ -107,6 +110,7 @@ class TestRegisterDetail:
 
         detail_repo_mock.save.assert_not_awaited()
         style_repo_mock.save_all.assert_not_awaited()
+
 
     async def test_raises_when_already_registered(
         self, service, user_repo_mock, detail_repo_mock, style_repo_mock,

@@ -1,15 +1,22 @@
 from typing import Any, BinaryIO
 
 from app.util.storage_prefix import profile_prefix
-from app.domain.auth.repository.user import UserRepository
-from app.domain.auth.repository.user_detail_inform import UserDetailInformRepository
-from app.domain.auth.repository.user_travel_style import UserTravelStyleRepository
-from app.domain.auth.model.user_travel_style import UserTravelStyle
-from app.domain.auth.dto.profile import ProfileData, ProfileImageData, OtherUserProfileData
+from app.domain.friend.repository.friendship import FriendshipRepository
+from app.domain.feed.repository.feed_post_like import FeedPostLikeRepository
 from app.domain.auth.service.exception import (
     ProfileNotRegisteredError,
     ProfileImageAlreadyExistsError,
     ProfileImageNotFoundError,
+)
+from app.domain.auth.repository.user_travel_style import UserTravelStyleRepository
+from app.domain.auth.repository.user_detail_inform import UserDetailInformRepository
+from app.domain.auth.repository.user import UserRepository
+from app.domain.auth.model.user_travel_style import UserTravelStyle
+from app.domain.auth.dto.profile import (
+    ProfileData,
+    ProfileImageData,
+    OtherUserProfileData,
+    ProfileStatsData,
 )
 from app.database.session import UnitOfWork, transactional
 from app.core.object_storage import get_object_storage
@@ -71,6 +78,35 @@ class ProfileService:
             travel_styles=[s.style for s in user.travel_styles],
             profile_image_url=user.detail.profile_image_url,
             notification_muted=user.notification_muted is True,
+        )
+
+
+    @transactional
+    async def get_my_stats(self, user_id: str) -> ProfileStatsData:
+        """마이페이지 통계 — 본인 피드 좋아요 총 합 + ACCEPTED 친구 수.
+
+        cross-domain 집계지만 단일 트랜잭션 두 SELECT COUNT 로 끝남. 두 카운트 모두
+        인덱스 기반이라 sub-ms. user row 존재만 검증하고 detail 결손은 통과 — 좋아요/
+        친구는 회원가입 완료 여부와 무관한 데이터.
+
+        Raises:
+            ValueError: user_id 가 존재하지 않음 (404 매핑).
+        """
+        user_repo = UserRepository(self._session)
+        if await user_repo.find_by_id(user_id) is None:
+            raise ValueError("존재하지 않는 유저입니다.")
+
+        like_repo = FeedPostLikeRepository(self._session)
+        friendship_repo = FriendshipRepository(self._session)
+
+        # 같은 세션의 asyncpg 단일 connection 에서 두 쿼리는 어차피 직렬화되므로
+        # asyncio.gather 이득 없음 — 순차 await 로 단순화.
+        total_feed_likes = await like_repo.count_total_for_owner(user_id)
+        total_friends = await friendship_repo.count_accepted_for(user_id)
+
+        return ProfileStatsData(
+            total_feed_likes=total_feed_likes,
+            total_friends=total_friends,
         )
 
 

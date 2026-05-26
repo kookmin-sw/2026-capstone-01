@@ -1,6 +1,5 @@
 """SessionService 단위 테스트 — Redis 명령 시퀀스 + 한도 초과 revoke."""
 from unittest.mock import AsyncMock
-
 import pytest
 
 from app.core.chat.redis_key import (
@@ -21,6 +20,7 @@ class TestCreateSession:
         sid = await service.create_session(user_id="U_A", token_jti="jti_1")
         assert sid.startswith("WS_")
 
+
     async def test_first_pipeline_writes_four_keys(self, service, redis_mock):
         """create_session 의 첫 pipeline 에서 HSET + EXPIRE + ZADD + SET 4개 write."""
         await service.create_session(user_id="U_A", token_jti="jti_1")
@@ -32,6 +32,7 @@ class TestCreateSession:
         assert p0.zadd.called
         assert p0.set.called
         p0.execute.assert_awaited()
+
 
     async def test_limit_enforced_revokes_oldest(self, service, redis_mock, fanout_mock):
         """한도 초과 시 가장 오래된 세션에 session_revoked 직송 + DEL."""
@@ -82,17 +83,21 @@ class TestSimpleAccessors:
         redis_mock.exists = AsyncMock(return_value=1)
         assert await service.session_exists("WS_1") is True
 
+
     async def test_session_exists_false_when_key_absent(self, service, redis_mock):
         redis_mock.exists = AsyncMock(return_value=0)
         assert await service.session_exists("WS_1") is False
+
 
     async def test_get_user_id_returns_value(self, service, redis_mock):
         redis_mock.hget = AsyncMock(return_value="U_A")
         assert await service.get_user_id("WS_1") == "U_A"
 
+
     async def test_get_user_id_returns_none_when_missing(self, service, redis_mock):
         redis_mock.hget = AsyncMock(return_value=None)
         assert await service.get_user_id("WS_ghost") is None
+
 
     async def test_update_token_jti_writes_hash_field(self, service, redis_mock):
         await service.update_token_jti("WS_1", "new_jti")
@@ -145,6 +150,7 @@ class TestRevokeAllSessions:
         for p in redis_mock._pipes:
             assert not p.delete.called
 
+
     async def test_emits_session_revoked_event_for_each_session(
         self, service, redis_mock, fanout_mock,
     ):
@@ -159,6 +165,7 @@ class TestRevokeAllSessions:
             sid = f"WS_{idx + 1}"
             assert c.args[0] == sid
             assert c.args[1] == {"type": "session_revoked", "session_id": sid}
+
 
     async def test_pipeline_deletes_sess_ws_route_and_sessions_zset(
         self, service, redis_mock,

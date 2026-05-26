@@ -24,13 +24,13 @@ Object Storage (Naver Cloud S3 호환)
 """
 import uuid
 from typing import BinaryIO, List
-from botocore.config import Config
 from botocore.exceptions import ClientError
+from botocore.config import Config
 import boto3
 import asyncio
 
-from app.config.setting import settings
 from app.core.logger import get_logger
+from app.config.setting import settings
 
 
 logger = get_logger("object_storage")
@@ -58,6 +58,7 @@ class ObjectStorage:
                 retries={"max_attempts": 3, "mode": "standard"},
             ),
         )
+
 
     @classmethod
     def get_instance(cls) -> "ObjectStorage":
@@ -176,6 +177,7 @@ class ObjectStorage:
         if not url.startswith(base):
             raise ValueError(f"올바르지 않은 Object Storage URL: {url}")
         return url[len(base):]
+
 
     def _upload(self, file: BinaryIO, key: str, content_type: str) -> str:
         try:

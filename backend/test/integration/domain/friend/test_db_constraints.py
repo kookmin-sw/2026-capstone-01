@@ -5,12 +5,12 @@ Service 로직이 아닌 스키마 자체(canonical unique index, FK CASCADE)가
 사라져도 app 수준 체크 (find_between 등) 로 통과하는 것을 방지하기 위한 안전망.
 """
 
-import pytest
-from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, text
+import pytest
 
-from app.domain.friend.model.friendship import Friendship, FriendshipStatus
 from app.domain.friend.model.user_block import UserBlock
+from app.domain.friend.model.friendship import Friendship, FriendshipStatus
 
 
 pytestmark = pytest.mark.integration
@@ -30,6 +30,7 @@ class TestCanonicalUniqueIndex:
             s.add(Friendship(requester_id=a, addressee_id=b, status=FriendshipStatus.PENDING))
             with pytest.raises(IntegrityError):
                 await s.commit()
+
 
     async def test_reverse_direction_duplicate_rejected(self, seed_users, session_factory):
         """핵심: (A, B) 가 있는 상태에서 (B, A) 를 넣어도 canonical index 가 막아야 한다."""
@@ -63,6 +64,7 @@ class TestForeignKeyCascade:
             rows = (await s.execute(select(Friendship))).scalars().all()
         assert rows == []
 
+
     async def test_user_delete_cascades_user_block_as_blocker(self, seed_users, session_factory):
         a, b, _ = await seed_users(3)
         async with session_factory() as s:
@@ -77,6 +79,7 @@ class TestForeignKeyCascade:
         async with session_factory() as s:
             rows = (await s.execute(select(UserBlock))).scalars().all()
         assert rows == []
+
 
     async def test_user_delete_cascades_user_block_as_blocked(self, seed_users, session_factory):
         a, b, _ = await seed_users(3)

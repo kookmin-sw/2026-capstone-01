@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
 from types import SimpleNamespace
-
 import pytest
 
 from app.domain.chat.service.fanout import FanoutService

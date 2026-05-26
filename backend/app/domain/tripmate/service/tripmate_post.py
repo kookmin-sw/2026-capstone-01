@@ -1,20 +1,20 @@
 from typing import Optional, List
 from datetime import date
 
-from app.database.session import UnitOfWork, transactional
-from app.domain.tripmate.repository.tripmate_post import TripmatePostRepository, PAGE_SIZE
-from app.domain.tripmate.repository.tripmate_post_image import TripmatePostImageRepository
-from app.domain.tripmate.repository.tripmate_image import TripmateImageRepository
 from app.domain.tripmate.service.tripmate_post_draft import TripmatePostDraftService
-from app.domain.tripmate.model.tripmate_post import TripmatePost, PreferredGender, CompanionType
+from app.domain.tripmate.repository.tripmate_post_image import TripmatePostImageRepository
+from app.domain.tripmate.repository.tripmate_post import TripmatePostRepository, PAGE_SIZE
+from app.domain.tripmate.repository.tripmate_image import TripmateImageRepository
 from app.domain.tripmate.model.tripmate_post_image import TripmatePostImage
+from app.domain.tripmate.model.tripmate_post import TripmatePost, PreferredGender, CompanionType
 from app.domain.tripmate.dto.tripmate_post import TripmatePostCreateData, TripmatePostData, TripmatePostListData, PostAuthorData
 from app.domain.notification.service.inbox import InboxService
 from app.domain.notification.model.inbox import TargetType
-from app.domain.auth.model.user_detail_inform import Gender
 from app.domain.auth.repository.user_detail_inform import UserDetailInformRepository
-from app.core.logger import get_logger
+from app.domain.auth.model.user_detail_inform import Gender
+from app.database.session import UnitOfWork, transactional
 from app.core.object_storage import get_object_storage
+from app.core.logger import get_logger
 
 
 logger = get_logger("tripmate.post.service")
@@ -313,6 +313,7 @@ class TripmatePostService:
             nationality=detail.nationality,
         )
 
+
     @staticmethod
     def _to_create_dto(
         post: TripmatePost,
@@ -338,6 +339,7 @@ class TripmatePostService:
             profile_image_url=profile_image_url,
         )
 
+
     @staticmethod
     def _to_dto(post: TripmatePost, like_count: int, is_liked: bool, image_urls: List[str]) -> TripmatePostData:
         detail = post.user.detail if post.user else None
@@ -362,6 +364,7 @@ class TripmatePostService:
             image_urls=image_urls,
             profile_image_url=detail.profile_image_url if detail else None,
         )
+
 
     def _to_list_dto(self, posts: list[TripmatePost]) -> TripmatePostListData:
         post_dtos = [
