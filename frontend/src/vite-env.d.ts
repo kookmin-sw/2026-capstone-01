@@ -8,7 +8,6 @@ interface ImportMetaEnv {
   readonly VITE_AUTH_IS_LOCAL?: string;
   readonly VITE_DEBUG_AUTH_LOG?: string;
   readonly VITE_DEBUG_FCM_LOG?: string;
-  readonly VITE_KAKAO_JS_KEY?: string;
   readonly VITE_LEGACY_TOKEN_STORAGE_KEY?: string;
   readonly VITE_FIREBASE_API_KEY?: string;
   readonly VITE_FIREBASE_AUTH_DOMAIN?: string;

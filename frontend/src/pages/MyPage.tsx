@@ -1425,6 +1425,11 @@ export default function MyPage() {
               onEdit={(plan) =>
                 navigate(`/plan/manual?planId=${encodeURIComponent(plan.plan_id)}`)
               }
+              onShow={(plan) =>
+                navigate(
+                  `/plan/manual?planId=${encodeURIComponent(plan.plan_id)}&preview=route`
+                )
+              }
               onRename={(plan) => void handleRenamePlan(plan)}
               onShare={(plan) => void handleSharePlan(plan)}
               onDelete={(plan) => void handleDeletePlan(plan)}
@@ -1866,6 +1871,7 @@ function SavedPlansPanel({
   onRefresh,
   onCopyShareLink,
   onEdit,
+  onShow,
   onRename,
   onShare,
   onDelete,
@@ -1877,6 +1883,7 @@ function SavedPlansPanel({
   onRefresh: () => void;
   onCopyShareLink: () => void;
   onEdit: (plan: PlanSummaryResponse) => void;
+  onShow: (plan: PlanSummaryResponse) => void;
   onRename: (plan: PlanSummaryResponse) => void;
   onShare: (plan: PlanSummaryResponse) => void;
   onDelete: (plan: PlanSummaryResponse) => void;
@@ -1930,6 +1937,13 @@ function SavedPlansPanel({
                   onClick={() => onEdit(plan)}
                 >
                   Edit
+                </button>
+                <button
+                  type="button"
+                  style={styles.planGhostButton}
+                  onClick={() => onShow(plan)}
+                >
+                  Show
                 </button>
                 <button
                   type="button"
