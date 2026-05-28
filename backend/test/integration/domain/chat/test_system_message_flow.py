@@ -7,15 +7,15 @@
 ※ 방 관리 자체 흐름은 `test_room_group_flow.py` 에서 커버. 여기서는 타임라인
 저장과 unread 미영향만.
 """
-import pytest
-import pytest_asyncio
 from sqlalchemy import select
+import pytest_asyncio
+import pytest
 
-from app.core.chat.redis_key import unread_key
-from app.domain.chat.model.chat_room import ChatRoom
-from app.domain.chat.model.chat_room_member import ChatRoomMember
-from app.domain.chat.service.room import RoomService
 from app.domain.friend.model.friendship import Friendship, FriendshipStatus
+from app.domain.chat.service.room import RoomService
+from app.domain.chat.model.chat_room_member import ChatRoomMember
+from app.domain.chat.model.chat_room import ChatRoom
+from app.core.chat.redis_key import unread_key
 
 
 pytestmark = pytest.mark.integration
@@ -70,6 +70,7 @@ class TestSystemMessageTimeline:
             assert fresh.last_message_server_seq == m["server_seq"]
             assert fresh.last_message_id == m["_id"]
 
+
     async def test_invite_writes_join_system_message_with_target_ids(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, message_service,
         mongo_db, patch_external_clients,
@@ -95,6 +96,7 @@ class TestSystemMessageTimeline:
         assert msgs[-1]["content"]["target_ids"] == [c]
         assert msgs[-1]["content"]["actor_id"] == a
 
+
     async def test_leave_writes_leave_system_message(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, message_service,
         mongo_db, patch_external_clients,
@@ -114,6 +116,7 @@ class TestSystemMessageTimeline:
         assert [m["content"]["action"] for m in msgs] == ["created", "leave"]
         assert msgs[-1]["content"]["actor_id"] == b
         assert "target_ids" not in msgs[-1]["content"]
+
 
     async def test_kick_writes_kick_system_message_with_target(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, message_service,
@@ -136,6 +139,7 @@ class TestSystemMessageTimeline:
         assert [m["content"]["action"] for m in msgs] == ["created", "kick"]
         assert msgs[-1]["content"]["actor_id"] == a
         assert msgs[-1]["content"]["target_ids"] == [b]
+
 
     async def test_system_messages_do_not_bump_unread(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, message_service,

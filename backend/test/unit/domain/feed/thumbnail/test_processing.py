@@ -14,9 +14,8 @@
 
 이미지는 Pillow 로 즉석 합성 — fixture 파일 없이 self-contained.
 """
-import io
-
 import pytest
+import io
 from PIL import Image
 
 from app.domain.feed.service.thumbnail import (
@@ -73,6 +72,7 @@ class TestProcessFeedImageOutput:
         medium_img = Image.open(io.BytesIO(result.medium.data))
         assert medium_img.size == (THUMBNAIL_MEDIUM, THUMBNAIL_MEDIUM)
 
+
     def test_thumbnails_are_jpeg_rgb(self):
         result = process_feed_image(_jpeg())
 
@@ -96,6 +96,7 @@ class TestShrinkOriginal:
         assert result.content_type == "image/jpeg"
         assert result.file_ext == "jpg"
 
+
     def test_oversized_image_is_shrunk(self):
         """ORIGINAL_MAX 초과 → thumbnail 로 다운스케일 + 비율 보존."""
         src = _jpeg(size=(ORIGINAL_MAX + 500, ORIGINAL_MAX + 500))
@@ -104,6 +105,7 @@ class TestShrinkOriginal:
         assert max(out_img.size) <= ORIGINAL_MAX
         assert result.data != src  # re-encoded
 
+
     def test_png_preserves_format_when_shrunk(self):
         """PNG spec: 무손실 유지 — shrink 가 일어나도 PNG 로 재인코딩."""
         src = _png(size=(ORIGINAL_MAX + 100, ORIGINAL_MAX + 100))
@@ -111,11 +113,13 @@ class TestShrinkOriginal:
         assert result.content_type == "image/png"
         assert result.file_ext == "png"
 
+
     def test_webp_with_alpha_shrunk_becomes_png(self):
         """alpha 보존이 필요한 WEBP → PNG (lossy→lossless bloat 회피 위해 분기)."""
         src = _webp(size=(ORIGINAL_MAX + 100, ORIGINAL_MAX + 100), alpha=True)
         result = shrink_original_if_needed(src)
         assert result.content_type == "image/png"
+
 
     def test_webp_without_alpha_shrunk_becomes_jpeg(self):
         """alpha 없는 WEBP → JPEG (PNG 통일 시 용량 폭증)."""
@@ -134,10 +138,12 @@ class TestCropSquareAndResize:
         out = Image.open(io.BytesIO(result.data))
         assert out.size == (THUMBNAIL_SMALL, THUMBNAIL_SMALL)
 
+
     def test_portrait_input_becomes_square(self):
         result = crop_square_and_resize(_jpeg(size=(600, 800)), THUMBNAIL_MEDIUM)
         out = Image.open(io.BytesIO(result.data))
         assert out.size == (THUMBNAIL_MEDIUM, THUMBNAIL_MEDIUM)
+
 
     def test_rgba_input_flattened_to_rgb_white_bg(self):
         """RGBA → JPEG 인코딩 시 alpha 자리에 흰 배경 합성."""
@@ -225,6 +231,7 @@ class TestDecodingFailure:
     def test_garbage_bytes_raise_value_error(self):
         with pytest.raises(ValueError, match="이미지를 처리할 수 없습니다"):
             process_feed_image(b"this is not an image at all")
+
 
     def test_empty_bytes_raise_value_error(self):
         with pytest.raises(ValueError, match="이미지를 처리할 수 없습니다"):

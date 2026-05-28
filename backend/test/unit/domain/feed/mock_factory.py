@@ -5,16 +5,16 @@ FeedPostRepository / ObjectStorage 의 AsyncMock + 도메인 모델의 spec'd Ma
 에서 만든다. 테스트 파일이 직접 conftest 에서 helper 를 import 하지 않도록 cross-test
 재사용 가능한 helper 는 모두 본 모듈에 모은다.
 """
+from unittest.mock import AsyncMock, MagicMock
 from typing import Optional
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
 
-from app.domain.auth.model.user import User
-from app.domain.auth.model.user_detail_inform import UserDetailInform
-from app.domain.auth.model.user_travel_style import TravelStyle, UserTravelStyle
-from app.domain.feed.model.feed_post_comment import FeedPostComment
 from app.domain.feed.model.feed_post_like import FeedPostLike
+from app.domain.feed.model.feed_post_comment import FeedPostComment
 from app.domain.feed.dto.feed_post import FeedPostWithCounts
+from app.domain.auth.model.user_travel_style import TravelStyle, UserTravelStyle
+from app.domain.auth.model.user_detail_inform import UserDetailInform
+from app.domain.auth.model.user import User
 
 
 class FakeUnitOfWork:
@@ -23,8 +23,10 @@ class FakeUnitOfWork:
     def __init__(self, session):
         self._session = session
 
+
     async def __aenter__(self):
         return self._session
+
 
     async def __aexit__(self, exc_type, exc, tb):
         return False
@@ -77,14 +79,18 @@ def make_feed_post_with_counts(
     *,
     like_count: int = 0,
     comment_count: int = 0,
+    is_liked: bool = False,
 ) -> FeedPostWithCounts:
-    """`FeedPostWithCounts(post, like_count, comment_count)` 합성 helper.
+    """`FeedPostWithCounts(post, like_count, comment_count, is_liked)` 합성 helper.
 
     repo (`find_by_post_id` / `find_by_owner`) 가 반환하는 row 형태를 테스트에서 합성할 때
-    사용. spec=FeedPost 같은 mock post 를 넣고 카운트만 지정.
+    사용. spec=FeedPost 같은 mock post 를 넣고 카운트/좋아요 여부만 지정.
     """
     return FeedPostWithCounts(
-        post=post, like_count=like_count, comment_count=comment_count,
+        post=post,
+        like_count=like_count,
+        comment_count=comment_count,
+        is_liked=is_liked,
     )
 
 

@@ -7,29 +7,28 @@ Service 를 Mock 으로 대체하고 FastAPI TestClient 로 라우터가:
 를 반환하는지 검증한다. 실 DB 가 필요 없어 POSTGRES_TEST_URL 없이도 실행된다.
 """
 
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock
-
 import pytest
-from dependency_injector import providers
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from fastapi import FastAPI
+from dependency_injector import providers
+from datetime import datetime, timezone
 
-import app.database.model  # noqa: F401 — 매퍼 선 등록 (dto 가 enum 타입 참조)
-from app.container import Container
-from app.domain.auth.model.user_detail_inform import Gender
-from app.domain.auth.model.user_travel_style import TravelStyle
-from app.domain.friend.dto.friend_detail import FriendDetailData
+from app.domain.friend.service.friend_detail import UserNotFoundError
+from app.domain.friend.router import friend_router
+from app.domain.friend.model.friendship import FriendshipStatus
+from app.domain.friend.dto.user_block import UserBlockData
+from app.domain.friend.dto.search import FriendSearchData, FriendSearchListData
 from app.domain.friend.dto.friendship import (
     FriendPeerData,
     FriendshipData,
     FriendshipListData,
 )
-from app.domain.friend.dto.search import FriendSearchData, FriendSearchListData
-from app.domain.friend.dto.user_block import UserBlockData
-from app.domain.friend.model.friendship import FriendshipStatus
-from app.domain.friend.router import friend_router
-from app.domain.friend.service.friend_detail import UserNotFoundError
+from app.domain.friend.dto.friend_detail import FriendDetailData
+from app.domain.auth.model.user_travel_style import TravelStyle
+from app.domain.auth.model.user_detail_inform import Gender
+import app.database.model  # noqa: F401 — 매퍼 선 등록 (dto 가 enum 타입 참조)
+from app.container import Container
 
 
 pytestmark = pytest.mark.integration
@@ -120,6 +119,7 @@ class TestSendFriendRequestEndpoint:
         assert body["peer"]["user_id"] == "USER_b"
         assert body["is_requester"] is True
 
+
     def test_returns_400_on_value_error(self, http):
         client, friendship_mock, _, _ = http
         friendship_mock.send_request.side_effect = ValueError("이미 친구 요청을 보낸 상대입니다.")
@@ -132,6 +132,7 @@ class TestSendFriendRequestEndpoint:
 
         assert resp.status_code == 400
         assert resp.json()["detail"] == "이미 친구 요청을 보낸 상대입니다."
+
 
     def test_returns_422_on_missing_body(self, http):
         client, _, _, _ = http
@@ -162,6 +163,7 @@ class TestAcceptEndpoint:
         assert resp.status_code == 200
         assert resp.json() == {"message": "친구 요청을 수락했습니다."}
 
+
     def test_maps_value_error_to_400(self, http):
         client, friendship_mock, _, _ = http
         friendship_mock.accept_request.side_effect = ValueError("존재하지 않는 친구 요청입니다.")
@@ -173,6 +175,7 @@ class TestAcceptEndpoint:
 
         assert resp.status_code == 400
         assert "존재하지 않는" in resp.json()["detail"]
+
 
     def test_maps_permission_error_to_403(self, http):
         client, friendship_mock, _, _ = http
@@ -235,6 +238,7 @@ class TestBlockEndpoint:
         assert resp.json()["block_id"] == "BLK_1"
         assert resp.json()["blocked"]["user_id"] == "USER_b"
 
+
     def test_returns_400_on_value_error(self, http):
         client, _, block_mock, _ = http
         block_mock.block_user.side_effect = ValueError("이미 차단한 유저입니다.")
@@ -287,6 +291,7 @@ class TestDetailEndpoint:
         assert "phone_number" not in body
         assert "auth_provider" not in body
 
+
     def test_returns_404_on_user_not_found(self, http):
         client, _, _, detail_mock = http
         detail_mock.get_friend_detail.side_effect = UserNotFoundError("존재하지 않는 유저입니다.")
@@ -298,6 +303,7 @@ class TestDetailEndpoint:
 
         assert resp.status_code == 404
         assert resp.json()["detail"] == "존재하지 않는 유저입니다."
+
 
     def test_returns_400_on_incomplete_profile(self, http):
         client, _, _, detail_mock = http
@@ -403,6 +409,7 @@ class TestSearchEndpoint:
         assert item["is_requester"] is None
         assert item["i_blocked_peer"] is False
 
+
     def test_returns_pending_with_is_requester_payload(self, http_search):
         client, search_mock, _ = http_search
         search_mock.search.return_value = FriendSearchListData(
@@ -425,6 +432,7 @@ class TestSearchEndpoint:
         assert body["items"][0]["friendship_status"] == "pending"
         assert body["items"][0]["is_requester"] is True
 
+
     def test_returns_400_on_whitespace_only_keyword(self, http_search):
         """router 단에서 strip + 빈 문자열 검증 — service 호출 자체가 일어나지 않음."""
         client, search_mock, _ = http_search
@@ -439,6 +447,7 @@ class TestSearchEndpoint:
         assert "검색어" in resp.json()["detail"]
         search_mock.search.assert_not_called()
 
+
     def test_returns_422_on_missing_keyword(self, http_search):
         client, _, _ = http_search
 
@@ -448,6 +457,7 @@ class TestSearchEndpoint:
         )
 
         assert resp.status_code == 422
+
 
     def test_returns_400_when_service_raises_value_error(self, http_search):
         """service 가 정상 입력에서도 ValueError 를 던지면 400 으로 매핑."""
@@ -461,6 +471,7 @@ class TestSearchEndpoint:
         )
 
         assert resp.status_code == 400
+
 
     def test_strips_keyword_before_passing_to_service(self, http_search):
         client, search_mock, _ = http_search
@@ -492,6 +503,7 @@ class TestSearchEndpoint:
             user_id="USER_a", search_name="영희",
         )
 
+
     def test_history_not_saved_on_paginated_call(self, http_search):
         """cursor 가 있는 페이지네이션 호출에선 save_search 미호출 — 동일 키워드 중복 갱신 차단."""
         client, search_mock, search_history_mock = http_search
@@ -504,6 +516,7 @@ class TestSearchEndpoint:
         )
 
         search_history_mock.save_search.assert_not_called()
+
 
     def test_history_failure_does_not_block_search(self, http_search):
         """save_search best-effort — Mongo 장애 시에도 200 으로 검색 결과 반환."""
@@ -520,6 +533,7 @@ class TestSearchEndpoint:
         assert resp.status_code == 200
         # 검색은 정상 수행
         search_mock.search.assert_awaited_once()
+
 
     def test_history_save_uses_stripped_keyword(self, http_search):
         """history 에 저장되는 키워드도 normalized — `" 영희 "` → `"영희"`."""
@@ -569,6 +583,7 @@ class TestSearchHistoryEndpoints:
         assert body["histories"][0]["search_name"] == "조현상"
         assert body["histories"][1]["search_name"] == "민수"
 
+
     def test_get_returns_empty_list_when_no_history(self, http_search):
         client, _, search_history_mock = http_search
         search_history_mock.get_search_histories.return_value = []
@@ -580,6 +595,7 @@ class TestSearchHistoryEndpoints:
 
         assert resp.status_code == 200
         assert resp.json() == {"histories": []}
+
 
     def test_delete_one_returns_message(self, http_search):
         client, _, search_history_mock = http_search
@@ -597,6 +613,7 @@ class TestSearchHistoryEndpoints:
             user_id="USER_a", search_name="조현상",
         )
 
+
     def test_delete_one_returns_422_on_missing_search_name(self, http_search):
         client, _, _ = http_search
 
@@ -606,6 +623,7 @@ class TestSearchHistoryEndpoints:
         )
 
         assert resp.status_code == 422
+
 
     def test_delete_all_returns_message(self, http_search):
         client, _, search_history_mock = http_search

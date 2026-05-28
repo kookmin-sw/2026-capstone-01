@@ -21,12 +21,12 @@
 """
 import pytest
 
-from app.domain.feed.model.feed_post import FeedVisibility
 from app.domain.feed.service.exception import (
     FeedBlockedError,
     FeedNotFoundError,
     FeedPostCommentNotFoundError,
 )
+from app.domain.feed.model.feed_post import FeedVisibility
 
 
 pytestmark = pytest.mark.integration
@@ -46,6 +46,7 @@ class TestVisibilityGuards:
                 user_id=actor_id, post_id=post_id, content="hi",
             )
 
+
     async def test_private_post_stranger_cannot_comment(
         self, mongo_db, feed_post_comment_service, seed_feed_post,
     ):
@@ -56,6 +57,7 @@ class TestVisibilityGuards:
             await feed_post_comment_service.create_comment(
                 user_id=actor_id, post_id=post_id, content="hi",
             )
+
 
     async def test_blocked_user_raises_blocked_error(
         self, mongo_db, feed_post_comment_service, seed_feed_post, seed_block,
@@ -86,6 +88,7 @@ class TestContentNormalization:
             await feed_post_comment_service.create_comment(
                 user_id=owner_id, post_id=post_id, content="   ",
             )
+
 
     async def test_strips_leading_trailing_whitespace(
         self, mongo_db, feed_post_comment_service, seed_feed_post,
@@ -120,6 +123,7 @@ class TestDeleteAuthorOnly:
                 user_id=owner_id, post_id=post_id, comment_id=comment.comment_id,
             )
 
+
     async def test_post_mismatch_raises_not_found(
         self, mongo_db, feed_post_comment_service, seed_feed_post,
     ):
@@ -134,6 +138,7 @@ class TestDeleteAuthorOnly:
             await feed_post_comment_service.delete_comment(
                 user_id=owner_id, post_id="FDP_other", comment_id=comment.comment_id,
             )
+
 
     async def test_author_can_delete_own_comment(
         self, mongo_db, feed_post_comment_service, seed_feed_post,

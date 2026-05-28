@@ -105,6 +105,7 @@ class TourPlaceDetail(BaseModel):
     estimated_cost_krw: int = Field(ge=0, description="Estimated per-person spend in KRW. Use 0 for free places (parks, public streets, free landmarks).")  # 예상 1인 지출 (무료=0)
     stay_minutes: int = Field(gt=0, description="Recommended stay in minutes. Typical: meals 60-90, cafes 60, attractions 60-120, shopping 60, nightlife 90.")  # 권장 체류 시간 (양수)
     is_additional: bool = Field(False, description="True if this is the user-required must-visit place.")  # 추가 장소 여부
+    photos: List[str] = Field(default_factory=list, description="Photo URLs. DO NOT POPULATE — leave as []. Server overwrites this from the database after your response.")  # 사진 URL (서버가 find_nearby 결과로 강제 주입; LLM은 채우지 말 것)
 
 
 class TourMovementHop(BaseModel):

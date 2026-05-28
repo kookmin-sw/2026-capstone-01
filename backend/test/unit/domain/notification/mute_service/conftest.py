@@ -1,13 +1,12 @@
-import pytest
-
-from app.domain.notification.service.mute import MuteService
-
 from test.unit.domain.notification.mock_factory import (
     ChatRoomMemberRepositoryMockFactory,
     FakeUnitOfWork,
     UserRepositoryMockFactory,
     make_mock_session,
 )
+import pytest
+
+from app.domain.notification.service.mute import MuteService
 
 
 @pytest.fixture

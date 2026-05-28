@@ -1,9 +1,5 @@
-"""인박스 도메인 서비스 예외.
-
-라우터 매핑:
-    InboxItemNotFoundError → 404
-"""
+"""인박스 도메인 예외. Router 가 404 로 매핑."""
 
 
 class InboxItemNotFoundError(Exception):
-    """인박스 항목 미존재 또는 다른 유저 소유 — 정보 누출 회피로 일원화 (feed 도메인 패턴)."""
+    """미존재 / 타인 소유 / 이미 hide / 잘못된 id 형식 — 정보 누출 회피로 일원화."""

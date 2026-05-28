@@ -1,13 +1,12 @@
-import pytest
-
-from app.domain.friend.model.friendship import FriendshipStatus
-from app.domain.auth.model.user_travel_style import TravelStyle
-from app.domain.friend.service.friend_detail import UserNotFoundError
-
 from test.unit.domain.friend.friend_detail_service.model_factory import (
     FriendshipFactory,
     UserFactory,
 )
+import pytest
+
+from app.domain.friend.service.friend_detail import UserNotFoundError
+from app.domain.friend.model.friendship import FriendshipStatus
+from app.domain.auth.model.user_travel_style import TravelStyle
 
 
 @pytest.mark.unit
@@ -21,6 +20,7 @@ class TestGetFriendDetail:
 
         with pytest.raises(UserNotFoundError, match="존재하지 않는 유저"):
             await service.get_friend_detail(viewer_id="USER_a", peer_id="USER_b")
+
 
     async def test_raises_value_error_when_profile_incomplete(self, service, user_repo_mock):
         user_repo_mock.find_by_id_with_profile.return_value = UserFactory.create(
@@ -58,6 +58,7 @@ class TestGetFriendDetail:
         assert result.is_requester is None
         assert result.i_blocked_peer is False
 
+
     async def test_returns_pending_as_requester(
         self, service, user_repo_mock, friendship_repo_mock, block_repo_mock,
     ):
@@ -76,6 +77,7 @@ class TestGetFriendDetail:
         assert result.friendship_status == FriendshipStatus.PENDING
         assert result.is_requester is True
 
+
     async def test_returns_pending_as_addressee(
         self, service, user_repo_mock, friendship_repo_mock, block_repo_mock,
     ):
@@ -91,6 +93,7 @@ class TestGetFriendDetail:
 
         assert result.friendship_status == FriendshipStatus.PENDING
         assert result.is_requester is False
+
 
     async def test_returns_accepted_friendship(
         self, service, user_repo_mock, friendship_repo_mock, block_repo_mock,
@@ -108,6 +111,7 @@ class TestGetFriendDetail:
         assert result.friendship_status == FriendshipStatus.ACCEPTED
         assert result.is_requester is True
 
+
     async def test_returns_rejected_friendship(
         self, service, user_repo_mock, friendship_repo_mock, block_repo_mock,
     ):
@@ -124,6 +128,7 @@ class TestGetFriendDetail:
         assert result.friendship_status == FriendshipStatus.REJECTED
         assert result.is_requester is True
 
+
     async def test_returns_i_blocked_peer_flag(
         self, service, user_repo_mock, friendship_repo_mock, block_repo_mock,
     ):
@@ -136,6 +141,7 @@ class TestGetFriendDetail:
 
         assert result.i_blocked_peer is True
         assert result.friendship_id is None
+
 
     async def test_block_check_is_directional_viewer_to_peer(
         self, service, user_repo_mock, friendship_repo_mock, block_repo_mock,

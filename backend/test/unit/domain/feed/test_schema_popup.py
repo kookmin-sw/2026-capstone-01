@@ -5,15 +5,14 @@
     - profile_image_url Optional
     - nested feed.items 가 FeedPostResponse 형태
 """
-from datetime import datetime, timezone
-
 import pytest
 from pydantic import ValidationError
+from datetime import datetime, timezone
 
-from app.domain.auth.model.user_travel_style import TravelStyle
-from app.domain.feed.model.feed_post import FeedVisibility
-from app.domain.feed.schema.feed_popup import FeedPopupResponse, PopupFeedSection
 from app.domain.feed.schema.feed_post import FeedPostResponse
+from app.domain.feed.schema.feed_popup import FeedPopupResponse, PopupFeedSection
+from app.domain.feed.model.feed_post import FeedVisibility
+from app.domain.auth.model.user_travel_style import TravelStyle
 
 
 def _mk_feed_item(post_id="FDP_x"):
@@ -24,7 +23,7 @@ def _mk_feed_item(post_id="FDP_x"):
         original_url="https://x/o.jpg",
         thumbnail_small_url="https://x/s.jpg",
         thumbnail_medium_url="https://x/m.jpg",
-        like_count=0, comment_count=0,
+        like_count=0, comment_count=0, is_liked=False,
         created_at=now, updated_at=now,
     )
 
@@ -43,15 +42,19 @@ class TestFeedPopupResponse:
         base.update(overrides)
         return base
 
+
     def test_full_payload_validates(self):
         FeedPopupResponse(**self._payload())
+
 
     def test_profile_image_optional(self):
         FeedPopupResponse(**self._payload(profile_image_url=None))
 
+
     def test_empty_feed_section_valid(self):
         resp = FeedPopupResponse(**self._payload(feed=PopupFeedSection(items=[])))
         assert resp.feed.items == []
+
 
     def test_feed_section_with_items(self):
         items = [_mk_feed_item(post_id=f"FDP_{i}") for i in range(9)]
@@ -60,6 +63,7 @@ class TestFeedPopupResponse:
         )
         assert len(resp.feed.items) == 9
         assert resp.feed.items[0].post_id == "FDP_0"
+
 
     @pytest.mark.parametrize(
         "missing",
@@ -77,6 +81,7 @@ class TestPopupFeedSection:
     def test_items_required(self):
         with pytest.raises(ValidationError):
             PopupFeedSection()
+
 
     def test_empty_items_allowed(self):
         PopupFeedSection(items=[])

@@ -6,9 +6,8 @@
     - `get_draft`: 정상 / None
     - `delete_draft`: repo 호출
 """
-from datetime import date
-
 import pytest
+from datetime import date
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -40,6 +39,7 @@ class TestSaveDraft:
         assert saved.title == "여행"
         assert saved.image_urls == ["https://img/1"]
 
+
     async def test_normalizes_none_image_urls_to_empty_list(
         self, service, draft_repo_mock,
     ):
@@ -66,6 +66,7 @@ class TestGetDraft:
 
         assert result is not None
         assert result.user_id == "USER_a"
+
 
     async def test_returns_none_when_no_draft(self, service, draft_repo_mock):
         draft_repo_mock.find_by_user_id.return_value = None

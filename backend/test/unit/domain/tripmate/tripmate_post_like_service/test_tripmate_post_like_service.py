@@ -7,12 +7,11 @@
 
 fan-out 은 `inbox_service_mock` 으로 호출 인자 검증, 실 Mongo 비접근.
 """
-import pytest
-
 from test.unit.domain.tripmate.tripmate_post_like_service.model_factory import (
     TripmatePostFactory,
     UserDetailInformFactory,
 )
+import pytest
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -34,6 +33,7 @@ class TestGetLikedUserIds:
 
         assert result == ["USER_a", "USER_b"]
         like_repo_mock.find_user_ids_by_post.assert_awaited_once_with("TMP_x")
+
 
     async def test_raises_when_post_not_found(
         self, service, post_repo_mock, like_repo_mock,
@@ -70,6 +70,7 @@ class TestAddLike:
         assert result == 7
         like_repo_mock.save.assert_awaited_once()
 
+
     async def test_external_like_calls_fanout_with_actor_snapshot(
         self, service, post_repo_mock, detail_repo_mock, inbox_service_mock,
     ):
@@ -95,6 +96,7 @@ class TestAddLike:
             post_preview="제주 동행 구함",  # post.title 이 preview
         )
 
+
     async def test_self_like_skips_fanout_but_inserts_rdb(
         self, service, post_repo_mock, like_repo_mock, inbox_service_mock,
     ):
@@ -107,6 +109,7 @@ class TestAddLike:
         like_repo_mock.save.assert_awaited_once()
         inbox_service_mock.notify_tripmate_like.assert_not_awaited()
 
+
     async def test_self_like_skips_detail_fetch(
         self, service, post_repo_mock, detail_repo_mock,
     ):
@@ -117,6 +120,7 @@ class TestAddLike:
         await service.add_like(user_id="USER_a", post_id=post.post_id)
 
         detail_repo_mock.find_by_user_id.assert_not_awaited()
+
 
     async def test_external_like_falls_back_when_detail_missing(
         self, service, post_repo_mock, detail_repo_mock, inbox_service_mock,
@@ -135,6 +139,7 @@ class TestAddLike:
         assert call["actor_name"] == ""
         assert call["actor_profile_image_url"] is None
 
+
     async def test_raises_when_post_not_found(
         self, service, post_repo_mock, like_repo_mock, inbox_service_mock,
     ):
@@ -145,6 +150,7 @@ class TestAddLike:
 
         like_repo_mock.save.assert_not_awaited()
         inbox_service_mock.notify_tripmate_like.assert_not_awaited()
+
 
     async def test_raises_when_already_liked(
         self, service, post_repo_mock, like_repo_mock, inbox_service_mock,
@@ -180,6 +186,7 @@ class TestRemoveLike:
         assert result == 3
         like_repo_mock.delete_by_user_and_post.assert_awaited_once_with("USER_a", "TMP_x")
 
+
     async def test_raises_when_not_liked(
         self, service, like_repo_mock,
     ):
@@ -189,6 +196,7 @@ class TestRemoveLike:
             await service.remove_like(user_id="USER_a", post_id="TMP_x")
 
         like_repo_mock.delete_by_user_and_post.assert_not_awaited()
+
 
     async def test_does_not_call_fanout(
         self, service, like_repo_mock, inbox_service_mock,

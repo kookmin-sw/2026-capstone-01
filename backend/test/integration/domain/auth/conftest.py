@@ -8,24 +8,24 @@ cleanup + Redis 캐시 무효화를 단계별로 수행한다. 통합 테스트�
 
 `MONGODB_TEST_URL` 미설정 시 skip — 인박스 cascade 가 Mongo 의존이라 통합 테스트의 핵심.
 """
-import os
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 import pytest_asyncio
+import pytest
+import os
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from app.domain.auth.model.withdrawal_request import WithdrawalRequest
-from app.domain.auth.service.register import RegisterService
-from app.domain.auth.service.signup import SignupService
-from app.domain.auth.service.withdraw import WithdrawService
-from app.domain.notification.model.inbox import InboxItem
-from app.domain.notification.service.inbox import InboxService
-from app.domain.tripmate.model.tripmate_image import TripmateImage
-from app.domain.tripmate.model.tripmate_post_draft import TripmatePostDraft
 from app.domain.tripmate.model.tripmate_search_history import TripmateSearchHistory
+from app.domain.tripmate.model.tripmate_post_draft import TripmatePostDraft
+from app.domain.tripmate.model.tripmate_image import TripmateImage
 from app.domain.tour.model.tour_search_history import TourSearchHistory
+from app.domain.notification.service.inbox import InboxService
+from app.domain.notification.model.inbox import InboxItem
 from app.domain.friend.model.search_history import FriendSearchHistory
+from app.domain.auth.service.withdraw import WithdrawService
+from app.domain.auth.service.signup import SignupService
+from app.domain.auth.service.register import RegisterService
+from app.domain.auth.service.profile import ProfileService
+from app.domain.auth.model.withdrawal_request import WithdrawalRequest
 
 
 def _require_mongo_url() -> str:
@@ -120,10 +120,31 @@ def inbox_service(mongo_db) -> InboxService:
 
 
 @pytest.fixture
+def chat_purge_service_mock() -> AsyncMock:
+    """`UserPurgeCacheService` mock — chat 도메인 cleanup 훅.
+
+    `WithdrawService` 가 두 시점에 호출:
+      - request_withdraw commit 후: `revoke_all_sessions(user_id)`
+      - purge worker: `cleanup_user_data(user_id)`
+
+    실제 chat Redis / WS 세션 정리는 chat 도메인 단의 검증 영역이라 본 fixture 는
+    호출 여부 추적만 가능한 AsyncMock 으로 충분.
+    """
+    mock = AsyncMock()
+    mock.revoke_all_sessions = AsyncMock(return_value=None)
+    mock.cleanup_user_data = AsyncMock(return_value=None)
+    return mock
+
+
+@pytest.fixture
 def withdraw_service(
-    uow, inbox_service, storage_mock, redis_cache_mock,
+    uow, inbox_service, storage_mock, redis_cache_mock, chat_purge_service_mock,
 ) -> WithdrawService:
-    return WithdrawService(uow=uow, inbox_service=inbox_service)
+    return WithdrawService(
+        uow=uow,
+        inbox_service=inbox_service,
+        user_purge_cache_service=chat_purge_service_mock,
+    )
 
 
 # ──────────────────── RDB 전용 service (mongo 의존 X) ────────────────────
@@ -138,3 +159,11 @@ def signup_service(uow) -> SignupService:
 def register_service(uow) -> RegisterService:
     """2차 가입 — RDB 만 터치 (UserDetailInform + UserTravelStyle)."""
     return RegisterService(uow=uow)
+
+
+@pytest.fixture
+def profile_service(uow) -> ProfileService:
+    """프로필 조회/수정 + 마이페이지 stats — RDB 만 사용. ObjectStorage 는 stats 경로에서
+    호출되지 않으므로 real `get_object_storage` 가 import 단에서 평가돼도 무방.
+    """
+    return ProfileService(uow=uow)

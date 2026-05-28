@@ -2,11 +2,11 @@ from typing import Optional
 from fastapi import APIRouter, Request, Depends, Query
 from dependency_injector.wiring import Provide, inject
 
+from app.schema.common import MessageResponse
 from app.domain.tour.service.tour_search_history import TourSearchHistoryService
 from app.domain.tour.schema.tour_search_history import (
     TourSearchHistoryResponse, TourSearchHistoryListResponse,
 )
-from app.schema.common import MessageResponse
 from app.core.logger import get_logger
 from app.container import Container
 

@@ -1,8 +1,8 @@
 from typing import List
 
+from app.domain.auth.repository.user_travel_style import UserTravelStyleRepository
 from app.domain.auth.repository.user_detail_inform import UserDetailInformRepository
 from app.domain.auth.repository.user import UserRepository
-from app.domain.auth.repository.user_travel_style import UserTravelStyleRepository
 from app.domain.auth.model.user_travel_style import UserTravelStyle, TravelStyle
 from app.domain.auth.model.user_detail_inform import UserDetailInform, Gender
 from app.database.session import UnitOfWork, transactional
@@ -11,6 +11,7 @@ from app.database.session import UnitOfWork, transactional
 class RegisterService:
     def __init__(self, uow: UnitOfWork):
         self.uow = uow
+
 
     @transactional
     async def register_detail(

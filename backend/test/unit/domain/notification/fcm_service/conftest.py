@@ -1,8 +1,4 @@
-import pytest
 from unittest.mock import MagicMock
-
-from app.domain.notification.service.fcm import FcmService
-
 from test.unit.domain.notification.mock_factory import (
     ChatRoomMemberRepositoryMockFactory,
     FakeUnitOfWork,
@@ -10,6 +6,9 @@ from test.unit.domain.notification.mock_factory import (
     UserRepositoryMockFactory,
     make_mock_session,
 )
+import pytest
+
+from app.domain.notification.service.fcm import FcmService
 
 
 @pytest.fixture

@@ -6,10 +6,9 @@ Firebase SDK 만 stub — DB(가드/조회/정리) 는 실 PostgreSQL 로 검증
     (2) 전역 — `users.notification_muted IS NOT TRUE`
     (3) 토큰 보유 — 0건이면 multicast skip
 """
+from test.integration.domain.notification.conftest import fetch_tokens_by_user
 import pytest
 from firebase_admin import messaging
-
-from test.integration.domain.notification.conftest import fetch_tokens_by_user
 
 
 pytestmark = pytest.mark.integration
@@ -43,6 +42,7 @@ class TestHappyPath:
         assert len(fcm_messaging_stub.calls) == 1
         # 호출된 토큰 = 등록한 토큰 전체
         assert set(fcm_messaging_stub.calls[0]) == {"tok-A1", "tok-A2", "tok-B1"}
+
 
     async def test_empty_user_ids_skips_multicast(
         self, fcm_service, fcm_messaging_stub,
@@ -82,6 +82,7 @@ class TestRoomMuteGuard:
 
         assert sent == 1
         assert fcm_messaging_stub.calls[0] == ["tok-B"]
+
 
     async def test_left_member_excluded(
         self, fcm_service, session_factory,
@@ -133,6 +134,7 @@ class TestGlobalMuteGuard:
 
         assert sent == 1
         assert fcm_messaging_stub.calls[0] == ["tok-B"]
+
 
     async def test_all_muted_returns_zero_without_multicast(
         self, fcm_service, mute_service,
@@ -222,6 +224,7 @@ class TestUnregisteredTokenCleanup:
         all_remaining = {r.token for r in a_rows + b_rows}
         assert invalid_token not in all_remaining
         assert sent == 2  # 성공 2건
+
 
     async def test_firebase_error_does_not_delete_tokens(
         self,

@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
-from types import SimpleNamespace
 from typing import List, Optional
+from types import SimpleNamespace
+from datetime import datetime, timezone
 
 
 class TourPlanFactory:
@@ -35,6 +35,7 @@ class TourPlanFactory:
             updated_at=updated_at or now,
         )
 
+
     @classmethod
     def reset_counter(cls) -> None:
         cls._counter = 0
@@ -68,6 +69,7 @@ class TourPlanItemFactory:
             address=address,
             visit_time=visit_time,
         )
+
 
     @classmethod
     def reset_counter(cls) -> None:

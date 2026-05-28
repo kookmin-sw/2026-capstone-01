@@ -1,14 +1,13 @@
 """UserBlockService 통합 테스트 + friendship 과의 크로스도메인 상호작용."""
 
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 from sqlalchemy import select
+import pytest
 
-from app.domain.friend.model.friendship import Friendship
-from app.domain.friend.model.user_block import UserBlock
-from app.domain.friend.service.friendship import FriendshipService
 from app.domain.friend.service.user_block import UserBlockService
+from app.domain.friend.service.friendship import FriendshipService
+from app.domain.friend.model.user_block import UserBlock
+from app.domain.friend.model.friendship import Friendship
 
 
 pytestmark = pytest.mark.integration
@@ -40,12 +39,14 @@ class TestBlockFlow:
             assert row.blocker_id == a
             assert row.blocked_id == b
 
+
     async def test_self_block_rejected(self, uow, seed_users, block_cache_stub):
         (a,) = await seed_users(1)
         service = UserBlockService(uow=uow, block_cache_service=block_cache_stub)
 
         with pytest.raises(ValueError, match="자기 자신"):
             await service.block_user(user_id=a, target_user_id=a)
+
 
     async def test_duplicate_block_rejected(self, uow, seed_users, block_cache_stub):
         a, b, _ = await seed_users(3)
@@ -54,6 +55,7 @@ class TestBlockFlow:
         await service.block_user(user_id=a, target_user_id=b)
         with pytest.raises(ValueError, match="이미 차단"):
             await service.block_user(user_id=a, target_user_id=b)
+
 
     async def test_mutual_block_allowed_as_separate_rows(self, uow, seed_users, session_factory, block_cache_stub):
         """A↔B 상호 차단은 방향별 별도 row 2건으로 공존."""
@@ -81,6 +83,7 @@ class TestUnblockFlow:
         async with session_factory() as s:
             rows = (await s.execute(select(UserBlock))).scalars().all()
             assert rows == []
+
 
     async def test_unblock_when_not_blocked(self, uow, seed_users, block_cache_stub):
         a, b, _ = await seed_users(3)
@@ -125,6 +128,7 @@ class TestBlockFriendshipInteraction:
         assert friendships == []
         assert len(blocks) == 1
 
+
     async def test_blocking_removes_pending_request_from_target(self, uow, seed_users, session_factory, block_cache_stub):
         """상대가 보낸 PENDING 요청이 있어도 내가 차단하면 같이 정리된다."""
         a, b, _ = await seed_users(3)
@@ -138,6 +142,7 @@ class TestBlockFriendshipInteraction:
             friendships = (await s.execute(select(Friendship))).scalars().all()
         assert friendships == []
 
+
     async def test_send_request_rejected_when_i_blocked_target(self, uow, seed_users, block_cache_stub):
         a, b, _ = await seed_users(3)
         friendship_service = FriendshipService(uow=uow)
@@ -148,6 +153,7 @@ class TestBlockFriendshipInteraction:
         with pytest.raises(ValueError, match="차단한 유저"):
             await friendship_service.send_request(requester_id=a, addressee_id=b)
 
+
     async def test_send_request_rejected_when_target_blocked_me(self, uow, seed_users, block_cache_stub):
         a, b, _ = await seed_users(3)
         friendship_service = FriendshipService(uow=uow)
@@ -157,6 +163,7 @@ class TestBlockFriendshipInteraction:
 
         with pytest.raises(ValueError, match="요청을 보낼 수 없습니다"):
             await friendship_service.send_request(requester_id=a, addressee_id=b)
+
 
     async def test_unblock_does_not_restore_friendship(self, uow, seed_users, session_factory, block_cache_stub):
         a, b, _ = await seed_users(3)

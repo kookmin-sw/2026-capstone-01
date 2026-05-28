@@ -10,14 +10,13 @@ regression (#1):
 "실제 Redis 키가 사라졌다" 를 보장하지 못함.
 """
 from unittest.mock import AsyncMock, patch
-
 import pytest
 from pymongo.errors import ConnectionFailure
 
-from app.core.chat.redis_key import dedupe_key
-from app.database.session import UnitOfWork
-from app.domain.chat.model.chat_message import MessageType
 from app.domain.chat.service.message import MessageService
+from app.domain.chat.model.chat_message import MessageType
+from app.database.session import UnitOfWork
+from app.core.chat.redis_key import dedupe_key
 
 
 pytestmark = pytest.mark.integration
@@ -56,6 +55,7 @@ class TestDedupeRecoveryAfterMongoFailure:
         assert await redis_dedupe.exists(key) == 0, (
             f"Mongo 실패 후 dedupe 키 {key} 가 잔존 — 같은 client_msg_id 재시도 영구 차단"
         )
+
 
     async def test_retry_with_same_client_msg_id_succeeds_after_recovery(
         self, session_factory, direct_room, chat_fanout_stub, chat_fcm_stub,
@@ -109,6 +109,7 @@ class TestDedupeRecoveryAfterMongoFailure:
         )
         assert docs[0]["server_seq"] == ack.server_seq
         assert docs[0]["sender_id"] == user_a
+
 
     async def test_happy_path_dedupe_persists_to_block_resend(
         self, session_factory, direct_room, chat_fanout_stub, chat_fcm_stub, redis_dedupe,

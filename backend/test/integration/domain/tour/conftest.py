@@ -6,15 +6,14 @@ PlaceService / FavoritePlaceService 는 Mongo (`place` 컬렉션) + RDB (`favori
 기존 `test_tour_plan_flow.py` 는 PlaceRepository 를 mock 으로 우회 — RDB only. 본 conftest
 는 실 Mongo 가 추가로 필요하므로 MONGODB_TEST_URL 환경변수 미설정 시 mongo_db fixture 만 skip.
 """
-import os
-
-import pytest
 import pytest_asyncio
+import pytest
+import os
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from app.domain.tour.model.place import Place
-from app.domain.tour.service.favorite_place import FavoritePlaceService
 from app.domain.tour.service.place import PlaceService
+from app.domain.tour.service.favorite_place import FavoritePlaceService
+from app.domain.tour.model.place import Place
 
 
 def _require_mongo_url() -> str:

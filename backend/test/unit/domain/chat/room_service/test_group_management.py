@@ -4,13 +4,11 @@
 여기서는 Phase 2 에서 추가된 4 메서드의 성공/실패 분기만 다룬다.
 """
 from types import SimpleNamespace
-
+from test.unit.domain.chat.room_service.model_factory import ChatRoomFactory
 import pytest
 
-from app.domain.chat.model.chat_room import ChatRoomType
 from app.domain.chat.service.exception import ChatRoomNotFoundError
-
-from test.unit.domain.chat.room_service.model_factory import ChatRoomFactory
+from app.domain.chat.model.chat_room import ChatRoomType
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -25,6 +23,7 @@ class TestCreateGroupRoom:
                 me_id="U_A", title="캡스톤", member_ids=["U_A", "U_A"],
             )
 
+
     async def test_raises_when_any_target_not_friend(
         self, service, friendship_repo_mock,
     ):
@@ -34,6 +33,7 @@ class TestCreateGroupRoom:
             await service.create_group_room(
                 me_id="U_A", title="T", member_ids=["U_B", "U_C"],
             )
+
 
     async def test_creates_room_with_creator_plus_members(
         self, service, friendship_repo_mock,
@@ -68,6 +68,7 @@ class TestCreateGroupRoom:
         }
         for c in fanout_mock.fan_out_to_user.call_args_list:
             assert c.args[1] == {"type": "room_joined", "room_id": "CR_group"}
+
 
     async def test_redis_caches_members_and_unread(
         self, service, friendship_repo_mock, chat_room_repo_mock, redis_mock,
@@ -105,6 +106,7 @@ class TestInviteMembers:
                 me_id="U_A", room_id="CR_X", user_ids=["U_B"],
             )
 
+
     async def test_direct_room_raises(self, service, chat_room_repo_mock):
         chat_room_repo_mock.find_by_id.return_value = ChatRoomFactory.create(
             type_=ChatRoomType.DIRECT,
@@ -113,6 +115,7 @@ class TestInviteMembers:
             await service.invite_members(
                 me_id="U_A", room_id="CR_D", user_ids=["U_B"],
             )
+
 
     async def test_non_member_inviter_raises(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
@@ -125,6 +128,7 @@ class TestInviteMembers:
             await service.invite_members(
                 me_id="U_X", room_id="CR_G", user_ids=["U_B"],
             )
+
 
     async def test_non_friend_target_raises(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
@@ -139,6 +143,7 @@ class TestInviteMembers:
             await service.invite_members(
                 me_id="U_A", room_id="CR_G", user_ids=["U_B"],
             )
+
 
     async def test_already_active_member_is_skipped(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
@@ -160,6 +165,7 @@ class TestInviteMembers:
         assert invited == []
         assert skipped == ["U_B"]
         chat_member_repo_mock.save.assert_not_called()
+
 
     async def test_new_member_saves_with_current_seq_as_last_read(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
@@ -183,6 +189,7 @@ class TestInviteMembers:
         saved = chat_member_repo_mock.save.call_args.args[0]
         assert saved.user_id == "U_B"
         assert saved.last_read_message_server_seq == 42
+
 
     async def test_rejoin_keeps_last_read_and_updates_is_left(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
@@ -231,12 +238,14 @@ class TestLeaveRoom:
         with pytest.raises(ChatRoomNotFoundError):
             await service.leave_room(me_id="U_A", room_id="CR_X")
 
+
     async def test_direct_room_raises(self, service, chat_room_repo_mock):
         chat_room_repo_mock.find_by_id.return_value = ChatRoomFactory.create(
             type_=ChatRoomType.DIRECT,
         )
         with pytest.raises(ValueError, match="그룹 방만"):
             await service.leave_room(me_id="U_A", room_id="CR_D")
+
 
     async def test_non_member_raises(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
@@ -247,6 +256,7 @@ class TestLeaveRoom:
         chat_member_repo_mock.find.return_value = None
         with pytest.raises(PermissionError):
             await service.leave_room(me_id="U_A", room_id="CR_G")
+
 
     async def test_already_left_raises(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
@@ -259,6 +269,7 @@ class TestLeaveRoom:
         )
         with pytest.raises(PermissionError):
             await service.leave_room(me_id="U_A", room_id="CR_G")
+
 
     async def test_successful_leave(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
@@ -300,12 +311,14 @@ class TestKickMember:
                 me_id="U_A", room_id="CR_G", target_user_id="U_A",
             )
 
+
     async def test_room_not_found_raises(self, service, chat_room_repo_mock):
         chat_room_repo_mock.find_by_id.return_value = None
         with pytest.raises(ChatRoomNotFoundError):
             await service.kick_member(
                 me_id="U_A", room_id="CR_X", target_user_id="U_B",
             )
+
 
     async def test_direct_room_raises(self, service, chat_room_repo_mock):
         chat_room_repo_mock.find_by_id.return_value = ChatRoomFactory.create(
@@ -316,6 +329,7 @@ class TestKickMember:
                 me_id="U_A", room_id="CR_D", target_user_id="U_B",
             )
 
+
     async def test_non_creator_raises(self, service, chat_room_repo_mock):
         chat_room_repo_mock.find_by_id.return_value = ChatRoomFactory.create(
             type_=ChatRoomType.GROUP, creator_id="U_creator",
@@ -324,6 +338,7 @@ class TestKickMember:
             await service.kick_member(
                 me_id="U_A", room_id="CR_G", target_user_id="U_B",
             )
+
 
     async def test_creator_already_left_raises(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
@@ -337,6 +352,7 @@ class TestKickMember:
                 me_id="U_A", room_id="CR_G", target_user_id="U_B",
             )
 
+
     async def test_target_not_active_raises(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
     ):
@@ -349,6 +365,7 @@ class TestKickMember:
             await service.kick_member(
                 me_id="U_A", room_id="CR_G", target_user_id="U_B",
             )
+
 
     async def test_successful_kick(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
@@ -403,6 +420,7 @@ class TestSystemMessageEmission:
         assert kwargs["room_id"] == "CR_G"
         assert kwargs.get("target_ids") is None
 
+
     async def test_invite_emits_join_action_with_targets(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
         friendship_repo_mock, message_service_mock, redis_mock,
@@ -425,6 +443,7 @@ class TestSystemMessageEmission:
         assert kwargs["actor_id"] == "U_A"
         assert kwargs["target_ids"] == ["U_B"]
 
+
     async def test_invite_with_only_skipped_does_not_emit(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
         friendship_repo_mock, message_service_mock,
@@ -445,6 +464,7 @@ class TestSystemMessageEmission:
 
         message_service_mock.send_system_message.assert_not_awaited()
 
+
     async def test_leave_emits_leave_action(
         self, service, chat_room_repo_mock, chat_member_repo_mock, message_service_mock,
     ):
@@ -462,6 +482,7 @@ class TestSystemMessageEmission:
         assert kwargs["action"] == "leave"
         assert kwargs["actor_id"] == "U_A"
         assert kwargs.get("target_ids") is None
+
 
     async def test_kick_emits_kick_action_with_target(
         self, service, chat_room_repo_mock, chat_member_repo_mock, message_service_mock,

@@ -5,10 +5,9 @@ beanie Document `InboxItem` 을 직접 인스턴스화하면 `init_beanie` 미�
 비접근이므로 friend / chat 도메인의 SimpleNamespace 패턴과 동일하게 attribute 흉내내는
 가벼운 객체로 대체 — service 의 `_to_dto` 가 attribute 만 접근하므로 동작에 영향 없음.
 """
-from datetime import datetime, timezone
-from types import SimpleNamespace
 from typing import Optional
-
+from types import SimpleNamespace
+from datetime import datetime, timezone
 from beanie import PydanticObjectId
 
 from app.domain.notification.model.inbox import InboxItemType, TargetType
@@ -53,6 +52,7 @@ class InboxItemFactory:
             read_at=read_at,
             created_at=created_at or datetime.now(timezone.utc),
         )
+
 
     @classmethod
     def reset_counter(cls) -> None:

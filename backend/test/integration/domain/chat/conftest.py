@@ -13,18 +13,17 @@ SessionService / RoomService 를 조립한다. Redis / Mongo 연결은 다음 �
 기존 ``test_room_flow.py`` / ``test_db_constraints.py`` 는 Redis 를 자체 stub 하므로
 영향이 없다.
 """
-import os
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
-import pytest_asyncio
 import redis.asyncio as aioredis
+import pytest_asyncio
+import pytest
+import os
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from app.core.chat.lua_script import lua_scripts
-from app.domain.chat.model.chat_message import create_indexes as create_chat_message_indexes
-from app.domain.chat.service.message import MessageService
 from app.domain.chat.service.session import SessionService
+from app.domain.chat.service.message import MessageService
+from app.domain.chat.model.chat_message import create_indexes as create_chat_message_indexes
+from app.core.chat.lua_script import lua_scripts
 
 
 def _require_env(name: str) -> str:
@@ -134,11 +133,19 @@ def patch_external_clients(monkeypatch, redis_hot, redis_dedupe, mongo_db):
 
 @pytest.fixture
 def chat_fanout_stub() -> MagicMock:
-    """fan-out 호출 검증용 mock. test_room_flow.py 의 fanout_stub 과 이름을 분리."""
+    """fan-out 호출 검증용 mock. test_room_flow.py 의 fanout_stub 과 이름을 분리.
+
+    `FanoutService` 의 비동기 메서드 전체를 AsyncMock 으로 셋업 — sync MagicMock 으로
+    남아있으면 `await stub.method(...)` 시 `TypeError: object MagicMock can't be used
+    in 'await' expression`. subscribe/unsubscribe 는 room 변경 (`create_group_room` /
+    `invite_users` / `leave_room` / `kick_user` / 재가입) 경로 전부에서 await 된다.
+    """
     mock = MagicMock(name="chat-fanout")
     mock.fan_out_to_user = AsyncMock()
     mock.fan_out_to_session = AsyncMock()
     mock.fan_out_to_room = AsyncMock()
+    mock.subscribe_user_to_room = AsyncMock()
+    mock.unsubscribe_user_from_room = AsyncMock()
     return mock
 
 

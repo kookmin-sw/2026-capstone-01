@@ -4,17 +4,16 @@
 페이징 규약이 정확히 동작하는지 검증. catch-up 경로(`after`) 가 ASC 로 정렬되어
 next_cursor 를 따라가며 누락 없이 전부 내려오는지도 확인.
 """
+import pytest_asyncio
+import pytest
 from datetime import datetime, timedelta, timezone
 
-import pytest
-import pytest_asyncio
-
-from app.domain.chat.dto.message import MessageListData
-from app.domain.chat.model.chat_message import MessageType
-from app.domain.chat.service.message import MessageService
-from app.domain.chat.service.message_history import MessageHistoryService
-from app.domain.chat.service.room import RoomService
 from app.domain.friend.model.friendship import Friendship, FriendshipStatus
+from app.domain.chat.service.room import RoomService
+from app.domain.chat.service.message_history import MessageHistoryService
+from app.domain.chat.service.message import MessageService
+from app.domain.chat.model.chat_message import MessageType
+from app.domain.chat.dto.message import MessageListData
 
 
 pytestmark = pytest.mark.integration
@@ -108,6 +107,7 @@ class TestFindMessagesBeforeFlow:
         combined = [m.server_seq for m in (page1.messages + page2.messages)]
         assert len(combined) == len(set(combined)), "페이지 간 중복 발생"
 
+
     async def test_empty_room_returns_empty_page(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, message_service,
         patch_external_clients,
@@ -168,6 +168,7 @@ class TestFindMessagesAfterFlow:
         # 중복 없음
         assert len(collected) == len(set(collected))
 
+
     async def test_after_beyond_max_returns_empty(
         self, uow, room_with_messages, patch_external_clients,
     ):
@@ -210,6 +211,7 @@ class TestPermissionFlow:
             await history.find_messages_after(
                 me_id=c, room_id=room.chat_room_id, after_server_seq=0, limit=10,
             )
+
 
     async def test_left_member_cannot_read(
         self, uow, seed_users, seed_friendship, chat_fanout_stub, message_service,

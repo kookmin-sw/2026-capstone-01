@@ -10,8 +10,8 @@ from pathlib import Path
 from firebase_admin import credentials
 import firebase_admin
 
-from app.config.setting import settings
 from app.core.logger import get_logger
+from app.config.setting import settings
 
 
 logger = get_logger("fcm")

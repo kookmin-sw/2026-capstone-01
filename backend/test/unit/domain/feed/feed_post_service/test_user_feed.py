@@ -7,17 +7,15 @@
     - 본인 fast-path 에서 friend / block 조회 자체를 건너뜀 (DB hit 절약)
     - 페이지네이션 next_cursor 가 페이지 가득 찰 때만 채워짐 (get_my_feed 와 동일 약속)
 """
-from datetime import datetime, timezone
-from types import SimpleNamespace
 from unittest.mock import MagicMock
-
-import pytest
-
-from app.domain.feed.model.feed_post import FeedPost, FeedVisibility
-from app.domain.feed.service.exception import FeedBlockedError
-from app.domain.friend.model.friendship import FriendshipStatus
-
+from types import SimpleNamespace
 from test.unit.domain.feed.mock_factory import make_feed_post_with_counts
+import pytest
+from datetime import datetime, timezone
+
+from app.domain.friend.model.friendship import FriendshipStatus
+from app.domain.feed.service.exception import FeedBlockedError
+from app.domain.feed.model.feed_post import FeedPost, FeedVisibility
 
 
 def _mk_row(
@@ -69,6 +67,7 @@ class TestVisibilityResolution:
         friendship_repo_mock.find_between.assert_not_called()
         block_repo_mock.find_blocks_between.assert_not_called()
 
+
     async def test_friend_sees_friends_and_public(
         self, service, repo_mock, friendship_repo_mock, block_repo_mock,
     ):
@@ -80,6 +79,7 @@ class TestVisibilityResolution:
 
         passed = set(repo_mock.find_by_owner.await_args.kwargs["visibilities"])
         assert passed == {FeedVisibility.FRIENDS, FeedVisibility.PUBLIC}
+
 
     async def test_pending_friendship_treated_as_non_friend(
         self, service, repo_mock, friendship_repo_mock, block_repo_mock,
@@ -93,6 +93,7 @@ class TestVisibilityResolution:
 
         passed = set(repo_mock.find_by_owner.await_args.kwargs["visibilities"])
         assert passed == {FeedVisibility.PUBLIC}
+
 
     async def test_non_friend_sees_only_public(
         self, service, repo_mock, friendship_repo_mock, block_repo_mock,
@@ -143,6 +144,7 @@ class TestPagination:
         result = await service.get_user_feed(viewer_id="USER_a", owner_id="USER_b")
         assert result.next_cursor == "FDP_1"
 
+
     async def test_next_cursor_none_when_partial_page(
         self, service, repo_mock, friendship_repo_mock, block_repo_mock, monkeypatch,
     ):
@@ -154,6 +156,7 @@ class TestPagination:
         result = await service.get_user_feed(viewer_id="USER_a", owner_id="USER_b")
         assert result.next_cursor is None
 
+
     async def test_cursor_passes_through_to_repo(
         self, service, repo_mock, friendship_repo_mock, block_repo_mock,
     ):
@@ -163,3 +166,70 @@ class TestPagination:
 
         await service.get_user_feed(viewer_id="USER_a", owner_id="USER_b", cursor="FDP_seed")
         assert repo_mock.find_by_owner.await_args.kwargs["cursor"] == "FDP_seed"
+
+
+# ──────────────────── viewer_id 전파 + is_liked 매핑 ────────────────────
+
+@pytest.mark.unit
+class TestViewerIdPropagation:
+    """get_user_feed 호출이 repo 에 viewer_id 를 정확히 전달하는지 — 이 값이 빠지면
+    `find_by_owner` 의 is_liked subquery 가 단락되어 응답이 항상 False 가 되는 silent 회귀가
+    발생함. 따라서 service↔repo 경계에서 명시적으로 검증한다.
+    """
+    async def test_viewer_id_is_forwarded_to_repo(
+        self, service, repo_mock, friendship_repo_mock, block_repo_mock,
+    ):
+        block_repo_mock.find_blocks_between.return_value = []
+        friendship_repo_mock.find_between.return_value = None
+        repo_mock.find_by_owner.return_value = []
+
+        await service.get_user_feed(viewer_id="USER_v", owner_id="USER_b")
+
+        assert repo_mock.find_by_owner.await_args.kwargs["viewer_id"] == "USER_v"
+
+
+    async def test_self_view_passes_self_as_viewer_id(
+        self, service, repo_mock, friendship_repo_mock, block_repo_mock,
+    ):
+        """viewer==owner 본인 케이스도 viewer_id 가 owner 와 동일하게 전달돼야
+        본인이 본인 글에 누른 좋아요(인스타 동치)가 응답에 반영된다.
+        """
+        repo_mock.find_by_owner.return_value = []
+
+        await service.get_user_feed(viewer_id="USER_a", owner_id="USER_a")
+
+        assert repo_mock.find_by_owner.await_args.kwargs["viewer_id"] == "USER_a"
+
+
+@pytest.mark.unit
+class TestIsLikedMappedFromRow:
+    """repo 가 반환한 row.is_liked 가 응답 DTO 까지 정확히 흘러가는지 — _to_dto 누락 회귀 가드.
+    """
+    async def test_row_is_liked_true_propagates_to_dto(
+        self, service, repo_mock, friendship_repo_mock, block_repo_mock,
+    ):
+        block_repo_mock.find_blocks_between.return_value = []
+        friendship_repo_mock.find_between.return_value = None
+        row = make_feed_post_with_counts(
+            _mk_row(post_id="FDP_liked").post, is_liked=True,
+        )
+        repo_mock.find_by_owner.return_value = [row]
+
+        result = await service.get_user_feed(viewer_id="USER_v", owner_id="USER_b")
+
+        assert result.posts[0].is_liked is True
+
+
+    async def test_row_is_liked_false_propagates_to_dto(
+        self, service, repo_mock, friendship_repo_mock, block_repo_mock,
+    ):
+        block_repo_mock.find_blocks_between.return_value = []
+        friendship_repo_mock.find_between.return_value = None
+        row = make_feed_post_with_counts(
+            _mk_row(post_id="FDP_unliked").post, is_liked=False,
+        )
+        repo_mock.find_by_owner.return_value = [row]
+
+        result = await service.get_user_feed(viewer_id="USER_v", owner_id="USER_b")
+
+        assert result.posts[0].is_liked is False

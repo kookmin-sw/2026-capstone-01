@@ -1,27 +1,35 @@
 from typing import Optional, List
 from datetime import date
 
-from app.database.session import UnitOfWork, transactional
-from app.domain.tripmate.repository.tripmate_post import TripmatePostRepository, PAGE_SIZE
-from app.domain.tripmate.repository.tripmate_post_image import TripmatePostImageRepository
-from app.domain.tripmate.repository.tripmate_image import TripmateImageRepository
 from app.domain.tripmate.service.tripmate_post_draft import TripmatePostDraftService
-from app.domain.tripmate.model.tripmate_post import TripmatePost, PreferredGender, CompanionType
-from app.core.logger import get_logger
-from app.core.object_storage import get_object_storage
+from app.domain.tripmate.repository.tripmate_post_image import TripmatePostImageRepository
+from app.domain.tripmate.repository.tripmate_post import TripmatePostRepository, PAGE_SIZE
+from app.domain.tripmate.repository.tripmate_image import TripmateImageRepository
 from app.domain.tripmate.model.tripmate_post_image import TripmatePostImage
+from app.domain.tripmate.model.tripmate_post import TripmatePost, PreferredGender, CompanionType
 from app.domain.tripmate.dto.tripmate_post import TripmatePostCreateData, TripmatePostData, TripmatePostListData, PostAuthorData
-from app.domain.auth.model.user_detail_inform import Gender
+from app.domain.notification.service.inbox import InboxService
+from app.domain.notification.model.inbox import TargetType
 from app.domain.auth.repository.user_detail_inform import UserDetailInformRepository
+from app.domain.auth.model.user_detail_inform import Gender
+from app.database.session import UnitOfWork, transactional
+from app.core.object_storage import get_object_storage
+from app.core.logger import get_logger
 
 
 logger = get_logger("tripmate.post.service")
 
 
 class TripmatePostService:
-    def __init__(self, uow: UnitOfWork, draft_service: TripmatePostDraftService):
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        draft_service: TripmatePostDraftService,
+        inbox_service: InboxService,
+    ):
         self.uow = uow
         self.draft_service = draft_service
+        self.inbox_service = inbox_service
         self.storage = get_object_storage()
         self.mongo_image_repo = TripmateImageRepository()
 
@@ -216,16 +224,29 @@ class TripmatePostService:
 
     # ──────────────────── 게시글 삭제 ────────────────────
 
-    @transactional
     async def delete_post(self, post_id: str, user_id: str) -> None:
-        """
-        게시글 삭제
+        """게시글 삭제 — DB / 이미지 정리는 트랜잭션 안, 인박스 cascade 는 트랜잭션 밖.
 
-        1. 작성자 검증
-        2. 삭제 전 이미지 URL 수집
-        3. 게시글 삭제 (CASCADE로 tripmate_post_image·좋아요 자동 삭제)
-        4. Object Storage 파일 + MongoDB 메타데이터 정리
+        흐름:
+            1. `_delete_post_tx` — 권한 검증 + DB row 삭제 (CASCADE 로 image·좋아요 자동 삭제)
+               + Object Storage 파일 + MongoDB 메타데이터 정리.
+            2. (트랜잭션 밖) `InboxService.cascade_post_deleted` — 해당 게시글의 좋아요
+               알림을 일괄 soft hide. RDB 롤백된 삭제에 대해 알림이 먼저 숨겨지는 race 회피.
         """
+        await self._delete_post_tx(post_id=post_id, user_id=user_id)
+
+        # (트랜잭션 밖) 인박스 cascade — 해당 게시글의 TRIPMATE_LIKE 알림 일괄 soft hide.
+        # service 내부에서 예외 swallow + 로그 — 호출측 try 불필요. 실패 시 stale 알림은
+        # deep link 404 + TTL 30일로 자연 정리.
+        await self.inbox_service.cascade_post_deleted(
+            target_type=TargetType.TRIPMATE_POST,
+            target_id=post_id,
+        )
+
+
+    @transactional
+    async def _delete_post_tx(self, *, post_id: str, user_id: str) -> None:
+        """게시글 삭제 트랜잭션 부분 — 권한 검증 + DB delete + 이미지 자원 정리."""
         post_repo = TripmatePostRepository(self._session)
         image_repo = TripmatePostImageRepository(self._session)
 
@@ -251,9 +272,6 @@ class TripmatePostService:
                 await mongo_image_repo.delete_by_urls(image_urls)
             except Exception as e:
                 logger.warning("삭제 시 이미지 정리 실패 (post_id={}): {}", post_id, e)
-
-        # 알림은 cascade 하지 않음 — 좋아요 취소 알림 보존 정책과 대칭. stale 알림은
-        # deep link 404 + TTL 30일로 자연 정리.
 
 
     # ──────────────────── 게시글 Display 토글 ────────────────────
@@ -295,6 +313,7 @@ class TripmatePostService:
             nationality=detail.nationality,
         )
 
+
     @staticmethod
     def _to_create_dto(
         post: TripmatePost,
@@ -320,6 +339,7 @@ class TripmatePostService:
             profile_image_url=profile_image_url,
         )
 
+
     @staticmethod
     def _to_dto(post: TripmatePost, like_count: int, is_liked: bool, image_urls: List[str]) -> TripmatePostData:
         detail = post.user.detail if post.user else None
@@ -344,6 +364,7 @@ class TripmatePostService:
             image_urls=image_urls,
             profile_image_url=detail.profile_image_url if detail else None,
         )
+
 
     def _to_list_dto(self, posts: list[TripmatePost]) -> TripmatePostListData:
         post_dtos = [

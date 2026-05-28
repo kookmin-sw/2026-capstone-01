@@ -13,11 +13,9 @@ beanie Document 들은 `init_beanie` 미호출 환경에서 인스턴스화 / cl
 attribute 직접 치환으로 mock 주입.
 """
 from unittest.mock import AsyncMock
-
-import pytest
-
-from app.domain.tripmate.service.tripmate_image import TripmateImageService
-
+from test.unit.domain.tripmate.tripmate_image_service.model_factory import (
+    TripmateImageFactory,
+)
 from test.unit.domain.tripmate.mock_factory import (
     FakeUnitOfWork,
     make_mock_session,
@@ -25,9 +23,9 @@ from test.unit.domain.tripmate.mock_factory import (
     make_tripmate_image_mongo_repo_full_mock,
     make_tripmate_post_image_repo_mock,
 )
-from test.unit.domain.tripmate.tripmate_image_service.model_factory import (
-    TripmateImageFactory,
-)
+import pytest
+
+from app.domain.tripmate.service.tripmate_image import TripmateImageService
 
 
 class _ImageStub:

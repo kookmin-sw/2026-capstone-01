@@ -30,6 +30,7 @@ class TestRevokeAllSessions:
 
         session_service_mock.revoke_all_sessions.assert_awaited_once_with("USER_a")
 
+
     async def test_swallows_exception_fail_open(
         self, service, session_service_mock,
     ):
@@ -57,6 +58,7 @@ class TestCleanupUserData:
 
         redis_mock.delete.assert_awaited_once_with(unread_key("USER_a"))
 
+
     async def test_does_not_call_session_revoke(
         self, service, redis_mock, session_service_mock,
     ):
@@ -64,6 +66,7 @@ class TestCleanupUserData:
         await service.cleanup_user_data("USER_a")
 
         session_service_mock.revoke_all_sessions.assert_not_awaited()
+
 
     async def test_swallows_exception_best_effort(self, service, redis_mock):
         """Redis 장애 시에도 swallow — 전체 purge 흐름은 영향받지 않음."""

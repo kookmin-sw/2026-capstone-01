@@ -54,9 +54,11 @@ class PlaceRawFactory:
             "accessibility": None,
             "parking": None,
             "reviews": [],
+            "photos": [],
         }
         raw.update(extra)
         return raw
+
 
     @classmethod
     def reset_counter(cls) -> None:

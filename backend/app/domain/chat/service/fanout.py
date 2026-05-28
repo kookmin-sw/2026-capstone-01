@@ -1,72 +1,83 @@
 """채팅 이벤트 fan-out.
 
-Phase 1~3 는 단일 FastAPI 프로세스의 메모리 dict 로 동작하고, Phase 4 에서 다중 노드
-`node:{node_id}` Pub/Sub 모델로 전환한다. 동일한 인터페이스
-(`fan_out_to_room` / `fan_out_to_user` / `fan_out_to_session`) 뒤에 두 모드를 숨겨
-Phase 4 전환 시 서비스/라우터 코드는 건드리지 않도록 한다.
+`settings.FANOUT_MODE`:
+- `in_process`   : 단일 프로세스 메모리 dict 직배송
+- `node_channel` : 다중 노드 Redis Pub/Sub (`node:{node_id}` 채널)
 
-**WS 객체 전제 (duck typing)**:
-    - `ws.session_id: str`
-    - `ws.user_id: str`
-    - `ws.subscribed_rooms: set[str]`
-연결 핸들러(`chat_ws_router`) 가 `WebSocket` 인스턴스에 이 세 속성을 심어두고
-`register_session` + `register_ws_to_room` 을 호출한다.
+호출측은 모드 무관 — `fan_out_to_*` / `(un)subscribe_user_to_room` 만 사용.
+
+WS 객체 duck typing 전제 — 핸들러가 `session_id` / `user_id` / `subscribed_rooms` 를 심는다.
+
+`node_channel` 모드에서 publisher 는 자기 자신에게도 publish 해 `_local_*` 로 들어가는
+통일 경로를 유지 (모드별 분기 최소화). 동일 채널 내 ordering 은 Redis 가 보장하므로
+"subscribe → fan_out" 순서가 모든 노드에서 보존된다.
+
+`NODE_ID`: uvicorn `--workers N` 운영 시 충돌하면 한 채널을 여러 워커가 동시 구독해
+중복 수신이 발생 — 명시 지정 권장.
 """
-from typing import Any
-from fastapi import WebSocket
+import json
+from fastapi import WebSocket, WebSocketDisconnect
 from collections import defaultdict
 import asyncio
 
-from app.config.setting import settings
+from app.domain.chat.worker.node_registry import list_active_nodes
+from app.core.redis import get_redis_client
 from app.core.logger import get_logger
+from app.core.instrumentation import (
+    chat_fanout_dispatch,
+    chat_fanout_publish_inc,
+)
+from app.core.context import request_id_var, traceparent_var
+from app.core.chat.redis_key import node_channel_key, ws_route_key
+from app.config.setting import settings
 
 
 logger = get_logger("chat.fanout")
 
 
-class FanoutService:
-    """in-process fan-out (Phase 1~3 구현).
+_SUPPORTED_MODES = ("in_process", "node_channel")
 
-    Singleton 으로 Container 에 등록되어 프로세스 전체가 동일한 dict 를 공유한다.
-    `FANOUT_MODE=node_channel` 모드는 Phase 4 진입 시 이 클래스에 분기 추가 예정 —
-    지금은 잘못된 설정 조기 발견을 위해 `__init__` 에서 가드.
+
+class FanoutService:
+    """fan-out 인터페이스 — 모드별 분기는 본 클래스 내부에 격리.
+
+    Singleton 으로 등록. `node_channel` 모드에서도 로컬 dict 는 유지 — 디스패처가
+    envelope 을 받아 `_local_*` 로 재진입할 때 사용.
     """
 
     def __init__(self):
-        if settings.FANOUT_MODE != "in_process":
+        if settings.FANOUT_MODE not in _SUPPORTED_MODES:
             raise NotImplementedError(
-                f"FANOUT_MODE={settings.FANOUT_MODE!r} 는 Phase 4 에서 구현 예정. "
-                "Phase 1~3 는 'in_process' 만 지원."
+                f"FANOUT_MODE={settings.FANOUT_MODE!r} 미지원. "
+                f"지원 모드: {_SUPPORTED_MODES}",
             )
+        self._mode = settings.FANOUT_MODE
         self._room_subs: dict[str, set[WebSocket]] = defaultdict(set)
         self._user_subs: dict[str, set[WebSocket]] = defaultdict(set)
         self._local_ws_by_session: dict[str, WebSocket] = {}
 
 
-    # ──────────────────── 등록 / 해제 ────────────────────
+    # ──────────────────── 등록 / 해제 (로컬 전용) ────────────────────
+    # WS 가 이 노드에 붙어있는 것이라 cross-node 전파 불필요.
 
     def register_session(self, ws: WebSocket) -> None:
-        """WS 연결 시 세션 단위 등록 (방 구독은 별도).
+        """WS 연결 시 세션 등록 (방 구독은 별도).
 
-        호출 전 핸들러가 반드시 `ws.session_id` / `ws.user_id` / `ws.subscribed_rooms`
-        속성을 심어둬야 한다.
+        호출 전 핸들러가 `session_id` / `user_id` / `subscribed_rooms` 를 심어야 한다.
         """
         self._local_ws_by_session[ws.session_id] = ws
         self._user_subs[ws.user_id].add(ws)
 
 
     def register_ws_to_room(self, ws: WebSocket, room_id: str) -> None:
-        """방 구독. 역매핑(`ws.subscribed_rooms`) 을 함께 갱신해 종료 시 O(1) 해제."""
+        """방 구독. 역매핑 `ws.subscribed_rooms` 도 갱신해 종료 시 O(1) 해제."""
         self._room_subs[room_id].add(ws)
         ws.subscribed_rooms.add(room_id)
 
 
     def unregister_ws(self, ws: WebSocket) -> None:
-        """WS 종료 시 모든 dict 에서 제거.
-
-        **반드시 `ws.close()` 또는 Redis 정리보다 먼저** 호출되어야 dispatcher 가
-        이미 close 된 소켓에 push 하지 않는다. 빈 set 은 함께 pop 해
-        메모리 누수 방지.
+        """WS 종료 시 모든 dict 에서 제거. 반드시 close / Redis 정리보다 먼저 호출 —
+        dispatcher 가 dead 소켓에 push 하지 않도록.
         """
         sid: str | None = getattr(ws, "session_id", None)
         uid: str | None = getattr(ws, "user_id", None)
@@ -87,41 +98,130 @@ class FanoutService:
                     del self._room_subs[room_id]
 
 
-    # ──────────────────── 동적 방 구독 (invite / leave / kick) ────────────────────
+    # ──────────────────── 동적 방 구독 (cross-node) ────────────────────
 
-    def subscribe_user_to_room(self, user_id: str, room_id: str) -> None:
-        """유저의 모든 로컬 세션을 방 구독에 추가. invite / 방 생성 시 호출.
+    async def subscribe_user_to_room(self, user_id: str, room_id: str) -> None:
+        """유저의 모든 세션 (전 노드) 을 방 구독에 추가. invite / 방 생성 시 호출.
 
-        WS 가 처음 연결될 때 (`ws.py` 의 `list_user_room_ids` 경로) 구독되는 정적
-        등록과 짝을 이루는 동적 등록 — 그 이후 새로 가입한 방에 대해 호출. 호출 전에
-        RDB `chat_room_member` 와 Redis `room_members` 캐시가 먼저 갱신되어야 한다
-        (시스템 메시지 fan-out 이전에 구독되어야 자기 초대된 메시지 수신).
-
-        오프라인 유저는 `_user_subs.get(user_id, ())` 가 빈 set 이라 no-op — 다음 WS
-        연결 시 정적 등록 경로로 자연스럽게 채워진다.
-
-        Idempotent — `set.add` 로 중복 호출 안전. unregister 진행 중인 dead WS 는
-        `_local_ws_by_session` 부재로 가드.
+        호출 전에 RDB `chat_room_member` 와 Redis `room_members` 캐시가 먼저 갱신되어야 한다.
+        오프라인 유저는 no-op. Idempotent.
         """
+        if self._mode == "in_process":
+            self._local_subscribe_user_to_room(user_id, room_id)
+            return
+        await self._publish_broadcast(
+            {"op": "subscribe", "user_id": user_id, "room_id": room_id},
+        )
+
+
+    async def unsubscribe_user_from_room(self, user_id: str, room_id: str) -> None:
+        """유저의 모든 세션 (전 노드) 을 방 구독에서 제거. leave / kick 시 호출.
+
+        반드시 시스템 메시지 fan-out 이전에 호출:
+        1) leak 차단 — send_system_message 가 실패해도 이미 구독 해제됨
+        2) UX — 퇴장 당사자가 자기 퇴장 시스템 메시지를 받지 않음
+        """
+        if self._mode == "in_process":
+            self._local_unsubscribe_user_from_room(user_id, room_id)
+            return
+        await self._publish_broadcast(
+            {"op": "unsubscribe", "user_id": user_id, "room_id": room_id},
+        )
+
+
+    # ──────────────────── Fan-out (모드 분기) ────────────────────
+
+    async def fan_out_to_room(self, room_id: str, payload: dict) -> None:
+        """방의 활성 WS 전체에 브로드캐스트. `payload.sender_session_id` 가 있으면 발신자 skip."""
+        if self._mode == "in_process":
+            await self._local_deliver_to_room(room_id, payload)
+            return
+        await self._publish_broadcast(
+            {"op": "room", "room_id": room_id, "payload": payload},
+        )
+
+
+    async def fan_out_to_user(self, user_id: str, payload: dict) -> None:
+        """유저의 모든 세션에 브로드캐스트 (`room_joined` / `unread_synced` 등 user-scoped)."""
+        if self._mode == "in_process":
+            await self._local_deliver_to_user(user_id, payload)
+            return
+        await self._publish_broadcast(
+            {"op": "user", "user_id": user_id, "payload": payload},
+        )
+
+
+    async def fan_out_to_session(self, session_id: str, payload: dict) -> None:
+        """특정 세션 직송. `node_channel` 모드는 `ws_route:{sid}` 로 타깃 노드 라우팅.
+
+        라우트가 없으면 세션 사라진 것 — silent drop.
+        """
+        if self._mode == "in_process":
+            await self._local_deliver_to_session(session_id, payload)
+            return
+        await self._publish_to_session_node(session_id, payload)
+
+
+    # ──────────────────── 디스패처 진입점 ────────────────────
+
+    async def dispatch_envelope(self, envelope: dict) -> None:
+        """`FanoutDispatcher` 가 Pub/Sub 메시지를 받아 호출.
+
+        알 수 없는 op 는 warning 후 drop (구/신버전 노드 혼재 fail-open).
+        publisher 가 박은 request_id / traceparent 를 contextvar 로 복원 — cross-node trace 보존.
+        """
+        op = envelope.get("op", "unknown")
+
+        rid_token = request_id_var.set(envelope.get("request_id", ""))
+        tp_token = traceparent_var.set(envelope.get("traceparent", ""))
+
+        try:
+            async with chat_fanout_dispatch(op):
+                try:
+                    if op == "room":
+                        await self._local_deliver_to_room(
+                            envelope["room_id"], envelope["payload"],
+                        )
+                    elif op == "user":
+                        await self._local_deliver_to_user(
+                            envelope["user_id"], envelope["payload"],
+                        )
+                    elif op == "session":
+                        await self._local_deliver_to_session(
+                            envelope["session_id"], envelope["payload"],
+                        )
+                    elif op == "subscribe":
+                        self._local_subscribe_user_to_room(
+                            envelope["user_id"], envelope["room_id"],
+                        )
+                    elif op == "unsubscribe":
+                        self._local_unsubscribe_user_from_room(
+                            envelope["user_id"], envelope["room_id"],
+                        )
+                    else:
+                        logger.warning("알 수 없는 envelope op (drop): {}", op)
+                except KeyError as e:
+                    logger.warning(
+                        "envelope 필드 누락 (drop): op={}, missing={}", op, e,
+                    )
+        finally:
+            request_id_var.reset(rid_token)
+            traceparent_var.reset(tp_token)
+
+
+    # ──────────────────── 로컬 전달 ────────────────────
+
+    def _local_subscribe_user_to_room(self, user_id: str, room_id: str) -> None:
+        """이 노드의 user_id 세션들을 `_room_subs[room_id]` 에 추가. dead WS 는 가드로 skip."""
         for ws in list(self._user_subs.get(user_id, ())):
             sid = getattr(ws, "session_id", None)
             if sid is None or sid not in self._local_ws_by_session:
-                continue  # 이미 끊긴 WS — skip
+                continue
             self.register_ws_to_room(ws, room_id)
 
 
-    def unsubscribe_user_from_room(self, user_id: str, room_id: str) -> None:
-        """유저의 모든 로컬 세션을 방 구독에서 제거. leave / kick 시 호출.
-
-        반드시 leave/kick 의 시스템 메시지 (`fan_out_to_room`) **이전** 에 호출 —                                                                                                                                             
-        1) leak 차단 보장: send_system_message 가 실패해도 이미 구독 해제됨      
-        2) UX: 퇴장 당사자는 `room_left` 이벤트만 받고 자기 퇴장 시스템 메시지는 수신 안 함                                                                                                                                   
-            (카톡/슬랙/디스코드 표준 동작)  
-        Redis `room_members` SREM 은 송신 경로 (`_ensure_membership`) 차단용으로
-        먼저 처리되며, 이 메서드는 수신 경로 (`_room_subs`) 차단용으로 별도 동작.
-
-        오프라인 유저는 `_user_subs.get(user_id, ())` 가 빈 set 이라 no-op.
-        """
+    def _local_unsubscribe_user_from_room(self, user_id: str, room_id: str) -> None:
+        """이 노드의 user_id 세션들을 `_room_subs[room_id]` 에서 제거."""
         affected = list(self._user_subs.get(user_id, ()))
         if not affected:
             return
@@ -134,20 +234,11 @@ class FanoutService:
             if room_set is not None:
                 room_set.discard(ws)
 
-        # 방의 마지막 구독자가 빠졌으면 빈 set 정리 (메모리 누수 방지)
         if room_set is not None and not room_set:
             del self._room_subs[room_id]
 
 
-    # ──────────────────── Fan-out ────────────────────
-
-    async def fan_out_to_room(self, room_id: str, payload: dict) -> None:
-        """방의 활성 WS 전체에 브로드캐스트. 발신 세션은 서버에서 skip.
-
-        `sender_session_id` 필드가 payload 에 있어야 발신자 본인의 WS 가 자기 메시지를
-        중복 수신하지 않는다. message.new / message.updated / read / 시스템 메시지 등
-        room-scoped 이벤트 공용.
-        """
+    async def _local_deliver_to_room(self, room_id: str, payload: dict) -> None:
         sender_sid = payload.get("sender_session_id")
         recipients = [
             ws for ws in self._room_subs.get(room_id, ())
@@ -156,39 +247,82 @@ class FanoutService:
         await self._broadcast(recipients, payload)
 
 
-    async def fan_out_to_user(self, user_id: str, payload: dict) -> None:
-        """유저의 모든 세션에 브로드캐스트 (`room_joined` / `unread_synced` 등 user-scoped)."""
+    async def _local_deliver_to_user(self, user_id: str, payload: dict) -> None:
         recipients = list(self._user_subs.get(user_id, ()))
         await self._broadcast(recipients, payload)
 
 
-    async def fan_out_to_session(self, session_id: str, payload: dict) -> None:
-        """특정 세션 직송 (`session_revoked` / 메시지 ACK 등 session-scoped).
-
-        같은 노드에 해당 세션이 없으면 조용히 무시 — 이미 close 된 상태로 간주.
-        """
+    async def _local_deliver_to_session(self, session_id: str, payload: dict) -> None:
         ws = self._local_ws_by_session.get(session_id)
         if ws is None:
             return
         await self._broadcast([ws], payload)
 
 
-    # ──────────────────── 내부 ────────────────────
+    # ──────────────────── publish 헬퍼 (node_channel) ────────────────────
 
     @staticmethod
-    async def _broadcast(recipients: list[WebSocket], payload: dict) -> None:
-        """여러 WS 에 동시 push — 한 WS 실패가 다른 WS 를 막지 않도록 `gather(return_exceptions=True)`."""
+    async def _publish_broadcast(envelope: dict) -> None:
+        """활성 노드 전체 (자기 자신 포함) 에 publish.
+
+        자기 자신에게도 publish → 디스패처가 받아 `_local_*` 로 들어가는 통일 경로 유지.
+        활성 노드 0 명이면 publish skip. envelope 에 request_id/traceparent 박아 trace 보존.
+        """
+        nodes = await list_active_nodes()
+        if not nodes:
+            return
+
+        envelope.setdefault("request_id", request_id_var.get())
+        envelope.setdefault("traceparent", traceparent_var.get())
+
+        chat_fanout_publish_inc(envelope.get("op", "unknown"))
+
+        redis = await get_redis_client()
+        envelope_json = json.dumps(envelope)
+        pipe = redis.pipeline(transaction=False)
+        for node_id in nodes:
+            pipe.publish(node_channel_key(node_id), envelope_json)
+        await pipe.execute()
+
+
+    @staticmethod
+    async def _publish_to_session_node(session_id: str, payload: dict) -> None:
+        """특정 세션이 붙은 노드에만 publish. 라우트가 없으면 세션 만료 — silent drop."""
+        redis = await get_redis_client()
+        target_node = await redis.get(ws_route_key(session_id))
+        if target_node is None:
+            return
+
+        envelope = {
+            "op": "session",
+            "session_id": session_id,
+            "payload": payload,
+            "request_id": request_id_var.get(),
+            "traceparent": traceparent_var.get(),
+        }
+        chat_fanout_publish_inc("session")
+        await redis.publish(node_channel_key(target_node), json.dumps(envelope))
+
+
+    async def _broadcast(self, recipients: list[WebSocket], payload: dict) -> None:
+        """여러 WS 에 동시 push — `gather(return_exceptions=True)` 로 한 WS 실패 격리.
+
+        dead 세션 (RuntimeError / WebSocketDisconnect) 은 즉시 unregister — 좀비 세션에
+        반복 시도되는 워닝 폭발 차단. 그 외 예외는 일시적일 수 있어 정리하지 않고 로그만.
+        """
         if not recipients:
             return
         results = await asyncio.gather(
             *(ws.send_json(payload) for ws in recipients),
             return_exceptions=True,
         )
-        # 실패한 소켓 경고 로그 (메트릭 Phase 3 에서 추가)
         for ws, result in zip(recipients, results):
-            if isinstance(result, Exception):
-                logger.warning(
-                    "fan-out send 실패: session_id={}, err={}",
-                    getattr(ws, "session_id", "?"),
-                    type(result).__name__,
-                )
+            if not isinstance(result, Exception):
+                continue
+            logger.warning(
+                "fan-out send 실패: session_id={}, err={!r}",
+                getattr(ws, "session_id", "?"),
+                result,
+            )
+            if isinstance(result, (RuntimeError, WebSocketDisconnect)):
+                self.unregister_ws(ws)

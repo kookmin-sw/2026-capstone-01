@@ -1,6 +1,6 @@
 from typing import List, Optional
-from dataclasses import dataclass
 from datetime import datetime
+from dataclasses import dataclass
 
 from app.domain.friend.dto.friendship import FriendPeerData
 

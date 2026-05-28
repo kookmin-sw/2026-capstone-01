@@ -1,15 +1,16 @@
 from typing import Optional
+from pymongo import ReturnDocument
 from datetime import date, datetime, timezone
 
-from pymongo import ReturnDocument
-
 from app.domain.tripmate.model.tripmate_post_draft import TripmatePostDraft
+from app.core.instrumentation import measure_mongo_op
 
 
 class TripmatePostDraftRepository:
 
     # ──────────────────── Upsert (저장/갱신) ────────────────────
 
+    @measure_mongo_op("update", "tripmate_post_draft")
     async def upsert(self, draft: TripmatePostDraft) -> TripmatePostDraft:
         """임시저장 upsert — single atomic operation"""
         doc = draft.model_dump(exclude={"id"})
@@ -32,6 +33,7 @@ class TripmatePostDraftRepository:
 
     # ──────────────────── Read ────────────────────
 
+    @measure_mongo_op("find_one", "tripmate_post_draft")
     async def find_by_user_id(self, user_id: str) -> Optional[TripmatePostDraft]:
         """유저의 임시저장 조회"""
         return await TripmatePostDraft.find_one({"user_id": user_id})
@@ -39,6 +41,7 @@ class TripmatePostDraftRepository:
 
     # ──────────────────── Delete ────────────────────
 
+    @measure_mongo_op("delete", "tripmate_post_draft")
     async def delete_by_user_id(self, user_id: str) -> None:
         """유저의 임시저장 삭제 (게시글 발행 시 또는 수동 삭제 시 호출)"""
         draft = await TripmatePostDraft.find_one({"user_id": user_id})

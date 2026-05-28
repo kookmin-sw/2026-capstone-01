@@ -5,11 +5,10 @@
     - 1:1 방 미존재 → no-op (그룹 방은 차단 무관 → 처리 안 함)
     - canonical 정렬: 입력 순서 무관, 항상 sorted([a,b]) 로 repo 조회
 """
+from test.unit.domain.chat.block_cache_service.model_factory import ChatRoomFactory
 import pytest
 
 from app.core.chat.redis_key import room_blocks_key
-
-from test.unit.domain.chat.block_cache_service.model_factory import ChatRoomFactory
 
 
 @pytest.mark.unit
@@ -26,6 +25,7 @@ class TestInvalidateBlockCache:
 
         redis_mock.delete.assert_not_awaited()
 
+
     async def test_deletes_redis_key_when_room_exists(
         self, service, chat_room_repo_mock, redis_mock,
     ):
@@ -36,6 +36,7 @@ class TestInvalidateBlockCache:
         await service.invalidate_block_cache(user_a="USER_a", user_b="USER_b")
 
         redis_mock.delete.assert_awaited_once_with(room_blocks_key("CR_xy"))
+
 
     async def test_canonical_sort_regardless_of_input_order(
         self, service, chat_room_repo_mock,
