@@ -37,6 +37,12 @@ export interface MenuOcrPageResult {
   menus: OcrMenuItem[];
 }
 
+interface MenuOcrRequestOptions {
+  signal?: AbortSignal;
+}
+
+const MENU_OCR_UPLOAD_TIMEOUT_MS = 60000;
+
 export const MENU_OCR_MAX_FILE_COUNT = 5;
 export const MENU_OCR_MAX_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -59,7 +65,7 @@ export function validateMenuOcrFiles(files: File[]): void {
   }
 
   for (const file of files) {
-    if (!MENU_OCR_ALLOWED_TYPES.includes(file.type as (typeof MENU_OCR_ALLOWED_TYPES)[number])) {
+    if (!isAllowedMenuOcrFile(file)) {
       throw new Error(`${file.name}: unsupported image format.`);
     }
 
@@ -69,7 +75,10 @@ export function validateMenuOcrFiles(files: File[]): void {
   }
 }
 
-export async function ocrMenuSingle(file: File): Promise<MenuOcrSingleResponse> {
+export async function ocrMenuSingle(
+  file: File,
+  options: MenuOcrRequestOptions = {}
+): Promise<MenuOcrSingleResponse> {
   validateMenuOcrFiles([file]);
 
   const formData = new FormData();
@@ -77,7 +86,8 @@ export async function ocrMenuSingle(file: File): Promise<MenuOcrSingleResponse> 
 
   try {
     const { data } = await client.post<MenuOcrSingleResponse>("/api/menu-ai/ocr", formData, {
-      timeout: 30000,
+      timeout: MENU_OCR_UPLOAD_TIMEOUT_MS,
+      signal: options.signal,
     });
 
     return {
@@ -89,31 +99,29 @@ export async function ocrMenuSingle(file: File): Promise<MenuOcrSingleResponse> 
   }
 }
 
-export async function requestMenuOcr(files: File[]): Promise<MenuOcrPageResult[]> {
+export async function requestMenuOcr(
+  files: File[],
+  options: MenuOcrRequestOptions = {}
+): Promise<MenuOcrPageResult[]> {
   validateMenuOcrFiles(files);
 
-  if (files.length === 1) {
-    const data = await ocrMenuSingle(files[0]);
-
-    return [
-      {
-        fileName: files[0].name,
-        restaurant_name: data.restaurant_name,
-        menus: data.menus,
-      },
-    ];
+  const results: MenuOcrPageResult[] = [];
+  for (const file of files) {
+    const data = await ocrMenuSingleWithRetry(file, options);
+    results.push({
+      fileName: file.name,
+      restaurant_name: data.restaurant_name,
+      menus: data.menus,
+    });
   }
 
-  const data = await requestBatchMenuOcr(files);
-
-  return data.results.map((result, index) => ({
-    fileName: files[index]?.name || `menu-${index + 1}`,
-    restaurant_name: typeof result.restaurant_name === "string" ? result.restaurant_name : "",
-    menus: normalizeMenus(result.menus),
-  }));
+  return results;
 }
 
-async function requestBatchMenuOcr(files: File[]): Promise<MenuOcrBatchResponse> {
+async function requestBatchMenuOcr(
+  files: File[],
+  options: MenuOcrRequestOptions = {}
+): Promise<MenuOcrBatchResponse> {
   const formData = new FormData();
   files.forEach((file) => {
     formData.append("files", file);
@@ -121,7 +129,8 @@ async function requestBatchMenuOcr(files: File[]): Promise<MenuOcrBatchResponse>
 
   try {
     const { data } = await client.post<MenuOcrBatchResponse>("/api/menu-ai/ocr/batch", formData, {
-      timeout: 30000,
+      timeout: MENU_OCR_UPLOAD_TIMEOUT_MS,
+      signal: options.signal,
     });
 
     return {
@@ -151,6 +160,46 @@ function normalizeMenus(value: unknown): OcrMenuItem[] {
       category: normalizeCategory(menu.category),
     };
   });
+}
+
+async function ocrMenuSingleWithRetry(
+  file: File,
+  options: MenuOcrRequestOptions
+): Promise<MenuOcrSingleResponse> {
+  try {
+    return await ocrMenuSingle(file, options);
+  } catch (error) {
+    if (options.signal?.aborted || !isRetryableMenuOcrError(error)) {
+      throw error;
+    }
+
+    return ocrMenuSingle(file, options);
+  }
+}
+
+function isAllowedMenuOcrFile(file: File): boolean {
+  if (MENU_OCR_ALLOWED_TYPES.includes(file.type as (typeof MENU_OCR_ALLOWED_TYPES)[number])) {
+    return true;
+  }
+
+  return /\.(jpe?g|png|gif|bmp|webp|tiff?)$/i.test(file.name);
+}
+
+function isRetryableMenuOcrError(error: unknown): boolean {
+  const retryable = error as {
+    code?: string;
+    response?: { status?: number };
+  };
+  const status = retryable.response?.status;
+
+  return (
+    !status ||
+    status === 408 ||
+    status === 429 ||
+    status >= 500 ||
+    retryable.code === "ECONNABORTED" ||
+    retryable.code === "ERR_NETWORK"
+  );
 }
 
 function normalizeCategory(value: unknown): MenuCategory {
