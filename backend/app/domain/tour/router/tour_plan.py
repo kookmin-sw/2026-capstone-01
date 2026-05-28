@@ -4,7 +4,6 @@ from dependency_injector.wiring import Provide, inject
 from app.schema.common import MessageResponse
 from app.domain.tour.service.tour_plan import TourPlanService
 from app.domain.tour.service.exception import TourPlanNotFoundError, TourPlanItemNotFoundError
-from app.domain.tour.dto.tour_plan import TourPlanItemCreateInput
 from app.domain.tour.schema.tour_plan import (
     CreatePlanRequest,
     UpdatePlanRequest,
@@ -17,6 +16,7 @@ from app.domain.tour.schema.tour_plan import (
     PlanListResponse,
     ShareTokenResponse,
 )
+from app.domain.tour.dto.tour_plan import TourPlanItemCreateInput
 from app.container import Container
 
 
@@ -363,6 +363,7 @@ def _to_plan_item_response(item) -> PlanItemResponse:
         address=item.address,
         visit_time=item.visit_time,
         rating=item.rating,
+        photos=item.photos,
     )
 
 

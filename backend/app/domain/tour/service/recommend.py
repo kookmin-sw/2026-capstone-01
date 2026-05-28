@@ -1,3 +1,15 @@
+from google.api_core.exceptions import (
+    GoogleAPICallError,
+    PermissionDenied,
+    ResourceExhausted,
+    Unauthenticated,
+)
+
+from app.domain.tour.service.exception import (
+    TourRecommendCredentialExpiredError,
+    TourRecommendQuotaExceededError,
+    TourRecommendVendorError,
+)
 from app.domain.tour.schema.recommend import (
     TourBudgetItemResponse,
     TourDayResponse,
@@ -8,11 +20,11 @@ from app.domain.tour.schema.recommend import (
     TourRecommendResponse,
     TourTimelineSlotResponse,
 )
-from app.core.ai.tour_planner.load import TourPlanner
 from app.core.ai.tour_planner.v2.data_state import (
     TourDayInput as PlannerTourDayInput,
     TourPlanResult,
 )
+from app.core.ai.tour_planner.load import TourPlanner
 
 
 class RecommendService:
@@ -35,11 +47,18 @@ class RecommendService:
         """여행 코스 추천."""
         planner_days = self._to_planner_input(body)
 
-        result = await self._planner.invoke(
-            travel_days=body.travel_days,
-            food_preference=body.food_preference,
-            days=planner_days,
-        )
+        try:
+            result = await self._planner.invoke(
+                travel_days=body.travel_days,
+                food_preference=body.food_preference,
+                days=planner_days,
+            )
+        except (Unauthenticated, PermissionDenied) as e:
+            raise TourRecommendCredentialExpiredError(str(e)) from e
+        except ResourceExhausted as e:
+            raise TourRecommendQuotaExceededError(str(e)) from e
+        except GoogleAPICallError as e:
+            raise TourRecommendVendorError(str(e)) from e
 
         return self._to_response(result)
 
@@ -98,6 +117,7 @@ class RecommendService:
                             reason=p.reason,
                             estimated_cost_krw=p.estimated_cost_krw,
                             stay_minutes=p.stay_minutes,
+                            photos=p.photos,
                         )
                         for p in day.places
                     ],

@@ -1,7 +1,3 @@
-import pytest
-
-from app.domain.friend.service.friendship import FriendshipService
-
 from test.unit.domain.friend.friendship_service.model_factory import (
     FriendshipFactory,
     UserBlockFactory,
@@ -14,6 +10,9 @@ from test.unit.domain.friend.friendship_service.mock_factory import (
     UserRepositoryMockFactory,
     make_mock_session,
 )
+import pytest
+
+from app.domain.friend.service.friendship import FriendshipService
 
 
 @pytest.fixture(autouse=True)

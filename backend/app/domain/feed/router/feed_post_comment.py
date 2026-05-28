@@ -1,17 +1,4 @@
-"""피드 게시물 댓글 라우터.
-
-엔드포인트:
-    POST   /feed/posts/{post_id}/comments              — 댓글 작성
-    GET    /feed/posts/{post_id}/comments              — 댓글 목록 (커서 페이지네이션, 최신순)
-    DELETE /feed/posts/{post_id}/comments/{comment_id} — 댓글 삭제 (작성자만)
-
-에러 매핑:
-    FeedNotFoundError                → 404  (게시물 미존재 / visibility 미충족)
-    FeedBlockedError                 → 403  (PermissionError 하위 — except PermissionError catch)
-    FeedPostCommentNotFoundError     → 404  (댓글 미존재 / post 매칭 실패)
-    PermissionError                  → 403  (작성자 아님)
-    ValueError                       → 400  (빈 본문 등)
-"""
+"""피드 댓글 라우터."""
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from dependency_injector.wiring import Provide, inject
@@ -77,7 +64,7 @@ async def list_comments(
         Provide[Container.feed_post_comment_service]
     ),
 ) -> CommentListResponse:
-    """댓글 목록 — 최신순, 20개씩. 게시물을 볼 수 있어야 조회 가능."""
+    """댓글 목록 — 최신순 커서 페이지네이션. 게시물을 볼 수 있어야 조회 가능."""
     viewer_id: str = request.state.user_id
     try:
         result = await comment_service.list_comments(

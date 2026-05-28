@@ -4,8 +4,8 @@
 모델을 직접 인스턴스화하지 않고 `SimpleNamespace` 로 attribute 흉내 (auth/profile_service
 컨벤션 일치).
 """
-from types import SimpleNamespace
 from typing import Optional
+from types import SimpleNamespace
 
 from app.domain.auth.model.user import UserStatus
 
@@ -25,6 +25,7 @@ class UserFactory:
             user_id=user_id or f"USER_test_{cls._counter:04d}",
             status=status,
         )
+
 
     @classmethod
     def reset_counter(cls) -> None:

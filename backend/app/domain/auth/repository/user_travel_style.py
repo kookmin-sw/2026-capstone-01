@@ -1,6 +1,6 @@
 from typing import List
-from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
 
 from app.domain.auth.model.user_travel_style import UserTravelStyle
 

@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Request
 
 from app.core.logger import get_logger
 from app.config.setting import settings

@@ -15,13 +15,23 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = Field("https://krip.site", description="서버 프론트 URL")
     LOCAL_FRONTEND_URL: str = Field("https://localhost:3000", description="로컬 프론트 URL")
 
+    # 앱 (Capacitor/네이티브 WebView) Origin 화이트리스트 — WS Origin 검증 전용.
+    APP_ALLOWED_ORIGINS: str = Field(
+        "capacitor://localhost,https://localhost",
+        description="앱 WebSocket Origin 화이트리스트 (쉼표 구분)",
+    )
+
     # 환경
     ENVIRONMENT: str = Field("DEV", description="환경 (실서버, 개발서버)")
     
     # 로깅 설정
     LOG_LEVEL: str = Field("INFO", description="로그 레벨")
     LOG_FORMAT: str = Field("console", description="로그 포맷 (json/console)")
-    LOG_FILE_PATH: Optional[str] = Field(None, description="로그 파일 경로")
+    LOG_FILE_PATH: Optional[str] = Field(
+        "/backend/logs/app.log",
+        description=".env 누락 시에도 Promtail 이 정상 tail 하도록 default 명시. "
+                    "console 출력만 원하면 .env 에서 LOG_FILE_PATH= 빈 값으로 override.",
+    )
     LOG_ROTATION: str = Field("100 MB", description="로그 로테이션")
     LOG_RETENTION: str = Field("30 days", description="로그 보관 기준")
     LOG_COMPRESSION: str = Field("gz", description="로그 롤테이션 파일 압축")
@@ -55,7 +65,14 @@ class Settings(BaseSettings):
         default_factory=socket.gethostname,
         description="노드 식별자. 기본값은 hostname(k8s pod name).",
     )
-    
+
+    # 모니터링
+    METRICS_PORT: int = Field(
+        9090,
+        description="prometheus_client /metrics 노출 포트. backend 8000 과 분리되어 self-noise 차단"
+                    "k8s 진입 시 9090 은 NetworkPolicy 로 monitoring namespace 만 도달.",
+    )
+
     # 인증 정보
     ACCESS_TOKEN: str = Field(..., description="API 접근 토큰")
     
@@ -87,6 +104,10 @@ class Settings(BaseSettings):
     # LLM
     GOOGLE_GEMINI_API_KEY: str = Field(..., description="구글 제미나이 API 키")
 
+    # Papago (Naver Developers — 번역/언어 감지)
+    PAPAGO_CLIENT_ID: str = Field(..., description="Papago Client ID")
+    PAPAGO_CLIENT_SECRET: str = Field(..., description="Papago Client Secret")
+
     # FCM (Firebase Cloud Messaging)
     FCM_CREDENTIALS_PATH: str = Field(
         "secrets/krip-firebase-secret-key.json",
@@ -96,25 +117,36 @@ class Settings(BaseSettings):
     @property
     def POSTGRES_URL(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_NAME}"
-    
+
+
     @property
     def SYNC_POSTGRES_URL(self) -> str:
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_NAME}"
-    
+
+
     @property
     def MONGODB_URL(self) -> str:
         return f"mongodb://{self.MONGODB_USER}:{self.MONGODB_PASSWORD}@{self.MONGODB_HOST}:{self.MONGODB_PORT}/{self.MONGODB_NAME}?authSource=admin"
-    
+
+
     @property
     def REDIS_URL(self) -> str:
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
 
     @property
     def REDIS_URL_DEDUPE(self) -> str:
         """dedupe 키 전용 Redis URL. DB 번호만 분리하여 운영자의 `KEYS dedupe:*` 실수가
         세션/시퀀스 등 핫 데이터에 영향을 주지 않도록 격리한다."""
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB_DEDUPE}"
-    
+
+
+    @property
+    def app_allowed_origins(self) -> set[str]:
+        """APP_ALLOWED_ORIGINS 쉼표 구분 문자열을 set 으로 파싱."""
+        return {s.strip() for s in self.APP_ALLOWED_ORIGINS.split(",") if s.strip()}
+
+
     @property
     def is_production(self) -> bool:
         """프로덕션 환경 여부"""

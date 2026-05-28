@@ -68,6 +68,9 @@ class PlaceDetailData:
     # 리뷰
     reviews: List[PlaceReviewData]
 
+    # 사진 URL 목록
+    photos: List[str]
+
 
 @dataclass
 class PlaceData(PlaceDetailData):

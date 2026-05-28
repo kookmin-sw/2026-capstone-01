@@ -1,7 +1,4 @@
-import pytest
-
-from app.domain.feed.service.feed_post import FeedPostService
-
+from unittest.mock import AsyncMock
 from test.unit.domain.feed.mock_factory import (
     FakeUnitOfWork,
     make_feed_post_repo_mock,
@@ -10,6 +7,9 @@ from test.unit.domain.feed.mock_factory import (
     make_object_storage_mock,
     make_user_block_repo_mock,
 )
+import pytest
+
+from app.domain.feed.service.feed_post import FeedPostService
 
 
 @pytest.fixture
@@ -38,9 +38,18 @@ def block_repo_mock():
 
 
 @pytest.fixture
+def inbox_service_mock():
+    """인박스 cascade 진입점 mock — `delete_post` 후 cascade_post_deleted 호출 검증용."""
+    mock = AsyncMock()
+    mock.cascade_post_deleted.return_value = 0
+    return mock
+
+
+@pytest.fixture
 def service(
     monkeypatch, mock_session,
     repo_mock, storage_mock, friendship_repo_mock, block_repo_mock,
+    inbox_service_mock,
 ):
     """FeedPostRepository / ObjectStorage / Friendship / UserBlock 모두 mock 주입.
 
@@ -70,4 +79,4 @@ def service(
     )
 
     uow = FakeUnitOfWork(mock_session)
-    return FeedPostService(uow=uow)
+    return FeedPostService(uow=uow, inbox_service=inbox_service_mock)

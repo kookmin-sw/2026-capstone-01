@@ -1,6 +1,5 @@
 """SessionService 단위 테스트 — Redis 명령 시퀀스 + 한도 초과 revoke."""
 from unittest.mock import AsyncMock
-
 import pytest
 
 from app.core.chat.redis_key import (
@@ -21,6 +20,7 @@ class TestCreateSession:
         sid = await service.create_session(user_id="U_A", token_jti="jti_1")
         assert sid.startswith("WS_")
 
+
     async def test_first_pipeline_writes_four_keys(self, service, redis_mock):
         """create_session 의 첫 pipeline 에서 HSET + EXPIRE + ZADD + SET 4개 write."""
         await service.create_session(user_id="U_A", token_jti="jti_1")
@@ -32,6 +32,7 @@ class TestCreateSession:
         assert p0.zadd.called
         assert p0.set.called
         p0.execute.assert_awaited()
+
 
     async def test_limit_enforced_revokes_oldest(self, service, redis_mock, fanout_mock):
         """한도 초과 시 가장 오래된 세션에 session_revoked 직송 + DEL."""
@@ -82,17 +83,21 @@ class TestSimpleAccessors:
         redis_mock.exists = AsyncMock(return_value=1)
         assert await service.session_exists("WS_1") is True
 
+
     async def test_session_exists_false_when_key_absent(self, service, redis_mock):
         redis_mock.exists = AsyncMock(return_value=0)
         assert await service.session_exists("WS_1") is False
+
 
     async def test_get_user_id_returns_value(self, service, redis_mock):
         redis_mock.hget = AsyncMock(return_value="U_A")
         assert await service.get_user_id("WS_1") == "U_A"
 
+
     async def test_get_user_id_returns_none_when_missing(self, service, redis_mock):
         redis_mock.hget = AsyncMock(return_value=None)
         assert await service.get_user_id("WS_ghost") is None
+
 
     async def test_update_token_jti_writes_hash_field(self, service, redis_mock):
         await service.update_token_jti("WS_1", "new_jti")
@@ -121,3 +126,65 @@ class TestTerminate:
 
         # zrem 은 sessions 에서 session_id 제거
         p.zrem.assert_called_once_with(sessions_key("U_A"), "WS_1")
+
+
+# ──────────────────────────────────────────────────────────────────
+# revoke_all_sessions — 회원 탈퇴 등 전수 강제 종료
+# ──────────────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestRevokeAllSessions:
+    """Tests for SessionService.revoke_all_sessions."""
+
+    async def test_returns_zero_when_user_has_no_active_sessions(
+        self, service, redis_mock, fanout_mock,
+    ):
+        """오프라인 유저 — 빈 ZSET → 0 반환, 부수효과 없음."""
+        redis_mock.zrange = AsyncMock(return_value=[])
+
+        count = await service.revoke_all_sessions(user_id="U_A")
+
+        assert count == 0
+        fanout_mock.fan_out_to_session.assert_not_awaited()
+        # pipeline 도 호출 안 됨 (early return)
+        for p in redis_mock._pipes:
+            assert not p.delete.called
+
+
+    async def test_emits_session_revoked_event_for_each_session(
+        self, service, redis_mock, fanout_mock,
+    ):
+        """각 세션마다 session_revoked 이벤트 직송. node_channel 모드에선 ws_route 라우팅."""
+        redis_mock.zrange = AsyncMock(return_value=["WS_1", "WS_2", "WS_3"])
+
+        count = await service.revoke_all_sessions(user_id="U_A")
+
+        assert count == 3
+        assert fanout_mock.fan_out_to_session.await_count == 3
+        for idx, c in enumerate(fanout_mock.fan_out_to_session.call_args_list):
+            sid = f"WS_{idx + 1}"
+            assert c.args[0] == sid
+            assert c.args[1] == {"type": "session_revoked", "session_id": sid}
+
+
+    async def test_pipeline_deletes_sess_ws_route_and_sessions_zset(
+        self, service, redis_mock,
+    ):
+        """한 pipeline 안에서 모든 sess: / ws_route: + sessions:{uid} 통째로 DEL."""
+        redis_mock.zrange = AsyncMock(return_value=["WS_1", "WS_2"])
+
+        await service.revoke_all_sessions(user_id="U_A")
+
+        # 마지막 pipeline 이 revoke 처리 — fanout 호출 뒤
+        revoke_pipe = redis_mock._pipes[-1]
+        revoke_pipe.execute.assert_awaited()
+
+        # delete 인자 모음 — 단일 DEL 에 (sess, ws_route) 2개 묶이는 케이스 + sessions DEL
+        all_delete_args = [
+            arg for c in revoke_pipe.delete.call_args_list for arg in c.args
+        ]
+        assert sess_key("WS_1") in all_delete_args
+        assert sess_key("WS_2") in all_delete_args
+        assert ws_route_key("WS_1") in all_delete_args
+        assert ws_route_key("WS_2") in all_delete_args
+        assert sessions_key("U_A") in all_delete_args

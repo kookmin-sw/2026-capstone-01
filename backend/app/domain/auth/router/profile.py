@@ -10,9 +10,11 @@ from app.domain.auth.service.exception import (
 )
 from app.domain.auth.schema.profile import (
     ProfileResponse,
+    ProfileUpdateRequest,
     ProfileImageResponse,
     OtherUserProfileResponse,
     OtherUserProfileListResponse,
+    ProfileStatsResponse,
 )
 from app.core.logger import get_logger
 from app.container import Container
@@ -74,6 +76,72 @@ async def get_my_profile(
         nationality=profile.nationality,
         profile_image_url=profile.profile_image_url,
         notification_muted=profile.notification_muted,
+    )
+
+
+@router.patch("/me")
+@inject
+async def update_my_profile(
+    request: Request,
+    body: ProfileUpdateRequest,
+    profile_service: ProfileService = Depends(Provide[Container.profile_service]),
+) -> ProfileResponse:
+    """내 프로필 수정 — 변경할 필드만 포함하는 부분 수정.
+
+    수정 가능: email, user_name, phone_number, age, gender, nationality, travel_styles
+    수정 불가 (별도 엔드포인트):
+        - profile_image_url → POST/PUT/DELETE /profile/image
+        - notification_muted → /notification/mute
+        - status            → /auth/withdraw
+        - auth_provider     → 영구 불변
+    """
+    user_id: str = request.state.user_id
+
+    updates = body.model_dump(exclude_none=True)
+
+    try:
+        profile = await profile_service.update_profile(user_id, updates)
+    except ProfileNotRegisteredError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return ProfileResponse(
+        user_id=profile.user_id,
+        auth_provider=profile.auth_provider.value,
+        status=profile.status.value,
+        email=profile.email,
+        user_name=profile.user_name,
+        phone_number=profile.phone_number,
+        age=profile.age,
+        gender=profile.gender,
+        travel_styles=profile.travel_styles,
+        nationality=profile.nationality,
+        profile_image_url=profile.profile_image_url,
+        notification_muted=profile.notification_muted,
+    )
+
+
+@router.get("/me/stats")
+@inject
+async def get_my_stats(
+    request: Request,
+    profile_service: ProfileService = Depends(Provide[Container.profile_service]),
+) -> ProfileStatsResponse:
+    """마이페이지 통계 — 본인 피드가 받은 좋아요 총 합 + ACCEPTED 친구 수.
+
+    응답은 단일 트랜잭션 두 SELECT COUNT 의 스냅샷이며 모두 인덱스 기반이라 sub-ms.
+    """
+    user_id: str = request.state.user_id
+
+    try:
+        stats = await profile_service.get_my_stats(user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return ProfileStatsResponse(
+        total_feed_likes=stats.total_feed_likes,
+        total_friends=stats.total_friends,
     )
 
 

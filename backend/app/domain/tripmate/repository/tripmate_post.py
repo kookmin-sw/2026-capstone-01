@@ -1,12 +1,12 @@
 from typing import Optional
-from sqlalchemy import select, func, or_, case, literal, exists
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, or_, case, literal, exists
 
-from app.domain.tripmate.model.tripmate_post import TripmatePost
 from app.domain.tripmate.model.tripmate_post_like import TripmatePostLike
-from app.domain.auth.model.user import User
+from app.domain.tripmate.model.tripmate_post import TripmatePost
 from app.domain.auth.model.user_detail_inform import UserDetailInform
+from app.domain.auth.model.user import User
 
 
 # 게시글 조회 개수

@@ -3,13 +3,12 @@
 JWT 인코드/디코드 라운드트립 + 만료/변조 케이스 검증.
 """
 
+import pytest
+import jwt
 from datetime import datetime, timedelta, timezone
 
-import jwt
-import pytest
-
-from app.config.setting import settings
 from app.util.share_token import ShareTokenError, decode_share_token, encode_share_token
+from app.config.setting import settings
 
 
 @pytest.mark.unit
@@ -19,6 +18,7 @@ class TestEncodeShareToken:
 
         assert isinstance(token, str) and token  # non-empty
         assert expires_at > datetime.now(timezone.utc)
+
 
     def test_decode_roundtrip_returns_same_plan_id(self):
         token, _ = encode_share_token("TP_alpha")
@@ -31,6 +31,7 @@ class TestDecodeShareToken:
         with pytest.raises(ShareTokenError):
             decode_share_token("not-a-jwt")
 
+
     def test_raises_on_wrong_secret(self):
         # 다른 비밀키로 서명한 토큰
         bad_token = jwt.encode(
@@ -40,6 +41,7 @@ class TestDecodeShareToken:
         )
         with pytest.raises(ShareTokenError):
             decode_share_token(bad_token)
+
 
     def test_raises_on_expired(self):
         expired_payload = {
@@ -53,6 +55,7 @@ class TestDecodeShareToken:
         )
         with pytest.raises(ShareTokenError, match="만료"):
             decode_share_token(expired_token)
+
 
     def test_raises_when_payload_missing_plan_id(self):
         # plan_id 가 없는 토큰

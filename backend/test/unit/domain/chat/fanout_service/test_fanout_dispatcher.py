@@ -8,10 +8,9 @@
 `_dispatch_loop` 자체는 비결정적 (pubsub 폴링 루프) 이라 통합 테스트 영역에 가깝고,
 여기선 진입 / 종료 / cleanup 까지의 결정적 경로만 다룬다.
 """
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
-
 import pytest
+import asyncio
 
 
 @pytest.fixture
@@ -80,6 +79,7 @@ class TestStartFanoutDispatcher:
 
         await stop_fanout_dispatcher()
 
+
     async def test_in_process_mode_is_noop(self, monkeypatch):
         """`in_process` 모드에선 pubsub 자체를 만들지 않는다 (Redis 호출 0)."""
         from app.config import setting as setting_module
@@ -101,6 +101,7 @@ class TestStartFanoutDispatcher:
         await start_fanout_dispatcher(fanout)
 
         assert called is False, "in_process 모드인데 Redis 클라이언트가 호출됨"
+
 
     async def test_duplicate_start_is_warned_and_skipped(self, stub_pubsub_redis):
         """이미 떠있으면 두 번째 호출은 no-op — subscribe 추가 호출 없음."""

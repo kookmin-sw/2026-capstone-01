@@ -3,8 +3,8 @@
 `User` 는 존재 여부 검증에 사용 (find_by_id), `UserDetailInform` 은 중복 검증에만 사용.
 SimpleNamespace 로 attribute 만 채우는 minimal stub.
 """
-from types import SimpleNamespace
 from typing import Optional
+from types import SimpleNamespace
 
 from app.domain.auth.model.user import UserStatus
 
@@ -25,6 +25,7 @@ class UserFactory:
             status=status,
         )
 
+
     @classmethod
     def reset_counter(cls) -> None:
         cls._counter = 0
@@ -39,6 +40,7 @@ class UserDetailInformFactory:
     def create(cls, *, user_id: str = "USER_test") -> SimpleNamespace:
         cls._counter += 1
         return SimpleNamespace(user_id=user_id)
+
 
     @classmethod
     def reset_counter(cls) -> None:

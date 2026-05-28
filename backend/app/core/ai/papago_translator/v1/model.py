@@ -2,9 +2,9 @@ from typing import Literal
 from pydantic import BaseModel, Field
 import httpx
 
-from app.config.setting import settings
-from app.core.instrumentation import ai_external_call
 from app.core.logger import get_logger
+from app.core.instrumentation import ai_external_call
+from app.config.setting import settings
 
 
 logger = get_logger("papago_translator")

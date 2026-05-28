@@ -1,6 +1,6 @@
 from typing import Optional
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.domain.auth.model.user_detail_inform import UserDetailInform
 

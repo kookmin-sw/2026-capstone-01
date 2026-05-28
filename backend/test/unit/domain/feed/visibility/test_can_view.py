@@ -14,8 +14,8 @@
 """
 import pytest
 
-from app.domain.feed.model.feed_post import FeedVisibility
 from app.domain.feed.service.visibility import can_view
+from app.domain.feed.model.feed_post import FeedVisibility
 
 
 def _call(visibility, viewer="USER_v", owner="USER_o", is_friend=False, is_blocked=False):
@@ -36,6 +36,7 @@ class TestBlockedAlwaysFalse:
     @pytest.mark.parametrize("is_friend", [True, False])
     def test_blocked_returns_false(self, visibility, is_friend):
         assert _call(visibility, is_friend=is_friend, is_blocked=True) is False
+
 
     def test_blocked_overrides_self(self):
         """본인이라도 차단 (이론적으로는 발생 안 하지만 함수 contract 차원) 이면 False."""
@@ -66,6 +67,7 @@ class TestNonSelfPublic:
 class TestNonSelfFriends:
     def test_friend_can_view(self):
         assert _call(FeedVisibility.FRIENDS, is_friend=True) is True
+
 
     def test_non_friend_cannot_view(self):
         assert _call(FeedVisibility.FRIENDS, is_friend=False) is False

@@ -1,5 +1,7 @@
 from typing import List
+import time
 
+from app.core.instrumentation import ai_inference, ai_model_load_duration_set
 from app.core.ai.tour_planner.v2.graph_orchestrator import (
     TourPlannerGraphOrchestrator,
     get_tour_planner_graph,
@@ -27,8 +29,10 @@ class TourPlanner:
         """서버 시작 시 한 번 호출된다."""
         if self._initialized:
             return
+        started = time.perf_counter()
         self._orchestrator: TourPlannerGraphOrchestrator = get_tour_planner_graph()
         await self._orchestrator.initialize()
+        ai_model_load_duration_set("tour_planner", time.perf_counter() - started)
         self._initialized = True
 
 
@@ -51,8 +55,9 @@ class TourPlanner:
         if not self._initialized:
             raise RuntimeError("모델이 로드되지 않았습니다.")
 
-        return await self._orchestrator.ainvoke(
-            travel_days=travel_days,
-            food_preference=food_preference,
-            days=days,
-        )
+        async with ai_inference("tour_planner"):
+            return await self._orchestrator.ainvoke(
+                travel_days=travel_days,
+                food_preference=food_preference,
+                days=days,
+            )

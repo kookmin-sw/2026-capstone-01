@@ -15,13 +15,13 @@ unit 테스트가 mock 으로 검증 못 하는 영역:
     - User.user_id 의 `default=generate_user_id` 가 INSERT 시점 자동 부여
     - INACTIVE 분기 시 detail SELECT 자체 skip (RDB round-trip 절약)
 """
-import pytest
 from sqlalchemy import select
+import pytest
 
-from app.config.oauth import OAuthProvider
-from app.domain.auth.dto.signup import SignupStatus
-from app.domain.auth.model.user import User, UserStatus
 from app.domain.auth.model.user_detail_inform import Gender, UserDetailInform
+from app.domain.auth.model.user import User, UserStatus
+from app.domain.auth.dto.signup import SignupStatus
+from app.config.oauth import OAuthProvider
 
 
 pytestmark = pytest.mark.integration

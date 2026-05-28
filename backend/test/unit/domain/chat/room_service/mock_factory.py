@@ -6,6 +6,7 @@ class FakeAsyncContextManager:
     async def __aenter__(self):
         return self
 
+
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
@@ -14,8 +15,10 @@ class FakeUnitOfWork:
     def __init__(self, session):
         self._session = session
 
+
     async def __aenter__(self):
         return self._session
+
 
     async def __aexit__(self, exc_type, exc, tb):
         return False
@@ -85,6 +88,10 @@ def make_fanout_mock() -> MagicMock:
     fanout.fan_out_to_session = AsyncMock()
     fanout.fan_out_to_user = AsyncMock()
     fanout.fan_out_to_room = AsyncMock()
+    # Phase 4 (node_channel) 진입 후 subscribe/unsubscribe 도 async — RoomService 가
+    # await 로 호출하므로 AsyncMock 으로 매칭.
+    fanout.subscribe_user_to_room = AsyncMock()
+    fanout.unsubscribe_user_from_room = AsyncMock()
     return fanout
 
 

@@ -12,12 +12,10 @@
         - 일부 고아 → storage / mongo bulk delete
 """
 from types import SimpleNamespace
-
-import pytest
-
 from test.unit.domain.tripmate.tripmate_image_service.model_factory import (
     TripmateImageFactory,
 )
+import pytest
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -76,6 +74,7 @@ class TestUploadImages:
         assert storage_mock.upload_perm.await_count == 3
         assert image_repo_mock.save.await_count == 3
 
+
     async def test_empty_files_returns_empty_list(self, service, storage_mock):
         result = await service.upload_images(user_id="USER_a", files=[])
 
@@ -120,6 +119,7 @@ class TestDeleteImage:
         storage_mock.delete.assert_not_awaited()
         image_repo_mock.delete_by_image_id.assert_not_awaited()
 
+
     async def test_raises_when_not_owner(
         self, service, image_repo_mock, storage_mock,
     ):
@@ -132,6 +132,7 @@ class TestDeleteImage:
 
         storage_mock.delete.assert_not_awaited()
         image_repo_mock.delete_by_image_id.assert_not_awaited()
+
 
     async def test_deletes_storage_and_metadata_in_order(
         self, service, image_repo_mock, storage_mock,
@@ -170,6 +171,7 @@ class TestCleanupOrphanedImages:
         storage_mock.delete_many.assert_not_awaited()
         image_repo_mock.delete_by_image_ids.assert_not_awaited()
 
+
     async def test_returns_zero_when_all_referenced(
         self, service, image_repo_mock, storage_mock,
         post_image_repo_mock, draft_find_one_mock,
@@ -190,6 +192,7 @@ class TestCleanupOrphanedImages:
         storage_mock.delete_many.assert_not_awaited()
         image_repo_mock.delete_by_image_ids.assert_not_awaited()
 
+
     async def test_handles_no_draft(
         self, service, image_repo_mock, storage_mock,
         post_image_repo_mock, draft_find_one_mock,
@@ -208,6 +211,7 @@ class TestCleanupOrphanedImages:
         assert result == 1
         storage_mock.delete_many.assert_awaited_once_with(["https://img/b.jpg"])
         image_repo_mock.delete_by_image_ids.assert_awaited_once_with(["IMG_b"])
+
 
     async def test_deletes_only_orphans_from_union(
         self, service, image_repo_mock, storage_mock,

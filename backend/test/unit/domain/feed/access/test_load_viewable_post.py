@@ -12,18 +12,16 @@
     - FRIENDS + 비친구            → FeedNotFoundError (정보 누출 회피로 404)
     - PRIVATE + 비owner           → FeedNotFoundError (404)
 """
-from datetime import datetime, timezone
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
-
-from app.domain.feed.model.feed_post import FeedPost, FeedVisibility
-from app.domain.feed.service.access import load_viewable_post
-from app.domain.feed.service.exception import FeedBlockedError, FeedNotFoundError
-from app.domain.friend.model.friendship import FriendshipStatus
-
+from types import SimpleNamespace
 from test.unit.domain.feed.mock_factory import make_feed_post_with_counts
+import pytest
+from datetime import datetime, timezone
+
+from app.domain.friend.model.friendship import FriendshipStatus
+from app.domain.feed.service.exception import FeedBlockedError, FeedNotFoundError
+from app.domain.feed.service.access import load_viewable_post
+from app.domain.feed.model.feed_post import FeedPost, FeedVisibility
 
 
 def _mk_row(post_id="FDP_x", user_id="USER_owner", visibility=FeedVisibility.PUBLIC):
@@ -138,6 +136,7 @@ class TestVisibilityDecision:
         result = await load_viewable_post(session, viewer_id="USER_v", post_id="FDP_x")
         assert result.visibility == FeedVisibility.PUBLIC
 
+
     async def test_friends_only_visible_to_friend(
         self, session, feed_repo_mock, friendship_repo_mock,
     ):
@@ -148,6 +147,7 @@ class TestVisibilityDecision:
         result = await load_viewable_post(session, viewer_id="USER_v", post_id="FDP_x")
         assert result.visibility == FeedVisibility.FRIENDS
 
+
     async def test_friends_only_invisible_to_non_friend_returns_not_found(
         self, session, feed_repo_mock, friendship_repo_mock,
     ):
@@ -156,6 +156,7 @@ class TestVisibilityDecision:
         friendship_repo_mock.find_between.return_value = None
         with pytest.raises(FeedNotFoundError):
             await load_viewable_post(session, viewer_id="USER_v", post_id="FDP_x")
+
 
     async def test_pending_friendship_treated_as_non_friend(
         self, session, feed_repo_mock, friendship_repo_mock,
@@ -167,6 +168,7 @@ class TestVisibilityDecision:
         )
         with pytest.raises(FeedNotFoundError):
             await load_viewable_post(session, viewer_id="USER_v", post_id="FDP_x")
+
 
     async def test_private_invisible_to_non_owner(
         self, session, feed_repo_mock, friendship_repo_mock,
