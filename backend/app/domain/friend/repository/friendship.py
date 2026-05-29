@@ -1,7 +1,7 @@
 from typing import Iterable, Optional
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, and_, case
+from sqlalchemy import select, or_, and_, case, func
 
 from app.domain.friend.model.friendship import Friendship, FriendshipStatus
 from app.domain.auth.model.user import User
@@ -30,6 +30,25 @@ class FriendshipRepository:
     async def find_by_id(self, friendship_id: str) -> Optional[Friendship]:
         """friendship_id로 단건 조회"""
         return await self.session.get(Friendship, friendship_id)
+
+
+    async def count_accepted_for(self, user_id: str) -> int:
+        """`user_id` 의 ACCEPTED 친구 수 — 마이페이지 stats 용.
+
+        `(requester_id, status)` / `(addressee_id, status)` 두 부분 인덱스가 모두 존재해
+        PG planner 가 BitmapOr 로 처리. PENDING/REJECTED 는 제외.
+
+        탈퇴 유저는 `users` FK CASCADE 로 친구 관계 row 가 함께 삭제되므로 dangling 없음.
+        """
+        stmt = select(func.count()).select_from(Friendship).where(
+            Friendship.status == FriendshipStatus.ACCEPTED,
+            or_(
+                Friendship.requester_id == user_id,
+                Friendship.addressee_id == user_id,
+            ),
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
 
     async def find_accepted_friend_ids(self, me_id: str) -> set[str]:

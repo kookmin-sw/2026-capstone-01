@@ -1,9 +1,9 @@
-from app.database.session import UnitOfWork, transactional
-from app.domain.tour.repository.favorite_place import FavoritePlaceRepository
+from app.domain.tour.service.place import PlaceService
 from app.domain.tour.repository.place import PlaceRepository
+from app.domain.tour.repository.favorite_place import FavoritePlaceRepository
 from app.domain.tour.model.favorite_place import FavoritePlace
 from app.domain.tour.dto.favorite_place import FavoritePlaceData, FavoritePlaceListData
-from app.domain.tour.service.place import PlaceService
+from app.database.session import UnitOfWork, transactional
 
 
 class FavoritePlaceService:

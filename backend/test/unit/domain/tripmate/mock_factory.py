@@ -13,8 +13,10 @@ class FakeUnitOfWork:
     def __init__(self, session):
         self._session = session
 
+
     async def __aenter__(self):
         return self._session
+
 
     async def __aexit__(self, exc_type, exc, tb):
         return False
@@ -79,6 +81,7 @@ def make_inbox_service_mock() -> AsyncMock:
     mock.notify_feed_like.return_value = None
     mock.notify_feed_comment.return_value = None
     mock.cascade_user_withdrawn.return_value = 0
+    mock.cascade_post_deleted.return_value = 0
     return mock
 
 

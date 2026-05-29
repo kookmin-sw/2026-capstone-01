@@ -1,5 +1,7 @@
 from typing import List
+import time
 
+from app.core.instrumentation import ai_inference, ai_model_load_duration_set
 from app.core.ai.menu_ocr.v1.model import MenuOcrModel, MenuOcrResult
 
 
@@ -19,8 +21,10 @@ class MenuOcr:
         """서버 시작 시 한 번 호출된다."""
         if self._initialized:
             return
+        started = time.perf_counter()
         self._model = MenuOcrModel()
         self._model.load_model()
+        ai_model_load_duration_set("menu_ocr", time.perf_counter() - started)
         self._initialized = True
 
 
@@ -43,8 +47,9 @@ class MenuOcr:
         if not self._initialized:
             raise RuntimeError("모델이 로드되지 않았습니다.")
 
-        image_data, mime_type = self._model.encode_bytes(image_bytes, content_type)
-        return await self._model.predict(image_data, mime_type)
+        async with ai_inference("menu_ocr"):
+            image_data, mime_type = self._model.encode_bytes(image_bytes, content_type)
+            return await self._model.predict(image_data, mime_type)
 
 
     async def invoke_batch(
@@ -63,9 +68,10 @@ class MenuOcr:
         if not self._initialized:
             raise RuntimeError("모델이 로드되지 않았습니다.")
 
-        encoded = [
-            self._model.encode_bytes(image_bytes, content_type)
-            for image_bytes, content_type in images
-        ]
+        async with ai_inference("menu_ocr"):
+            encoded = [
+                self._model.encode_bytes(image_bytes, content_type)
+                for image_bytes, content_type in images
+            ]
 
-        return await self._model.predict_batch(encoded)
+            return await self._model.predict_batch(encoded)

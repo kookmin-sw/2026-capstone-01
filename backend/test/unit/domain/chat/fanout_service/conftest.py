@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
 from types import SimpleNamespace
-
 import pytest
 
 from app.domain.chat.service.fanout import FanoutService
@@ -21,6 +20,10 @@ def make_ws(session_id: str, user_id: str) -> MagicMock:
 
 
 @pytest.fixture
-def fanout() -> FanoutService:
-    """FANOUT_MODE=in_process (기본값) 에서 정상 생성."""
+def fanout(monkeypatch) -> FanoutService:
+    """FANOUT_MODE=in_process 를 명시 고정해 로컬 .env 오버라이드(node_channel)
+    영향으로 실제 Redis 연결을 시도하지 않도록 한다.
+    """
+    from app.config import setting as setting_module
+    monkeypatch.setattr(setting_module.settings, "FANOUT_MODE", "in_process")
     return FanoutService()

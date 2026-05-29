@@ -4,7 +4,6 @@ repo (Mongo beanie) 단일 의존 — service 인스턴스화 후 `service.searc
 tour_search_history_service 와 동일 시그니처지만 별도 fixture 로 도메인 격리 유지.
 """
 from unittest.mock import AsyncMock
-
 import pytest
 
 from app.domain.tripmate.service.tripmate_search_history import (

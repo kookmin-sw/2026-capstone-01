@@ -5,12 +5,11 @@
     - 활성 멤버만 방별 토글 가능 (비멤버 / 탈퇴자 거절)
     - 존재하지 않는 유저 거절
 """
-import pytest
-
 from test.integration.domain.notification.conftest import (
     fetch_member,
     fetch_user,
 )
+import pytest
 
 
 pytestmark = pytest.mark.integration
@@ -29,6 +28,7 @@ class TestSetGlobalMuteFlow:
         row = await fetch_user(session_factory, user_id)
         assert row.notification_muted is True
 
+
     async def test_false_normalizes_to_null(
         self, mute_service, session_factory, seed_users,
     ):
@@ -41,6 +41,7 @@ class TestSetGlobalMuteFlow:
         row = await fetch_user(session_factory, user_id)
         assert row.notification_muted is None
 
+
     async def test_idempotent_double_mute(
         self, mute_service, session_factory, seed_users,
     ):
@@ -52,6 +53,7 @@ class TestSetGlobalMuteFlow:
 
         row = await fetch_user(session_factory, user_id)
         assert row.notification_muted is True
+
 
     async def test_nonexistent_user_raises(self, mute_service):
         with pytest.raises(ValueError, match="존재하지 않는"):
@@ -76,6 +78,7 @@ class TestSetRoomMuteFlow:
         assert my_row.notification_muted is True
         assert other_row.notification_muted is None  # 다른 멤버 미영향
 
+
     async def test_false_normalizes_to_null(
         self, mute_service, session_factory, seed_room_with_members,
     ):
@@ -91,6 +94,7 @@ class TestSetRoomMuteFlow:
         row = await fetch_member(session_factory, room_id, me)
         assert row.notification_muted is None
 
+
     async def test_non_member_raises(
         self, mute_service, seed_room_with_members, seed_users,
     ):
@@ -101,6 +105,7 @@ class TestSetRoomMuteFlow:
             await mute_service.set_room_mute(
                 user_id=outsider, chat_room_id=room_id, muted=True,
             )
+
 
     async def test_left_member_raises(
         self, mute_service, session_factory, seed_room_with_members,

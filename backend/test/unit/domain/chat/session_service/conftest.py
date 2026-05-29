@@ -1,11 +1,10 @@
-import pytest
-
-from app.domain.chat.service.session import SessionService
-
 from test.unit.domain.chat.session_service.mock_factory import (
     make_mock_fanout,
     make_mock_redis,
 )
+import pytest
+
+from app.domain.chat.service.session import SessionService
 
 
 @pytest.fixture

@@ -3,15 +3,13 @@
 `load_viewable_post` 의 가시성/차단 로직은 `access/test_load_viewable_post.py` 가 cover —
 본 모듈은 helper 자체를 stub 으로 치환하고 좋아요 비즈니스 로직 (중복/취소/카운트) 만 검증.
 """
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
-
-from app.domain.feed.model.feed_post import FeedPost, FeedVisibility
-from app.domain.feed.service.feed_post_like import FeedPostLikeService
-
 from test.unit.domain.feed.mock_factory import FakeUnitOfWork, make_mock_session
+import pytest
+from datetime import datetime, timezone
+
+from app.domain.feed.service.feed_post_like import FeedPostLikeService
+from app.domain.feed.model.feed_post import FeedPost, FeedVisibility
 
 
 def _mk_post(post_id="FDP_x", user_id="USER_owner"):

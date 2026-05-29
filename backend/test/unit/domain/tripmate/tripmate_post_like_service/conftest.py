@@ -3,10 +3,10 @@
 좋아요 가시성 / 차단 검증은 본 service 책임이 아니므로 (tripmate 는 visibility 모델 없음),
 post 존재 여부 + 중복 가드 + fan-out 통합 검증에 집중.
 """
-import pytest
-
-from app.domain.tripmate.service.tripmate_post_like import TripmatePostLikeService
-
+from test.unit.domain.tripmate.tripmate_post_like_service.model_factory import (
+    TripmatePostFactory,
+    UserDetailInformFactory,
+)
 from test.unit.domain.tripmate.mock_factory import (
     FakeUnitOfWork,
     TripmatePostLikeRepositoryMockFactory,
@@ -15,10 +15,9 @@ from test.unit.domain.tripmate.mock_factory import (
     make_mock_session,
     make_inbox_service_mock,
 )
-from test.unit.domain.tripmate.tripmate_post_like_service.model_factory import (
-    TripmatePostFactory,
-    UserDetailInformFactory,
-)
+import pytest
+
+from app.domain.tripmate.service.tripmate_post_like import TripmatePostLikeService
 
 
 @pytest.fixture

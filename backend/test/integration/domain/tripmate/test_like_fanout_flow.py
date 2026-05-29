@@ -48,6 +48,7 @@ class TestAddLikeFanout:
         # tripmate 의 target_preview 는 post.title
         assert doc["target_preview"] == "여행 같이 가실 분"
 
+
     async def test_self_like_does_not_create_inbox_item(
         self, mongo_db, tripmate_post_like_service, seed_tripmate_post,
     ):

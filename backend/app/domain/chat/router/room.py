@@ -2,7 +2,9 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from dependency_injector.wiring import Provide, inject
 
-from app.domain.chat.schema.message import ChatMessageResponse, MessageHistoryResponse
+from app.domain.chat.service.room import RoomService
+from app.domain.chat.service.message_history import MessageHistoryService
+from app.domain.chat.service.exception import ChatRoomNotFoundError
 from app.domain.chat.schema.room import (
     ChatRoomListResponse,
     ChatRoomPeerResponse,
@@ -16,9 +18,7 @@ from app.domain.chat.schema.room import (
     RoomMemberListResponse,
     RoomMemberResponse,
 )
-from app.domain.chat.service.exception import ChatRoomNotFoundError
-from app.domain.chat.service.message_history import MessageHistoryService
-from app.domain.chat.service.room import RoomService
+from app.domain.chat.schema.message import ChatMessageResponse, MessageHistoryResponse
 from app.container import Container
 
 
@@ -251,7 +251,6 @@ async def get_messages(
     """방의 메시지 히스토리. `before_server_seq` / `after_server_seq` 중 정확히 하나만 지정."""
     user_id: str = request.state.user_id
 
-    # 둘 중 하나만 필수
     if (before_server_seq is None) == (after_server_seq is None):
         raise HTTPException(
             status_code=400,

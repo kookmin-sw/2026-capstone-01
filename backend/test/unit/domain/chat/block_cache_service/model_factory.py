@@ -3,8 +3,8 @@
 `find_direct_by_pair` 결과는 `ChatRoom` row — service 가 `room.chat_room_id` 만 접근.
 SimpleNamespace 로 minimal stub.
 """
-from types import SimpleNamespace
 from typing import Optional
+from types import SimpleNamespace
 
 
 class ChatRoomFactory:
@@ -16,6 +16,7 @@ class ChatRoomFactory:
         return SimpleNamespace(
             chat_room_id=chat_room_id or f"CR_test_{cls._counter:04d}",
         )
+
 
     @classmethod
     def reset_counter(cls) -> None:

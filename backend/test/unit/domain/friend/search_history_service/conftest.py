@@ -1,5 +1,5 @@
-import pytest
 from unittest.mock import AsyncMock
+import pytest
 
 from app.domain.friend.service.search_history import FriendSearchHistoryService
 

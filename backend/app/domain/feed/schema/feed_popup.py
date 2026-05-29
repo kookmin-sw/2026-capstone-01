@@ -1,11 +1,6 @@
-"""피드 팝업 라우터 Pydantic 스키마.
+"""피드 팝업 Pydantic 스키마. `OtherUserProfileResponse` 와 동일 5종 + nested feed section.
 
-`OtherUserProfileResponse` 와 동일한 5개 필드 + nested feed section. plan §5.4 의
-`{ ..., "feed": { "items": [...] } }` 구조를 따른다 — 더보기 페이지네이션은 클라이언트가
-일반 `GET /feed/users/{user_id}` endpoint 로 분기 (popup 자체는 next_cursor 미제공).
-
-필드 복제 (auth schema 와 5종 중복) 는 도메인 자율성 우선. auth 의 nationality 등이 변경
-되면 두 곳 모두 갱신 필요 — small cost, 도메인 결합 회피 이득이 크다.
+필드 복제는 도메인 자율성 우선 — auth schema 변경 시 두 곳 갱신 부담 감수.
 """
 from typing import List, Optional
 from pydantic import BaseModel, Field

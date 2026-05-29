@@ -5,17 +5,16 @@ PlaceRepository 는 인스턴스만 mock 치환 — `PlaceRepository.build_curso
 대신 service 인스턴스화 후 `service.place_repo` attribute 만 mock 으로 교체.
 FavoritePlaceRepository 는 `@transactional` 안에서 인스턴스화되므로 클래스 monkeypatch.
 """
-import pytest
-
-from app.domain.tour.service.place import PlaceService
-
+from test.unit.domain.tour.place_service.model_factory import PlaceRawFactory
 from test.unit.domain.tour.place_service.mock_factory import (
     FakeUnitOfWork,
     FavoritePlaceRepositoryMockFactory,
     PlaceRepositoryMockFactory,
     make_mock_session,
 )
-from test.unit.domain.tour.place_service.model_factory import PlaceRawFactory
+import pytest
+
+from app.domain.tour.service.place import PlaceService
 
 
 @pytest.fixture

@@ -1,11 +1,11 @@
 """FcmService — 토큰 등록/해제 + bulk 푸시 가드 체인 단위 테스트."""
-from datetime import datetime, timezone
+from test.unit.domain.notification.mock_factory import make_fcm_batch_response
 import pytest
-from firebase_admin import messaging
 from firebase_admin.exceptions import FirebaseError
+from firebase_admin import messaging
+from datetime import datetime, timezone
 
 from app.domain.notification.model.fcm_token import FcmToken
-from test.unit.domain.notification.mock_factory import make_fcm_batch_response
 
 
 def _make_fcm_token(*, user_id: str, token: str, fcm_token_id: str = "FCM_x") -> FcmToken:
@@ -44,6 +44,7 @@ class TestRegisterToken:
         assert result.fcm_token_id == "FCM_new"
         fcm_token_repo_mock.update.assert_not_awaited()
 
+
     async def test_same_user_same_token_is_noop(
         self, service, fcm_token_repo_mock,
     ):
@@ -55,6 +56,7 @@ class TestRegisterToken:
         assert result.fcm_token_id == existing.fcm_token_id
         fcm_token_repo_mock.save.assert_not_awaited()
         fcm_token_repo_mock.update.assert_not_awaited()
+
 
     async def test_different_user_same_token_updates_owner(
         self, service, fcm_token_repo_mock,
@@ -88,6 +90,7 @@ class TestUnregisterToken:
 
         fcm_token_repo_mock.delete.assert_awaited_once_with(existing)
 
+
     async def test_nonexistent_token_is_silent_noop(
         self, service, fcm_token_repo_mock,
     ):
@@ -97,6 +100,7 @@ class TestUnregisterToken:
         await service.unregister_token(user_id="USER_a", token="ghost")
 
         fcm_token_repo_mock.delete.assert_not_awaited()
+
 
     async def test_other_users_token_is_silent_noop(
         self, service, fcm_token_repo_mock,
@@ -132,6 +136,7 @@ class TestSendChatPush:
         fcm_token_repo_mock.find_by_user_ids.assert_not_awaited()
         messaging_send_mock.assert_not_called()
 
+
     async def test_all_room_muted_short_circuits(
         self, service, chat_member_repo_mock, user_repo_mock,
         fcm_token_repo_mock, messaging_send_mock,
@@ -150,6 +155,7 @@ class TestSendChatPush:
         fcm_token_repo_mock.find_by_user_ids.assert_not_awaited()
         messaging_send_mock.assert_not_called()
 
+
     async def test_all_globally_muted_short_circuits(
         self, service, chat_member_repo_mock, user_repo_mock,
         fcm_token_repo_mock, messaging_send_mock,
@@ -167,6 +173,7 @@ class TestSendChatPush:
         fcm_token_repo_mock.find_by_user_ids.assert_not_awaited()
         messaging_send_mock.assert_not_called()
 
+
     async def test_no_tokens_returns_zero_no_fcm_call(
         self, service, chat_member_repo_mock, user_repo_mock,
         fcm_token_repo_mock, messaging_send_mock,
@@ -183,6 +190,7 @@ class TestSendChatPush:
 
         assert result == 0
         messaging_send_mock.assert_not_called()
+
 
     async def test_happy_path_multicasts_with_all_tokens_and_correct_payload(
         self, service, chat_member_repo_mock, user_repo_mock,
@@ -226,6 +234,7 @@ class TestSendChatPush:
         # 만료 정리 없음
         fcm_token_repo_mock.delete_by_tokens.assert_not_awaited()
 
+
     async def test_unregistered_tokens_get_bulk_cleaned_up(
         self, service, chat_member_repo_mock, user_repo_mock,
         fcm_token_repo_mock, messaging_send_mock,
@@ -259,6 +268,7 @@ class TestSendChatPush:
         fcm_token_repo_mock.delete_by_tokens.assert_awaited_once()
         deleted = fcm_token_repo_mock.delete_by_tokens.await_args.args[0]
         assert deleted == ["dead-tok"]
+
 
     async def test_global_firebase_error_returns_zero_no_cleanup(
         self, service, chat_member_repo_mock, user_repo_mock,

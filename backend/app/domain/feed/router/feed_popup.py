@@ -1,24 +1,16 @@
-"""피드 팝업 라우터 — 다른 유저 프로필 미리보기.
+"""피드 팝업 라우터 — 다른 유저 프로필 미리보기 (프로필 + 최근 9개 피드).
 
-엔드포인트:
-    GET /feed/popup/{user_id}   — 프로필 5종 + 최근 9개 피드 합성
-
-에러 매핑:
-    PopupTargetNotFoundError    → 404  (user 미존재 / 회원가입 미완료)
-    FeedBlockedError            → 403  (PermissionError 하위 — except PermissionError 가 catch)
-
-next_cursor 미제공 — 더보기 페이지네이션은 클라이언트가 일반 `GET /feed/users/{user_id}` 로
-분기 (인스타 popup 패턴).
+next_cursor 미제공 — 더보기는 클라가 `GET /feed/users/{user_id}` 로 분기.
 """
 from fastapi import APIRouter, HTTPException, Request, Depends
 from dependency_injector.wiring import Provide, inject
 
 from app.domain.feed.service.feed_popup import FeedPopupService
 from app.domain.feed.service.exception import PopupTargetNotFoundError
-from app.domain.feed.schema.feed_popup import FeedPopupResponse, PopupFeedSection
 from app.domain.feed.schema.feed_post import FeedPostResponse
-from app.domain.feed.dto.feed_popup import FeedPopupData
+from app.domain.feed.schema.feed_popup import FeedPopupResponse, PopupFeedSection
 from app.domain.feed.dto.feed_post import FeedPostData
+from app.domain.feed.dto.feed_popup import FeedPopupData
 from app.container import Container
 
 
@@ -32,13 +24,9 @@ async def get_popup(
     user_id: str,
     popup_service: FeedPopupService = Depends(Provide[Container.feed_popup_service]),
 ) -> FeedPopupResponse:
-    """다른 유저 프로필 미리보기 — 프로필 5종 + 최근 피드 9개.
+    """프로필 5종 + 최근 9개 피드.
 
-    - viewer == owner    : 본인 popup (모든 visibility 노출)
-    - 친구              : FRIENDS + PUBLIC 피드만
-    - 비친구             : PUBLIC 피드만
-    - 양방향 차단         : 403
-    - user 미존재 / 가입 미완료 : 404
+    - viewer=owner: 모든 visibility / 친구: FRIENDS+PUBLIC / 비친구: PUBLIC / 차단: 403 / 미존재·미가입: 404
     """
     viewer_id: str = request.state.user_id
     try:
@@ -48,7 +36,7 @@ async def get_popup(
     except PopupTargetNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except PermissionError as e:
-        # FeedBlockedError 가 PermissionError 의 하위 — 단일 catch.
+        # FeedBlockedError 가 PermissionError 하위라 단일 catch.
         raise HTTPException(status_code=403, detail=str(e))
 
     return _to_response(popup)
@@ -80,6 +68,7 @@ def _to_feed_item(p: FeedPostData) -> FeedPostResponse:
         thumbnail_medium_url=p.thumbnail_medium_url,
         like_count=p.like_count,
         comment_count=p.comment_count,
+        is_liked=p.is_liked,
         created_at=p.created_at,
         updated_at=p.updated_at,
     )

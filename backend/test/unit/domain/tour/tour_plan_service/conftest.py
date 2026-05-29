@@ -1,7 +1,3 @@
-import pytest
-
-from app.domain.tour.service.tour_plan import TourPlanService
-
 from test.unit.domain.tour.tour_plan_service.model_factory import (
     TourPlanFactory,
     TourPlanItemFactory,
@@ -13,6 +9,9 @@ from test.unit.domain.tour.tour_plan_service.mock_factory import (
     TourPlanRepositoryMockFactory,
     make_mock_session,
 )
+import pytest
+
+from app.domain.tour.service.tour_plan import TourPlanService
 
 
 @pytest.fixture(autouse=True)

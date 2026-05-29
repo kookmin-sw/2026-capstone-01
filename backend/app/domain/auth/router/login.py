@@ -1,13 +1,13 @@
 from urllib.parse import urlencode
 from typing import Optional
 import jwt
-from fastapi import APIRouter, Query, HTTPException, Request, Depends
 from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Query, HTTPException, Request, Depends
 from dependency_injector.wiring import Provide, inject
 from datetime import datetime, timedelta, timezone
 
 from app.domain.auth.service.signup import SignupService
-from app.core.oauth.google import GoogleOAuthClient
+from app.core.oauth import OAUTH_CLIENTS
 from app.core.logger import get_logger
 from app.container import Container
 from app.config.setting import settings
@@ -16,10 +16,6 @@ from app.config.oauth import OAuthProvider, OAUTH_CONFIGS
 
 router = APIRouter(prefix="/login", tags=["로그인"])
 logger = get_logger("auth.login")
-
-OAUTH_CLIENTS = {
-    OAuthProvider.GOOGLE: GoogleOAuthClient,
-}
 
 
 @router.get("")

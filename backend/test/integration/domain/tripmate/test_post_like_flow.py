@@ -60,6 +60,7 @@ class TestAddLikeWithCount:
         assert c2 == 2
         assert c3 == 3
 
+
     async def test_duplicate_add_raises_value_error(
         self, mongo_db, tripmate_post_like_service, seed_tripmate_post,
     ):
@@ -103,6 +104,7 @@ class TestGetLikedUserIds:
 
         liked = await tripmate_post_like_service.get_liked_user_ids(post_id=post_id)
         assert actor_id in liked
+
 
     async def test_raises_when_post_not_found(
         self, mongo_db, tripmate_post_like_service,

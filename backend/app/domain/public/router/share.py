@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from dependency_injector.wiring import Provide, inject
 
 from app.util.share_token import ShareTokenError
+from app.domain.tour.service.exception import TourPlanNotFoundError
 from app.domain.public.service.share_plan import SharePlanService
 from app.domain.public.schema.share import PublicPlanItemResponse, PublicPlanResponse
-from app.domain.tour.service.exception import TourPlanNotFoundError
 from app.container import Container
 
 
@@ -56,6 +56,7 @@ def _to_public_plan_response(plan) -> PublicPlanResponse:
                 address=i.address,
                 visit_time=i.visit_time,
                 rating=i.rating,
+                photos=i.photos,
             )
             for i in plan.items
         ],

@@ -4,7 +4,6 @@ repo 가 동일 검색어 시간 갱신 + 10개 초과 자동 정리를 담당�
 검증 대상은 repo 호출 인자 정확성.
 """
 from types import SimpleNamespace
-
 import pytest
 
 

@@ -7,22 +7,21 @@ fcm-token / mute 흐름은 RDB 만 터치 (실 Mongo 불필요). 인박스 (`inb
 흐름은 실 Mongo 가 필요하므로 `mongo_db` / `inbox_service` fixture 가 opt-in 으로
 제공됨 — chat 도메인의 ``patch_external_clients`` 패턴과 일관.
 """
-import os
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
-import pytest_asyncio
-from motor.motor_asyncio import AsyncIOMotorClient
 from sqlalchemy import select
+import pytest_asyncio
+import pytest
+import os
+from motor.motor_asyncio import AsyncIOMotorClient
 
-from app.domain.auth.model.user import User
-from app.domain.chat.model.chat_room import ChatRoom, ChatRoomType
-from app.domain.chat.model.chat_room_member import ChatRoomMember
-from app.domain.notification.model.fcm_token import FcmToken
-from app.domain.notification.model.inbox import InboxItem
-from app.domain.notification.service.fcm import FcmService
 from app.domain.notification.service.mute import MuteService
 from app.domain.notification.service.inbox import InboxService
+from app.domain.notification.service.fcm import FcmService
+from app.domain.notification.model.inbox import InboxItem
+from app.domain.notification.model.fcm_token import FcmToken
+from app.domain.chat.model.chat_room_member import ChatRoomMember
+from app.domain.chat.model.chat_room import ChatRoom, ChatRoomType
+from app.domain.auth.model.user import User
 
 
 def _require_mongo_url() -> str:
