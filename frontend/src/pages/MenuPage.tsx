@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 
-import { requestMenuOcr, type MenuCategory, type MenuOcrPageResult } from "../api/auth/menuOcr";
+import {
+  ocrMenuSingle,
+  requestMenuOcr,
+  type MenuCategory,
+  type MenuOcrPageResult,
+} from "../api/auth/menuOcr";
 import { translateToKorean } from "../api/translation";
 
 interface MenuItem {
@@ -61,6 +66,7 @@ export default function MenuPage() {
   const [activeFileIndex, setActiveFileIndex] = useState(0);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [restaurantName, setRestaurantName] = useState("");
+  const [ocrProgress, setOcrProgress] = useState({ completed: 0, total: 0 });
   const [errorDetail, setErrorDetail] = useState("");
   const [ttsError, setTtsError] = useState("");
   const [orderNote, setOrderNote] = useState("");
@@ -80,6 +86,7 @@ export default function MenuPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const ocrRequestRef = useRef(false);
+  const ocrRunIdRef = useRef(0);
   const selectSectionRef = useRef<HTMLElement>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
 
@@ -213,6 +220,7 @@ export default function MenuPage() {
       for (const file of files) {
         preparedFiles.push(await prepareMenuImageFile(file));
       }
+
       const mergedFiles = [...selectedFiles, ...preparedFiles].slice(0, 5);
       previewUrls.forEach((url) => URL.revokeObjectURL(url));
 
@@ -250,19 +258,75 @@ export default function MenuPage() {
     if (!selectedFiles.length || ocrRequestRef.current) return;
 
     ocrRequestRef.current = true;
+    const runId = ocrRunIdRef.current + 1;
+    ocrRunIdRef.current = runId;
     setStep("loading");
     setErrorDetail("");
+    setMenuItems([]);
+    setRestaurantName("");
+    setActiveFileIndex(0);
+    setActivePreviewIndex(0);
+    setOcrProgress({ completed: 0, total: selectedFiles.length });
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), MENU_OCR_REQUEST_TIMEOUT_MS);
+    const requestOptions = {
+      signal: controller.signal,
+      timeout: MENU_OCR_REQUEST_TIMEOUT_MS,
+    };
 
     try {
-      const response = await requestMenuOcr(selectedFiles, { signal: controller.signal });
+      if (selectedFiles.length > 1) {
+        const settled = await Promise.all(
+          selectedFiles.map(async (file) => {
+            try {
+              const data = await ocrMenuSingle(file, requestOptions);
+              if (ocrRunIdRef.current !== runId) return true;
+
+              const pageResult: MenuOcrPageResult = {
+                fileName: file.name,
+                restaurant_name: data.restaurant_name,
+                menus: data.menus,
+              };
+
+              setRestaurantName((current) => current || pageResult.restaurant_name || "");
+              setMenuItems((current) => [
+                ...current,
+                ...mapResultsToMenuItems([pageResult], getNextMenuItemId(current)),
+              ]);
+              setOcrProgress((current) => ({
+                ...current,
+                completed: Math.min(current.total, current.completed + 1),
+              }));
+              setStep("select");
+              return true;
+            } catch {
+              if (ocrRunIdRef.current === runId) {
+                setOcrProgress((current) => ({
+                  ...current,
+                  completed: Math.min(current.total, current.completed + 1),
+                }));
+              }
+              return false;
+            }
+          })
+        );
+
+        if (ocrRunIdRef.current !== runId) return;
+        if (!settled.some(Boolean)) {
+          setErrorDetail("The menu OCR request failed. Please try again.");
+          setStep("error");
+        }
+        return;
+      }
+
+      const response = await requestMenuOcr(selectedFiles, requestOptions);
       const nextMenuItems = mapResultsToMenuItems(response);
 
       setRestaurantName(response[0]?.restaurant_name || "");
       setMenuItems(nextMenuItems);
       setActiveFileIndex(0);
       setActivePreviewIndex(0);
+      setOcrProgress({ completed: selectedFiles.length, total: selectedFiles.length });
       setStep("select");
     } catch (error: unknown) {
       const err = error as {
@@ -289,11 +353,15 @@ export default function MenuPage() {
       setStep("error");
     } finally {
       window.clearTimeout(timeoutId);
-      ocrRequestRef.current = false;
+      if (ocrRunIdRef.current === runId) {
+        ocrRequestRef.current = false;
+      }
     }
   };
 
   const handleReset = () => {
+    ocrRunIdRef.current += 1;
+    ocrRequestRef.current = false;
     previewUrls.forEach((url) => URL.revokeObjectURL(url));
     setSelectedFiles([]);
     setPreviewUrls([]);
@@ -301,6 +369,7 @@ export default function MenuPage() {
     setActiveFileIndex(0);
     setMenuItems([]);
     setRestaurantName("");
+    setOcrProgress({ completed: 0, total: 0 });
     setErrorDetail("");
     setTtsError("");
     setOrderNote("");
@@ -675,6 +744,12 @@ export default function MenuPage() {
 
             {/* Scrollable: category-grouped menu items */}
             <div style={styles.menuList}>
+              {ocrProgress.total > 1 && ocrProgress.completed < ocrProgress.total ? (
+                <div style={styles.ocrProgressBar}>
+                  Reading photo {ocrProgress.completed + 1} of {ocrProgress.total}
+                </div>
+              ) : null}
+
               {restaurantName ? <p style={styles.restaurantText}>{restaurantName}</p> : null}
 
               {groupedByCategory.map(([category, items]) => {
@@ -1063,6 +1138,10 @@ function normalizePrice(raw: number): number {
   return raw;
 }
 
+function getNextMenuItemId(items: MenuItem[]): number {
+  return items.reduce((maxId, item) => Math.max(maxId, item.id), 0) + 1;
+}
+
 async function prepareMenuImageFile(file: File): Promise<File> {
   if (!isMenuImageFile(file)) return file;
   if (isPassthroughImageFile(file)) return file;
@@ -1070,8 +1149,10 @@ async function prepareMenuImageFile(file: File): Promise<File> {
   const decoded = await decodeMenuImageFile(file);
   if (!decoded) return file;
 
-  const scale = Math.min(1, MENU_IMAGE_MAX_DIMENSION / Math.max(decoded.width, decoded.height));
-
+  const scale = Math.min(
+    1,
+    MENU_IMAGE_MAX_DIMENSION / Math.max(decoded.width, decoded.height)
+  );
   const width = Math.max(1, Math.round(decoded.width * scale));
   const height = Math.max(1, Math.round(decoded.height * scale));
   const canvas = document.createElement("canvas");
@@ -1105,7 +1186,10 @@ function toJpegFileName(fileName: string): string {
 }
 
 function isMenuImageFile(file: File): boolean {
-  return file.type.startsWith("image/") || /\.(jpe?g|png|webp|bmp|heic|heif)$/i.test(file.name);
+  return (
+    file.type.startsWith("image/") ||
+    /\.(jpe?g|png|webp|bmp|heic|heif)$/i.test(file.name)
+  );
 }
 
 function isPassthroughImageFile(file: File): boolean {
@@ -1133,6 +1217,7 @@ async function decodeMenuImageFile(file: File): Promise<{
   return new Promise((resolve) => {
     const imageUrl = URL.createObjectURL(file);
     const image = new Image();
+
     image.onload = () => {
       resolve({
         source: image,
@@ -1141,16 +1226,21 @@ async function decodeMenuImageFile(file: File): Promise<{
         close: () => URL.revokeObjectURL(imageUrl),
       });
     };
+
     image.onerror = () => {
       URL.revokeObjectURL(imageUrl);
       resolve(null);
     };
+
     image.src = imageUrl;
   });
 }
 
-function mapResultsToMenuItems(results: MenuOcrPageResult[]): MenuItem[] {
-  let nextId = 1;
+function mapResultsToMenuItems(
+  results: MenuOcrPageResult[],
+  startId = 1
+): MenuItem[] {
+  let nextId = startId;
   return results.flatMap((result) =>
     result.menus.map((menu, index) => ({
       id: nextId++,
@@ -1584,6 +1674,15 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     letterSpacing: "0.08em",
     textTransform: "uppercase" as CSSProperties["textTransform"],
+  },
+  ocrProgressBar: {
+    margin: "0 0 10px",
+    padding: "9px 12px",
+    borderRadius: 10,
+    background: "rgba(88,201,212,0.14)",
+    color: "var(--brand-primary)",
+    fontSize: "0.78rem",
+    fontWeight: 800,
   },
   categoryGroup: { marginBottom: 20 },
 

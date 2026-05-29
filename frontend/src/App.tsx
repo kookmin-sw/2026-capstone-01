@@ -41,6 +41,7 @@ import {
   defaultPreferences,
   getSavedPlanById,
   loadPreferences,
+  preloadTourRecommendationsV2,
   savePreferences,
   type AiPreferenceState,
 } from "./api/aiPlanShared";
@@ -75,11 +76,10 @@ function AiPlanDesignRoute() {
     savePreferences(preferences);
   }, [preferences]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     setIsGenerating(true);
-    await new Promise((resolve) => window.setTimeout(resolve, 500));
     savePreferences(preferences);
-    setIsGenerating(false);
+    void preloadTourRecommendationsV2(preferences);
     navigate("/plan/ai/result");
   };
 
@@ -88,7 +88,7 @@ function AiPlanDesignRoute() {
       value={preferences}
       onBack={() => navigate("/plan")}
       onChange={setPreferences}
-      onSubmit={() => void handleSubmit()}
+      onSubmit={handleSubmit}
       isGenerating={isGenerating}
     />
   );

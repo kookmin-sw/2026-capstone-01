@@ -1,4 +1,5 @@
 import axios from "axios";
+import type { AxiosRequestConfig } from "axios";
 
 import client from "../client";
 
@@ -37,11 +38,7 @@ export interface MenuOcrPageResult {
   menus: OcrMenuItem[];
 }
 
-interface MenuOcrRequestOptions {
-  signal?: AbortSignal;
-}
-
-const MENU_OCR_UPLOAD_TIMEOUT_MS = 60000;
+export type MenuOcrRequestOptions = Pick<AxiosRequestConfig, "signal" | "timeout">;
 
 export const MENU_OCR_MAX_FILE_COUNT = 5;
 export const MENU_OCR_MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -86,7 +83,7 @@ export async function ocrMenuSingle(
 
   try {
     const { data } = await client.post<MenuOcrSingleResponse>("/api/menu-ai/ocr", formData, {
-      timeout: MENU_OCR_UPLOAD_TIMEOUT_MS,
+      timeout: options.timeout ?? 30000,
       signal: options.signal,
     });
 
@@ -105,17 +102,25 @@ export async function requestMenuOcr(
 ): Promise<MenuOcrPageResult[]> {
   validateMenuOcrFiles(files);
 
-  const results: MenuOcrPageResult[] = [];
-  for (const file of files) {
-    const data = await ocrMenuSingleWithRetry(file, options);
-    results.push({
-      fileName: file.name,
-      restaurant_name: data.restaurant_name,
-      menus: data.menus,
-    });
+  if (files.length === 1) {
+    const data = await ocrMenuSingle(files[0], options);
+
+    return [
+      {
+        fileName: files[0].name,
+        restaurant_name: data.restaurant_name,
+        menus: data.menus,
+      },
+    ];
   }
 
-  return results;
+  const data = await requestBatchMenuOcr(files, options);
+
+  return data.results.map((result, index) => ({
+    fileName: files[index]?.name || `menu-${index + 1}`,
+    restaurant_name: typeof result.restaurant_name === "string" ? result.restaurant_name : "",
+    menus: normalizeMenus(result.menus),
+  }));
 }
 
 async function requestBatchMenuOcr(
@@ -129,7 +134,7 @@ async function requestBatchMenuOcr(
 
   try {
     const { data } = await client.post<MenuOcrBatchResponse>("/api/menu-ai/ocr/batch", formData, {
-      timeout: MENU_OCR_UPLOAD_TIMEOUT_MS,
+      timeout: options.timeout ?? 30000,
       signal: options.signal,
     });
 
