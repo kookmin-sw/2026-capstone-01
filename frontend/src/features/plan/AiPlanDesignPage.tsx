@@ -950,8 +950,8 @@ export default function AiPlanDesignPage({
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    height: "calc(var(--app-viewport-height) - var(--app-bottom-nav-reserved, 0px))",
-    padding: "calc(var(--app-safe-top) + 20px) 16px 20px",
+    minHeight: "calc(var(--app-viewport-height) - var(--app-bottom-nav-reserved, 0px))",
+    padding: "calc(var(--app-safe-top) + 20px) 16px calc(20px + var(--app-safe-bottom, 0px))",
     boxSizing: "border-box",
     background: "#fff",
     fontFamily: '"Pretendard Variable", sans-serif',
@@ -961,14 +961,14 @@ const styles: Record<string, CSSProperties> = {
   phoneFrame: {
     maxWidth: 430,
     width: "100%",
-    height: "100%",
+    minHeight: "calc(var(--app-viewport-height) - var(--app-bottom-nav-reserved, 0px) - var(--app-safe-top, 0px) - 40px)",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
     gap: 18,
     paddingBottom: 0,
     boxSizing: "border-box",
-    overflow: "hidden",
+    overflow: "visible",
   },
   headerRow: {
     display: "grid",
@@ -1035,7 +1035,8 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 20,
-    minHeight: 500,
+    flex: "1 1 auto",
+    minHeight: 0,
     padding: "6px 0 0",
   },
   questionTitle: {
@@ -1533,6 +1534,7 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
   },
   primaryAction: {
+    flexShrink: 0,
     width: "100%",
     minHeight: 56,
     border: "none",
