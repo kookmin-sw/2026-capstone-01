@@ -11,7 +11,7 @@ import {
   formatKrw,
   getAiPlanDayInputs,
   getTourPlan,
-  getTourRecommendationsV2,
+  getTourRecommendationsV2Cached,
   tourPlanToCreateItems,
   tourPlanV2ToRouteStops,
   type AiPreferenceState,
@@ -329,7 +329,7 @@ export default function AiPlanResultPage({
 
     const request = planId
       ? getTourPlan(planId).then(savedPlanToRecommendation)
-      : getTourRecommendationsV2(preferences);
+      : getTourRecommendationsV2Cached(preferences);
 
     void request
       .then((result) => {

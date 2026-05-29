@@ -497,6 +497,17 @@ export function toRecommendRequestV2(
   };
 }
 
+type PendingTourRecommendation = {
+  key: string;
+  promise: Promise<TourRecommendResponseV2>;
+};
+
+let pendingTourRecommendation: PendingTourRecommendation | null = null;
+
+function getTourRecommendationCacheKey(preferences: AiPreferenceState): string {
+  return JSON.stringify(toRecommendRequestV2(preferences));
+}
+
 export async function getTourRecommendationsV2(
   preferences: AiPreferenceState,
   timeoutMs = TOUR_RECOMMEND_TIMEOUT_MS
@@ -544,6 +555,36 @@ export async function getTourRecommendationsV2(
   } finally {
     window.clearTimeout(timeout);
   }
+}
+
+export function preloadTourRecommendationsV2(
+  preferences: AiPreferenceState
+): Promise<TourRecommendResponseV2> {
+  const key = getTourRecommendationCacheKey(preferences);
+  if (pendingTourRecommendation?.key === key) {
+    return pendingTourRecommendation.promise;
+  }
+
+  const promise = getTourRecommendationsV2(preferences);
+  pendingTourRecommendation = { key, promise };
+  promise.catch(() => {
+    if (pendingTourRecommendation?.promise === promise) {
+      pendingTourRecommendation = null;
+    }
+  });
+
+  return promise;
+}
+
+export function getTourRecommendationsV2Cached(
+  preferences: AiPreferenceState
+): Promise<TourRecommendResponseV2> {
+  const key = getTourRecommendationCacheKey(preferences);
+  if (pendingTourRecommendation?.key === key) {
+    return pendingTourRecommendation.promise;
+  }
+
+  return preloadTourRecommendationsV2(preferences);
 }
 
 export function flattenRecommendedPlacesV2(
