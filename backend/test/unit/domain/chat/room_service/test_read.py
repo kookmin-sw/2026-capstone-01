@@ -4,12 +4,11 @@ read op 는 **GREATEST 로 regress 방지**, **unread=0 리셋**, **read_ack 발
 직송 + read 이벤트 방 브로드캐스트** 세 가지를 수행. mock 레벨에서 각 단계 호출과
 payload 를 정확히 검증한다.
 """
+from test.unit.domain.chat.room_service.model_factory import ChatRoomFactory
 import pytest
 
-from app.domain.chat.model.chat_room import ChatRoomType
 from app.domain.chat.service.exception import ChatRoomNotFoundError
-
-from test.unit.domain.chat.room_service.model_factory import ChatRoomFactory
+from app.domain.chat.model.chat_room import ChatRoomType
 
 
 @pytest.mark.unit
@@ -26,6 +25,7 @@ class TestMarkRead:
                 up_to_server_seq=-1,
             )
 
+
     async def test_raises_room_not_found(
         self, service, chat_room_repo_mock,
     ):
@@ -35,6 +35,7 @@ class TestMarkRead:
                 me_id="U_A", me_session_id="WS_A", room_id="CR_X",
                 up_to_server_seq=5,
             )
+
 
     async def test_non_member_raises_permission_error(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
@@ -48,6 +49,7 @@ class TestMarkRead:
                 me_id="U_A", me_session_id="WS_A", room_id="CR_G",
                 up_to_server_seq=5,
             )
+
 
     async def test_successful_mark_read_resets_unread_and_fans_out(
         self, service, chat_room_repo_mock, chat_member_repo_mock,
@@ -93,6 +95,7 @@ class TestMarkRead:
             "sender_session_id": "WS_A",
             "up_to_server_seq": 7,
         }
+
 
     async def test_returns_repository_final_seq_even_when_regressed(
         self, service, chat_room_repo_mock, chat_member_repo_mock,

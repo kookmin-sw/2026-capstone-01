@@ -58,6 +58,8 @@ services:
       - ./backend/.env
     ports:
       - "8000:8000"
+    expose:
+      - "9090"                                          # /metrics — monitoring-network 내부만 도달.
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,18 +69,21 @@ services:
         condition: service_healthy
     networks:
       - krip-network
+      - monitoring-network                              # Prometheus 가 이 네트워크로 backend:9090 scrape
     volumes:
       - ./backend/app:/backend/app:ro
       - ./backend/migration:/backend/migration
       - ./backend/data:/backend/data
       - ./backend/logs:/backend/logs
       - ./backend/scripts:/backend/scripts:ro           # 업로드 스크립트
-      - ./backend/seoul_data:/backend/seoul_data:ro     # 장소 JSON 데이터 
+      - ./backend/seoul_data:/backend/seoul_data:ro     # 장소 JSON 데이터
       - ./backend/secrets:/backend/secrets:ro           # FCM 토큰
 
 networks:
   krip-network:
     driver: bridge
+  monitoring-network:                                   # monitoring/docker-compose.monitoring.yml 이 사용. 사전 `docker network create monitoring-network` 1회 필요.
+    external: true                                      # 사전에 `docker network create monitoring-network` 최소 1회 필요 (없으면 compose up 실패)
 
 volumes:
   postgresql-data:

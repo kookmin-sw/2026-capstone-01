@@ -56,6 +56,7 @@ class TestAddLikeFanout:
         assert doc["target_type"] == TargetType.FEED_POST.value
         assert doc["target_id"] == post_id
 
+
     async def test_self_like_does_not_create_inbox_item(
         self, mongo_db, feed_post_like_service, seed_feed_post,
     ):

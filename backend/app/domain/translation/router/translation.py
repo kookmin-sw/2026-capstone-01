@@ -1,19 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from dependency_injector.wiring import Provide, inject
 
-from app.container import Container
-from app.core.logger import get_logger
+from app.domain.translation.service.translation import TranslationService
+from app.domain.translation.service.exception import (
+    TranslationUnreachableError,
+    TranslationVendorError,
+)
 from app.domain.translation.schema.translation import (
     DetectRequest,
     DetectResponse,
     TranslateRequest,
     TranslateResponse,
 )
-from app.domain.translation.service.exception import (
-    TranslationUnreachableError,
-    TranslationVendorError,
-)
-from app.domain.translation.service.translation import TranslationService
+from app.core.logger import get_logger
+from app.container import Container
 
 
 router = APIRouter(tags=["번역"])

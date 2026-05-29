@@ -1,17 +1,9 @@
-"""WebSocket 이벤트 스키마
+"""WebSocket 이벤트 스키마.
 
-**규약**
-- **클라 → 서버 요청** 은 `op` (동사) — `send` / `refresh` / read / edit / delete
-- **서버 → 클라 이벤트** 는 `type` (명사) — `message.new` / `session_revoked` / ...
+- 클라 → 서버 요청은 `op` (동사) — send / refresh / read.
+- 서버 → 클라 이벤트는 `type` (명사) — message.new / session_revoked / ...
 
-두 discriminator 는 **서로 다른 필드명** 을 사용한다. 같은 필드명을 공유하면 union 해상이
-불가능하고 클라/서버 양쪽에서 혼란을 초래하므로 반드시 분리.
-
-파싱 예:
-    ```python
-    from pydantic import TypeAdapter
-    req = TypeAdapter(ClientRequest).validate_python(raw_dict)
-    ```
+discriminator 필드명을 분리해야 union 해상이 가능.
 """
 from typing import Annotated, Any, Literal, Optional, Union
 from pydantic import BaseModel, Field
@@ -28,11 +20,9 @@ class SendOp(BaseModel):
     """메시지 송신 요청."""
     op: Literal["send"]
     room_id: str = Field(..., description="보낼 방 ID")
-    client_msg_id: str = Field(
-        ..., description="클라 생성 UUID — 동일 ID 재전송 시 dedupe 로 차단됨"
-    )
+    client_msg_id: str = Field(..., description="클라 UUID — 동일 ID 재전송은 dedupe 차단")
     type: MessageType = Field(MessageType.TEXT, description="메시지 종류")
-    content: str = Field(..., max_length=2000, description="본문 (text 2000자 제한)")
+    content: str = Field(..., max_length=2000, description="본문 (2000자 제한)")
 
 
 class RefreshOp(BaseModel):
@@ -42,12 +32,12 @@ class RefreshOp(BaseModel):
 
 
 class ReadOp(BaseModel):
-    """읽음 포인터 갱신 요청 — 방의 `up_to_server_seq` 까지 읽은 것으로 표시."""
+    """읽음 포인터 갱신 — `up_to_server_seq` 까지 읽음 표시."""
     op: Literal["read"]
     room_id: str = Field(..., description="읽음 처리할 방 ID")
     up_to_server_seq: int = Field(
         ..., ge=1,
-        description="이 seq 까지 읽었다는 포인터 (regress 는 DB 레벨 GREATEST 로 무시)",
+        description="여기까지 읽음. regress 는 DB GREATEST 가 무시",
     )
 
 
@@ -77,7 +67,7 @@ class MessageSentEvent(BaseModel):
 
 
 class MessageBody(BaseModel):
-    """`message.new` 이벤트에 실리는 메시지 본문 — MongoDB 문서 스키마와 동일."""
+    """`message.new` 의 본문 — MongoDB 문서 스키마와 동일."""
     message_id: str
     chat_room_id: str
     server_seq: int
@@ -85,26 +75,20 @@ class MessageBody(BaseModel):
     type: str
     content: Any = Field(
         ...,
-        description=(
-            "본문 — `type` 에 따라 모양이 달라짐. "
-            "`text`: str / `image`·`file`: dict / `system`: SystemContent 변종 하나 "
-            "(`action` 이 discriminator) / 삭제된 메시지: null"
-        ),
+        description="type 별 다형. text=str / image·file=dict / system=SystemContent / 삭제=null",
     )
     created_at: datetime
 
 
 class MessageNewEvent(BaseModel):
-    """다른 세션이 방에 새 메시지를 발행했을 때 수신."""
+    """방에 새 메시지가 발행됨."""
     type: Literal["message.new"]
-    sender_session_id: str = Field(
-        ..., description="발신 세션 ID — 수신 측 서버에서 자기 세션 skip 필터에 사용"
-    )
+    sender_session_id: str = Field(..., description="발신 세션 — 자기 에코 skip 필터용")
     message: MessageBody = Field(..., description="본문")
 
 
 class SessionRevokedEvent(BaseModel):
-    """특정 session_id 가 강제 종료됨 — 자기 session 이면 close(4001)."""
+    """특정 session_id 강제 종료 — 자기 세션이면 클라가 close(4001)."""
     type: Literal["session_revoked"]
     session_id: str = Field(..., description="종료 대상 세션 ID")
 
@@ -183,11 +167,9 @@ class ReadFailedEvent(BaseModel):
 
 
 class UnreadSyncedEvent(BaseModel):
-    """WS 연결 직후 백그라운드 `recover_unread_for_user` 가 끝나면 내려주는 카운트 동기화."""
+    """WS 연결 직후 또는 백그라운드 복구 완료 시 unread 카운트 동기화."""
     type: Literal["unread_synced"]
-    counts: dict[str, int] = Field(
-        ..., description="{room_id: unread_count}. 값은 0..999 범위 (999+ 캡)"
-    )
+    counts: dict[str, int] = Field(..., description="{room_id: count}. 값은 0..999 (999+ 캡)")
 
 
 ServerEvent = Annotated[
@@ -215,17 +197,8 @@ ServerEvent = Annotated[
 # ════════════════════════════════════════════════════════════════════
 # 시스템 메시지 content payload (`action` discriminator)
 # ════════════════════════════════════════════════════════════════════
-# `message.new` 이벤트에서 `message.type == "system"` 일 때의 `message.content` 모양.
-# `MessageService.send_system_message` 가 방 관리 액션을 타임라인에 기록하기 위해
-# 발행하며, 각 action 별로 싣는 필드가 다르므로 discriminated union 으로 명시한다.
-#
-# `actor_id` 가 `Optional[str]` 인 이유:
-#   - 메시지 발행 이후 actor 가 탈퇴하면 FK `ON DELETE SET NULL` 로 null 이 되는 표현을
-#     content 에도 일관되게 반영 (`ChatRoom` 모델 docstring 탈퇴 정책 참고).
-#
-# `target_ids` 가 `join` / `kick` 에만 존재하는 이유:
-#   - `created` / `leave` 는 actor 본인이 곧 대상 → 추가 대상이 없음.
-#   - 서버는 `message.py` 에서 비어있으면 키 자체를 생략 → 스키마도 그 형상을 반영.
+# `message.type == "system"` 일 때의 `content` 모양. actor 가 탈퇴하면 null (SET NULL 정책).
+# `target_ids` 는 join/kick 에만 — created/leave 는 actor 본인이 곧 대상이라 생략.
 
 class SystemContentCreated(BaseModel):
     """방이 처음 생성됨 — `actor_id` 가 creator."""

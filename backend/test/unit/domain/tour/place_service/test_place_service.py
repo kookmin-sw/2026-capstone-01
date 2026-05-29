@@ -5,11 +5,10 @@
     - `get_place_by_id`: 정상, 미존재 None
     - `search_nearby_places`: keyword 전달
 """
+from test.unit.domain.tour.place_service.model_factory import PlaceRawFactory
 import pytest
 
 from app.domain.tour.repository.place import PAGE_SIZE
-
-from test.unit.domain.tour.place_service.model_factory import PlaceRawFactory
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -32,6 +31,7 @@ class TestGetNearbyPlaces:
         # 빈 결과 → favorited 조회 skip
         fav_repo_mock.find_favorited_place_ids.assert_not_awaited()
 
+
     async def test_returns_places_with_distance_and_favorite(
         self, service, place_repo_mock, fav_repo_mock,
     ):
@@ -53,6 +53,7 @@ class TestGetNearbyPlaces:
         # favorited set 에 없으면 None
         assert result.places[1].is_favorite is None
 
+
     async def test_no_favorited_when_user_id_empty(
         self, service, place_repo_mock, fav_repo_mock,
     ):
@@ -63,6 +64,7 @@ class TestGetNearbyPlaces:
 
         fav_repo_mock.find_favorited_place_ids.assert_not_awaited()
         assert result.places[0].is_favorite is None
+
 
     async def test_no_next_cursor_when_partial_page(
         self, service, place_repo_mock,
@@ -75,6 +77,7 @@ class TestGetNearbyPlaces:
         result = await service.get_nearby_places(lat=37.5, lng=127.0, user_id="")
 
         assert result.next_cursor is None
+
 
     async def test_next_cursor_when_full_page(self, service, place_repo_mock):
         """fetch == PAGE_SIZE → 마지막 (distance, place_id) 인코딩이 next_cursor."""
@@ -115,6 +118,7 @@ class TestGetPlaceById:
         assert result is not None
         assert result.place_id == "PLACE_x"
         assert result.display_name == "Custom"
+
 
     async def test_returns_none_when_not_found(self, service, place_repo_mock):
         """미존재 → None (router 가 404 매핑)."""

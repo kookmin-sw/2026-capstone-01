@@ -2,13 +2,13 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from dependency_injector.wiring import Provide, inject
 
+from app.schema.common import MessageResponse
 from app.domain.friend.service.user_block import UserBlockService
 from app.domain.friend.schema.user_block import (
     BlockUserBody,
     UserBlockResponse, UserBlockListResponse,
 )
 from app.domain.friend.schema.friendship import FriendPeerResponse
-from app.schema.common import MessageResponse
 from app.container import Container
 
 

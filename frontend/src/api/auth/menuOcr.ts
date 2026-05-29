@@ -62,7 +62,7 @@ export function validateMenuOcrFiles(files: File[]): void {
   }
 
   for (const file of files) {
-    if (!MENU_OCR_ALLOWED_TYPES.includes(file.type as (typeof MENU_OCR_ALLOWED_TYPES)[number])) {
+    if (!isAllowedMenuOcrFile(file)) {
       throw new Error(`${file.name}: unsupported image format.`);
     }
 
@@ -165,6 +165,46 @@ function normalizeMenus(value: unknown): OcrMenuItem[] {
       category: normalizeCategory(menu.category),
     };
   });
+}
+
+async function ocrMenuSingleWithRetry(
+  file: File,
+  options: MenuOcrRequestOptions
+): Promise<MenuOcrSingleResponse> {
+  try {
+    return await ocrMenuSingle(file, options);
+  } catch (error) {
+    if (options.signal?.aborted || !isRetryableMenuOcrError(error)) {
+      throw error;
+    }
+
+    return ocrMenuSingle(file, options);
+  }
+}
+
+function isAllowedMenuOcrFile(file: File): boolean {
+  if (MENU_OCR_ALLOWED_TYPES.includes(file.type as (typeof MENU_OCR_ALLOWED_TYPES)[number])) {
+    return true;
+  }
+
+  return /\.(jpe?g|png|gif|bmp|webp|tiff?)$/i.test(file.name);
+}
+
+function isRetryableMenuOcrError(error: unknown): boolean {
+  const retryable = error as {
+    code?: string;
+    response?: { status?: number };
+  };
+  const status = retryable.response?.status;
+
+  return (
+    !status ||
+    status === 408 ||
+    status === 429 ||
+    status >= 500 ||
+    retryable.code === "ECONNABORTED" ||
+    retryable.code === "ERR_NETWORK"
+  );
 }
 
 function normalizeCategory(value: unknown): MenuCategory {

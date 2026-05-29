@@ -5,15 +5,15 @@ Service 는 `begin_nested()` 로 INSERT 를 SAVEPOINT 로 감싸고, race 로 �
 쿼리를 돌린다. 이 동작이 실제로 DB 레벨에서 성립하는지 확인한다.
 """
 
-import pytest
 from sqlalchemy import select
+import pytest
 
-from app.domain.friend.model.friendship import Friendship, FriendshipStatus
-from app.domain.friend.model.user_block import UserBlock
-from app.domain.friend.repository.friendship import FriendshipRepository
-from app.domain.friend.repository.user_block import UserBlockRepository
-from app.domain.friend.service.friendship import FriendshipService
 from app.domain.friend.service.user_block import UserBlockService
+from app.domain.friend.service.friendship import FriendshipService
+from app.domain.friend.repository.user_block import UserBlockRepository
+from app.domain.friend.repository.friendship import FriendshipRepository
+from app.domain.friend.model.user_block import UserBlock
+from app.domain.friend.model.friendship import Friendship, FriendshipStatus
 
 
 pytestmark = pytest.mark.integration

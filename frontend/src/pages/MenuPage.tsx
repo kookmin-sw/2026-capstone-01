@@ -559,7 +559,8 @@ export default function MenuPage() {
       <input
         ref={fileRef}
         type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp,image/bmp,image/tiff"
+        accept="image/*"
+        capture="environment"
         multiple
         onChange={handleFileChange}
         style={styles.hiddenInput}

@@ -23,13 +23,13 @@ friend 도메인의 `test_db_constraints.py` 패턴 차용 (raw DELETE FROM user
 으로 검증).
 """
 
-import pytest
-from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, text
+import pytest
 
-from app.domain.feed.model.feed_post import FeedPost, FeedVisibility
-from app.domain.feed.model.feed_post_comment import FeedPostComment
 from app.domain.feed.model.feed_post_like import FeedPostLike
+from app.domain.feed.model.feed_post_comment import FeedPostComment
+from app.domain.feed.model.feed_post import FeedPost, FeedVisibility
 
 
 pytestmark = pytest.mark.integration
@@ -69,6 +69,7 @@ class TestUserDeleteCascadesOwnedFeed:
             rows = (await s.execute(select(FeedPost))).scalars().all()
         assert rows == []
 
+
     async def test_owner_delete_cascades_likes_on_own_post(
         self, seed_users, session_factory,
     ):
@@ -88,6 +89,7 @@ class TestUserDeleteCascadesOwnedFeed:
         async with session_factory() as s:
             rows = (await s.execute(select(FeedPostLike))).scalars().all()
         assert rows == []
+
 
     async def test_owner_delete_cascades_comments_on_own_post(
         self, seed_users, session_factory,
@@ -138,6 +140,7 @@ class TestUserDeleteCascadesActionsOnOthersPost:
             posts = (await s.execute(select(FeedPost))).scalars().all()
         assert {l.user_id for l in likes} == {bystander}
         assert len(posts) == 1
+
 
     async def test_commenter_delete_cascades_only_own_comment(
         self, seed_users, session_factory,
@@ -191,6 +194,7 @@ class TestFeedPostDeleteCascade:
         async with session_factory() as s:
             likes = (await s.execute(select(FeedPostLike))).scalars().all()
         assert likes == []
+
 
     async def test_post_delete_cascades_comments(self, seed_users, session_factory):
         owner, commenter, _ = await seed_users(3)

@@ -2,9 +2,10 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from dependency_injector.wiring import Provide, inject
 
+from app.schema.common import MessageResponse
+from app.domain.tour.service.tour_search_history import TourSearchHistoryService
 from app.domain.tour.service.place import PlaceService
 from app.domain.tour.service.favorite_place import FavoritePlaceService
-from app.domain.tour.service.tour_search_history import TourSearchHistoryService
 from app.domain.tour.schema.place import (
     PlaceDetailResponse,
     PlaceResponse,
@@ -16,7 +17,6 @@ from app.domain.tour.schema.place import (
     FavoritePlaceResponse,
     FavoritePlaceListResponse,
 )
-from app.schema.common import MessageResponse
 from app.core.logger import get_logger
 from app.container import Container
 
@@ -132,6 +132,7 @@ def _to_place_response(place) -> PlaceResponse:
             )
             for r in place.reviews
         ],
+        photos=place.photos,
         distance=place.distance,
         is_favorite=place.is_favorite,
     )
@@ -267,5 +268,6 @@ def _to_favorite_response(fav) -> FavoritePlaceResponse:
                 )
                 for r in place.reviews
             ],
+            photos=place.photos,
         ),
     )

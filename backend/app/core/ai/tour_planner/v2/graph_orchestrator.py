@@ -1,17 +1,13 @@
 from typing import Any, Dict, List, Optional, Tuple
 import time
-from langgraph.graph import StateGraph, START, END
 import math
+from langgraph.graph import StateGraph, START, END
 from functools import lru_cache
 import asyncio
 
 from app.domain.tour.repository.place import PlaceRepository
-from app.core.ai.tour_planner.v2.category import (
-    GROUP_OTHER,
-    GROUPS,
-    classify,
-    compute_caps,
-)
+from app.core.logger import get_logger
+from app.core.ai.tour_planner.v2.prompt_manager import CLUSTER_COORDINATES
 from app.core.ai.tour_planner.v2.data_state import (
     FoodPreference,
     TourBudgetItem,
@@ -25,8 +21,12 @@ from app.core.ai.tour_planner.v2.data_state import (
     TourTimelineSlot,
 )
 from app.core.ai.tour_planner.v2.chain_builder import get_tour_planner_chain_builder
-from app.core.ai.tour_planner.v2.prompt_manager import CLUSTER_COORDINATES
-from app.core.logger import get_logger
+from app.core.ai.tour_planner.v2.category import (
+    GROUP_OTHER,
+    GROUPS,
+    classify,
+    compute_caps,
+)
 
 
 logger = get_logger("Tour Planner v2 Graph Orchestrator")
@@ -326,12 +326,14 @@ class TourPlannerGraphOrchestrator:
 
         fixed_pid = fixed_place["place_id"] if fixed_place else None
 
-        # 1~3) 장소 정리 + is_additional 보정
+        # 1~3) 장소 정리 + is_additional 보정 + photos 주입 (LLM은 photos를 모름 → 서버가 DB 원본으로 강제 덮어쓰기)
         kept_places: List[TourPlaceDetail] = []
         for place in day_plan.places:
             if fixed_pid and place.place_id == fixed_pid:
-                if not place.is_additional:
-                    place = place.model_copy(update={"is_additional": True})
+                place = place.model_copy(update={
+                    "is_additional": True,
+                    "photos": fixed_place.get("photos") or [],
+                })
                 kept_places.append(place)
                 continue
 
@@ -352,8 +354,10 @@ class TourPlannerGraphOrchestrator:
                     )
                     continue
 
+            update: dict = {"photos": source.get("photos") or []}
             if place.is_additional:
-                place = place.model_copy(update={"is_additional": False})
+                update["is_additional"] = False
+            place = place.model_copy(update=update)
 
             kept_places.append(place)
 
@@ -736,6 +740,7 @@ def _fixed_place_to_detail(fixed_place: dict) -> TourPlaceDetail:
         estimated_cost_krw=0,
         stay_minutes=60,
         is_additional=True,
+        photos=fixed_place.get("photos") or [],
     )
 
 

@@ -3,12 +3,13 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone
 from collections import defaultdict
 
-from app.domain.tour.repository.tour_plan import TourPlanRepository
-from app.domain.tour.repository.tour_plan_item import TourPlanItemRepository
-from app.domain.tour.repository.place import PlaceRepository
-from app.domain.tour.model.tour_plan import TourPlan
-from app.domain.tour.model.tour_plan_item import TourPlanItem
+from app.util.share_token import encode_share_token
 from app.domain.tour.service.exception import TourPlanNotFoundError, TourPlanItemNotFoundError
+from app.domain.tour.repository.tour_plan_item import TourPlanItemRepository
+from app.domain.tour.repository.tour_plan import TourPlanRepository
+from app.domain.tour.repository.place import PlaceRepository
+from app.domain.tour.model.tour_plan_item import TourPlanItem
+from app.domain.tour.model.tour_plan import TourPlan
 from app.domain.tour.dto.tour_plan import (
     TourPlanItemCreateInput,
     TourPlanItemData,
@@ -18,7 +19,6 @@ from app.domain.tour.dto.tour_plan import (
     ShareTokenData,
 )
 from app.database.session import UnitOfWork, transactional
-from app.util.share_token import encode_share_token
 
 
 # 카드 position 의 기본 간격. 큰 값일수록 같은 자리 반복 삽입 시 float 정밀도 여유 ↑
@@ -304,7 +304,7 @@ class TourPlanService:
         plan.updated_at = datetime.now(timezone.utc)
         await plan_repo.update(plan)
 
-        return self._to_item_dto(item, raw.get("rating"))
+        return self._to_item_dto(item, raw.get("rating"), raw.get("photos") or [])
 
 
     # ──────────────────── 카드 교체 (PUT) ────────────────────
@@ -353,7 +353,7 @@ class TourPlanService:
         plan.updated_at = datetime.now(timezone.utc)
         await plan_repo.update(plan)
 
-        return self._to_item_dto(item, raw.get("rating"))
+        return self._to_item_dto(item, raw.get("rating"), raw.get("photos") or [])
 
 
     # ──────────────────── 카드 이동 ────────────────────
@@ -530,7 +530,7 @@ class TourPlanService:
 
 
     @staticmethod
-    def _to_item_dto(item: TourPlanItem, rating: Optional[float]) -> TourPlanItemData:
+    def _to_item_dto(item: TourPlanItem, rating: Optional[float], photos: list[str]) -> TourPlanItemData:
         return TourPlanItemData(
             item_id=item.item_id,
             day_number=item.day_number,
@@ -540,6 +540,7 @@ class TourPlanService:
             address=item.address,
             visit_time=item.visit_time,
             rating=rating,
+            photos=photos,
         )
 
 
@@ -553,7 +554,8 @@ class TourPlanService:
         for i in items:
             raw = place_map.get(i.place_id)
             rating = raw.get("rating") if raw else None
-            item_dtos.append(self._to_item_dto(i, rating))
+            photos = (raw.get("photos") or []) if raw else []
+            item_dtos.append(self._to_item_dto(i, rating, photos))
 
         return TourPlanData(
             plan_id=plan.plan_id,

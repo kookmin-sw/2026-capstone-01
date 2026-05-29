@@ -1,21 +1,4 @@
-"""피드 게시물 라우터 — 본인 피드 CRUD.
-
-엔드포인트:
-    POST   /feed/posts                        — multipart 업로드
-    GET    /feed/me                           — 본인 피드 (커서 페이지네이션)
-    GET    /feed/posts/{post_id}              — 본인 게시물 단건
-    PATCH  /feed/posts/{post_id}/visibility   — 공개 범위 변경
-    PATCH  /feed/posts/{post_id}/caption      — 캡션 변경
-    DELETE /feed/posts/{post_id}              — 본인 게시물 삭제
-
-에러 매핑 (구체적 → 일반적 순서):
-    FeedNotFoundError     → 404
-    PermissionError       → 403
-    ValueError            → 400  (Pillow 디코딩 실패 / 미지원 포맷 / 해상도 초과)
-    그 외 (S3/DB)          → 500  (uncaught propagate, 미들웨어 ErrorTrackingMiddleware 가 로깅)
-
-다른 유저 피드 / 차단 처리는 M3 의 별도 엔드포인트 — 본 라우터는 본인 피드만.
-"""
+"""피드 게시물 라우터 — 본인 피드 CRUD. 타 유저 피드는 `feed_user.py` 별도."""
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, Depends, UploadFile, File, Form, Query
 from dependency_injector.wiring import Provide, inject
@@ -37,9 +20,8 @@ router = APIRouter(tags=["내 소유 피드 CRUD"])
 logger = get_logger("feed.post.router")
 
 
-# 기획안의 jpg/png/webp/gif 중 GIF 는 협의로 제외 (multi-frame vs first-frame thumbnail
-# inconsistency 회피 + Feed 는 정지 이미지 전용 정책). thumbnail.py 의 포맷 화이트리스트와
-# 일치 — 라우터가 fast-fail 차단하면 thumbnail 단의 화이트리스트는 defense-in-depth.
+# GIF 제외 (정지 이미지 전용 정책). thumbnail.py 의 화이트리스트와 일치 — 라우터가 fast-fail,
+# thumbnail 은 defense-in-depth.
 _ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
@@ -60,20 +42,15 @@ async def upload_post(
     ),
     feed_service: FeedPostService = Depends(Provide[Container.feed_post_service]),
 ) -> FeedPostResponse:
-    """피드 게시물 업로드 — multipart/form-data.
-
-    검증 순서: content-type → 파일 크기 → 서비스 (Pillow → S3 → PG INSERT, 실패 시 cleanup).
-    """
+    """피드 게시물 업로드 (multipart/form-data). content-type → 파일 크기 → 서비스 순 검증."""
     user_id: str = request.state.user_id
 
-    # content-type 화이트리스트 — Pillow 호출 전 fast-fail.
     if file.content_type not in _ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"허용되지 않는 파일 형식입니다: {file.content_type} (jpeg, png, webp만 가능)",
         )
 
-    # 파일 바이트 로드 + 크기 검증.
     contents = await file.read()
     if len(contents) > _MAX_FILE_SIZE:
         raise HTTPException(
@@ -89,7 +66,7 @@ async def upload_post(
             caption=caption,
         )
     except ValueError as e:
-        # Pillow 디코딩 실패 / 미지원 포맷 / 해상도 초과 등 (thumbnail.py 의 ValueError 군)
+        # Pillow 디코딩 실패 / 미지원 포맷 / 해상도 초과 등.
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error("피드 업로드 실패 (user_id={}): {}", user_id, e)
@@ -107,7 +84,7 @@ async def get_my_feed(
     cursor: Optional[str] = Query(None, description="다음 페이지 커서 (post_id)"),
     feed_service: FeedPostService = Depends(Provide[Container.feed_post_service]),
 ) -> FeedPostListResponse:
-    """본인 피드 조회 — 모든 visibility 노출, 30개씩 커서 페이지네이션."""
+    """본인 피드 — 모든 visibility, 커서 페이지네이션."""
     user_id: str = request.state.user_id
     result = await feed_service.get_my_feed(user_id=user_id, cursor=cursor)
     return _to_list_response(result)
@@ -120,7 +97,7 @@ async def get_post(
     post_id: str,
     feed_service: FeedPostService = Depends(Provide[Container.feed_post_service]),
 ) -> FeedPostResponse:
-    """본인 게시물 단건 조회 — 다른 유저 게시물 조회는 별도 엔드포인트."""
+    """본인 게시물 단건."""
     user_id: str = request.state.user_id
     try:
         post = await feed_service.get_my_post(user_id=user_id, post_id=post_id)
@@ -202,7 +179,7 @@ async def delete_post(
 # ──────────────────── 내부 유틸 ────────────────────
 
 def _to_response(post: FeedPostData) -> FeedPostResponse:
-    """DTO → Response Pydantic. dataclass 의 필드명이 Pydantic 모델과 일치해 1:1 매핑."""
+    """DTO → Response 1:1."""
     return FeedPostResponse(
         post_id=post.post_id,
         user_id=post.user_id,
@@ -213,6 +190,7 @@ def _to_response(post: FeedPostData) -> FeedPostResponse:
         thumbnail_medium_url=post.thumbnail_medium_url,
         like_count=post.like_count,
         comment_count=post.comment_count,
+        is_liked=post.is_liked,
         created_at=post.created_at,
         updated_at=post.updated_at,
     )

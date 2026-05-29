@@ -7,9 +7,8 @@
 응답이 Pydantic 직렬화 단계에서 500 으로 터지는 버그가 있었다. 같은 회귀가 다시
 발생하지 않도록 스키마 단위에서 다형 입력을 직접 검증한다.
 """
-from datetime import datetime, timezone
-
 import pytest
+from datetime import datetime, timezone
 
 from app.domain.chat.schema.room import LastMessagePreviewResponse
 
@@ -36,11 +35,13 @@ class TestLastMessagePreviewResponseContent:
         resp = _build("hello")
         assert resp.content == "hello"
 
+
     def test_accepts_system_created_dict(self):
         """system.created — `{action, actor_id}`."""
         payload = {"action": "created", "actor_id": "U_A"}
         resp = _build(payload)
         assert resp.content == payload
+
 
     def test_accepts_system_join_dict_with_target_ids(self):
         """system.join — `target_ids` 까지 보존."""
@@ -48,14 +49,17 @@ class TestLastMessagePreviewResponseContent:
         resp = _build(payload)
         assert resp.content == payload
 
+
     def test_accepts_image_dict(self):
         payload = {"url": "https://cdn.example.com/p.jpg", "name": "p.jpg"}
         resp = _build(payload)
         assert resp.content == payload
 
+
     def test_accepts_null_for_deleted_message(self):
         resp = _build(None)
         assert resp.content is None
+
 
     def test_dict_content_serializes_as_object_not_string(self):
         """JSON 직렬화 시 dict 가 그대로 객체로 내려가야 함.

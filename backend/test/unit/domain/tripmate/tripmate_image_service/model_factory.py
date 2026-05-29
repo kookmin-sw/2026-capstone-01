@@ -3,8 +3,8 @@
 `TripmateImage` 는 `find_by_user_id` / `find_by_image_id` 응답이며 service 가 `image_id`,
 `user_id`, `image_url` attribute 만 접근. SimpleNamespace minimal stub.
 """
-from types import SimpleNamespace
 from typing import Optional
+from types import SimpleNamespace
 
 
 class TripmateImageFactory:
@@ -25,6 +25,7 @@ class TripmateImageFactory:
             user_id=user_id,
             image_url=image_url or f"https://img/{image_id_val}.jpg",
         )
+
 
     @classmethod
     def reset_counter(cls) -> None:

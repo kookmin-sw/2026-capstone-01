@@ -37,10 +37,33 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from app.domain.tour.model.place import Place
 
 
+# ──────────────────── 이미지 URL 매핑 ────────────────────
+
+
+def load_image_map(image_file: Path) -> dict[str, str]:
+    """image_url.txt → {place_id: url} 매핑
+
+    파일 포맷: 한 줄당 하나의 URL (`.../places/{place_id}.jpg`).
+    파일이 없으면 빈 dict 반환 → 모든 장소가 photos=[] 로 저장됨.
+    """
+    image_map: dict[str, str] = {}
+    if not image_file.exists():
+        return image_map
+
+    with open(image_file, "r", encoding="utf-8") as f:
+        for line in f:
+            url = line.strip()
+            if not url:
+                continue
+            place_id = url.rsplit("/", 1)[-1].removesuffix(".jpg")
+            image_map[place_id] = url
+    return image_map
+
+
 # ──────────────────── 데이터 변환 ────────────────────
 
 
-def transform_place(raw: dict) -> dict:
+def transform_place(raw: dict, image_map: dict[str, str]) -> dict:
     """원본 JSON → Place Document 형식으로 변환"""
 
     # location: {lat, lng} → GeoJSON {type, coordinates: [lng, lat]}
@@ -59,8 +82,9 @@ def transform_place(raw: dict) -> dict:
         review.pop("rating_stars", None)
     raw["reviews"] = reviews
 
-    # photos 데이터 사용하지 않음
-    raw["photos"] = []
+    # photos: image_map에 place_id가 있으면 URL 부착, 없으면 빈 배열
+    image_url = image_map.get(raw.get("place_id"))
+    raw["photos"] = [image_url] if image_url else []
 
     return raw
 
@@ -105,16 +129,22 @@ async def load_places(mongodb_url: str, data_dir: Path):
         print(f"[오류] {data_dir}에 final_data*.json 파일이 없습니다.")
         return
 
+    # 이미지 URL 매핑 로드 (place_id → URL) — 한 번만 읽어 메모리 보관 후 변환에 재사용
+    image_map = load_image_map(data_dir / "image_url.txt")
+    print(f"[이미지 매핑] {len(image_map)}개 로드 완료")
+
     print(f"[시작] {len(files)}개 파일, 데이터 디렉토리: {data_dir}")
 
     total_inserted = 0
+    matched_images = 0
 
     for i, file_path in enumerate(files, 1):
         with open(file_path, "r", encoding="utf-8") as f:
             raw_places = json.load(f)
 
         # 변환
-        docs = [transform_place(raw) for raw in raw_places]
+        docs = [transform_place(raw, image_map) for raw in raw_places]
+        matched_images += sum(1 for d in docs if d["photos"])
 
         # insert_many 실행 (drop 후 신규 삽입이므로 upsert 불필요)
         result = await collection.insert_many(docs)
@@ -124,7 +154,7 @@ async def load_places(mongodb_url: str, data_dir: Path):
         if i % 10 == 0 or i == len(files):
             print(f"  [{i}/{len(files)}] 삽입: {total_inserted}")
 
-    print(f"\n[완료] 총 삽입: {total_inserted}")
+    print(f"\n[완료] 총 삽입: {total_inserted}, 이미지 부착: {matched_images}")
 
     # 인덱스 확인
     indexes = await collection.index_information()

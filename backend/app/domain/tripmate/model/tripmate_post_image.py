@@ -1,5 +1,5 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, Index
 from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, Integer, ForeignKey, Index
 
 from app.util.id_generator import generate_tripmate_image_id
 from app.database.session import Base

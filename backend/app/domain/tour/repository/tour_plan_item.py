@@ -1,6 +1,6 @@
 from typing import Optional
-from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
 
 from app.domain.tour.model.tour_plan_item import TourPlanItem
 

@@ -14,12 +14,12 @@ Storage 만 mock — Mongo (TripmateImage / TripmatePostDraft) + RDB (TripmatePo
     | cleanup 모두 참조됨                  | 0 반환, 외부 호출 X                     |
     | cleanup 일부 고아 (post + draft 외)  | Storage delete_many + Mongo bulk delete |
 """
-import pytest
 from sqlalchemy import select
+import pytest
 
-from app.domain.tripmate.model.tripmate_image import TripmateImage
-from app.domain.tripmate.model.tripmate_post_draft import TripmatePostDraft
 from app.domain.tripmate.model.tripmate_post_image import TripmatePostImage
+from app.domain.tripmate.model.tripmate_post_draft import TripmatePostDraft
+from app.domain.tripmate.model.tripmate_image import TripmateImage
 
 
 pytestmark = pytest.mark.integration
@@ -72,6 +72,7 @@ class TestDeleteImage:
         coll = TripmateImage.get_motor_collection()
         assert await coll.count_documents({"image_id": uploaded.image_id}) == 0
 
+
     async def test_other_user_raises_permission_error(
         self, tripmate_image_service, seed_users,
     ):
@@ -85,6 +86,7 @@ class TestDeleteImage:
             await tripmate_image_service.delete_image(
                 user_id=other, image_id=uploaded.image_id,
             )
+
 
     async def test_missing_raises_value_error(
         self, tripmate_image_service, seed_users,
@@ -131,6 +133,7 @@ class TestCleanupOrphanedImages:
         assert deleted == 0
         tripmate_image_storage_mock.delete_many.assert_not_awaited()
 
+
     async def test_deletes_only_orphans_from_union(
         self, tripmate_image_service, tripmate_image_storage_mock,
         seed_users, seed_tripmate_post, session_factory,
@@ -176,6 +179,7 @@ class TestCleanupOrphanedImages:
             doc["image_id"] async for doc in coll.find({"user_id": owner_id})
         }
         assert remaining_ids == {post_ref.image_id, draft_ref.image_id}
+
 
     async def test_no_images_returns_zero(
         self, tripmate_image_service, seed_users,

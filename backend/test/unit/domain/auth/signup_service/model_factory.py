@@ -6,11 +6,11 @@
 
 `UserDetailInform` 도 본 service 에선 존재 여부만 확인하므로 minimal stub 로 충분.
 """
-from types import SimpleNamespace
 from typing import Optional
+from types import SimpleNamespace
 
-from app.config.oauth import OAuthProvider
 from app.domain.auth.model.user import UserStatus
+from app.config.oauth import OAuthProvider
 
 
 class UserFactory:
@@ -33,6 +33,7 @@ class UserFactory:
             status=status,
         )
 
+
     @classmethod
     def reset_counter(cls) -> None:
         cls._counter = 0
@@ -47,6 +48,7 @@ class UserDetailInformFactory:
     def create(cls, *, user_id: str = "USER_test") -> SimpleNamespace:
         cls._counter += 1
         return SimpleNamespace(user_id=user_id)
+
 
     @classmethod
     def reset_counter(cls) -> None:

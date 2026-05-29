@@ -1,6 +1,6 @@
-from sqlalchemy import Column, String, DateTime, Boolean, Enum, UniqueConstraint, Index, text
-from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, DateTime, Boolean, Enum, UniqueConstraint, Index, text
 import enum
 
 from app.util.id_generator import generate_user_id

@@ -1,8 +1,66 @@
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from app.domain.auth.model.user_travel_style import TravelStyle
 from app.domain.auth.model.user_detail_inform import Gender
+
+
+class ProfileUpdateRequest(BaseModel):
+    """프로필 부분 수정 요청 — 변경할 필드만 포함.
+
+    notification_muted / profile_image_url / status / auth_provider 는
+    각각 별도 엔드포인트(알림 mute, 프로필 이미지 CRUD, 탈퇴, OAuth)에서 관리.
+
+    travel_styles 의미:
+        - 필드 미포함 또는 null → 변경 없음
+        - [] (빈 배열)           → 기존 스타일 전체 삭제
+        - [..]                   → 기존 스타일 전체 교체
+    """
+
+    email: Optional[EmailStr] = Field(
+        None,
+        description="이메일 주소",
+        examples=["user@example.com"],
+    )
+    user_name: Optional[str] = Field(
+        None,
+        description="사용자 이름",
+        examples=["조현상"],
+    )
+    phone_number: Optional[str] = Field(
+        None,
+        description="전화번호",
+        examples=["010-1234-5678"],
+    )
+    age: Optional[int] = Field(
+        None,
+        description="나이",
+        examples=[26],
+    )
+    gender: Optional[Gender] = Field(
+        None,
+        description="성별 (male / female)",
+        examples=["male"],
+    )
+    nationality: Optional[str] = Field(
+        None,
+        description="국적",
+        examples=["korea"],
+    )
+    travel_styles: Optional[List[TravelStyle]] = Field(
+        None,
+        description="여행 스타일 (전체 교체. [] = 전체 삭제, null/미포함 = 변경 없음)",
+        examples=[["activity", "food_tour"]],
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_name": "홍길동",
+                "age": 27,
+                "travel_styles": ["activity", "foodie"],
+            }
+        }
 
 
 class ProfileResponse(BaseModel):
@@ -126,4 +184,22 @@ class OtherUserProfileListResponse(BaseModel):
     users: List[OtherUserProfileResponse] = Field(
         ...,
         description="본인을 제외한 ACTIVE 유저 목록 (최신 가입순)",
+    )
+
+
+class ProfileStatsResponse(BaseModel):
+    """마이페이지 통계 응답 — 본인 활동 카운터.
+
+    응답 시점 스냅샷. 클라이언트가 좋아요/친구 액션 후 마이페이지를 다시 조회하면
+    갱신된 값. 미래 확장 (게시물 수, 댓글 수 등) 시 새 필드를 평면으로 추가.
+    """
+    total_feed_likes: int = Field(
+        ...,
+        description="본인이 업로드한 모든 피드 게시물이 받은 좋아요 총 합 (visibility 무관)",
+        examples=[42],
+    )
+    total_friends: int = Field(
+        ...,
+        description="ACCEPTED 상태의 친구 수 (PENDING / REJECTED 제외)",
+        examples=[7],
     )

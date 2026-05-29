@@ -14,17 +14,19 @@ shutdown 시 `stop_withdraw_purge_scheduler()` 호출. 패턴은 `chat.worker.re
     - `purge` 자체는 `WithdrawService.purge` 위임 — 단일 진실 공급원.
 """
 from __future__ import annotations
+
 from typing import Optional
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 import os
 from datetime import datetime, timezone, timedelta
 import asyncio
 
-from app.domain.auth.repository.withdrawal_request import WithdrawalRequestRepository
-from app.domain.auth.service.withdraw import WithdrawService
 from app.domain.notification.service.inbox import InboxService
+from app.domain.auth.service.withdraw import WithdrawService
+from app.domain.auth.repository.withdrawal_request import WithdrawalRequestRepository
 from app.database.session import UnitOfWork
 from app.core.logger import get_logger
+from app.core.instrumentation import withdraw_purge_run
 
 
 logger = get_logger("auth.withdraw_purge")
@@ -163,7 +165,8 @@ async def _purge_loop(stop_event: asyncio.Event) -> None:
 
         # 발화 — 사이클 1 회.
         try:
-            await purge_due_withdrawals_once()
+            async with withdraw_purge_run():
+                await purge_due_withdrawals_once()
         except Exception as e:
             # 사이클 전역 실패는 다음 사이클로 흘려보냄. 단일 유저 실패는 위에서 이미 격리.
             logger.exception("withdraw purge 사이클 전역 실패 (계속 진행): {}", e)

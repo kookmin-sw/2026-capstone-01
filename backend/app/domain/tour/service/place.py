@@ -1,4 +1,3 @@
-from app.database.session import UnitOfWork, transactional
 from app.domain.tour.repository.place import PlaceRepository, PAGE_SIZE
 from app.domain.tour.repository.favorite_place import FavoritePlaceRepository
 from app.domain.tour.dto.place import (
@@ -9,6 +8,7 @@ from app.domain.tour.dto.place import (
     PlacePriceRangeData,
     PlaceReviewData,
 )
+from app.database.session import UnitOfWork, transactional
 
 
 class PlaceService:
@@ -87,6 +87,7 @@ class PlaceService:
 
         return PlaceListData(places=place_dtos, next_cursor=next_cursor)
 
+
     @staticmethod
     def _build_common_fields(raw: dict) -> dict:
         """MongoDB raw dict → 공통 필드 dict 변환"""
@@ -128,12 +129,15 @@ class PlaceService:
                 )
                 for r in (raw.get("reviews") or [])
             ],
+            photos=raw.get("photos") or [],
         )
+
 
     @staticmethod
     def to_detail_dto(raw: dict) -> PlaceDetailData:
         """MongoDB raw dict → PlaceDetailData DTO 변환 (장소 상세만)"""
         return PlaceDetailData(**PlaceService._build_common_fields(raw))
+
 
     @staticmethod
     def _to_dto(raw: dict, favorited: set[str]) -> PlaceData:

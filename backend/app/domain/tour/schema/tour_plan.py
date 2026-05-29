@@ -57,6 +57,7 @@ class CreatePlanRequest(BaseModel):
     def _check_title(cls, v: Optional[str]) -> Optional[str]:
         return _validate_title(v)
 
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -133,7 +134,7 @@ class UpdateItemRequest(BaseModel):
 
 
 class PlanItemResponse(BaseModel):
-    """카드 단건 응답 (rating 은 MongoDB 라이브 조회값)"""
+    """카드 단건 응답 (rating / photos 는 MongoDB 라이브 조회값)"""
     item_id: str = Field(..., description="카드 고유 ID")
     day_number: int = Field(..., description="여행 일차")
     position: float = Field(..., description="day 내 정렬 순서")
@@ -142,6 +143,7 @@ class PlanItemResponse(BaseModel):
     address: str = Field(..., description="주소 (스냅샷)")
     visit_time: Optional[str] = Field(None, description="방문 시각 'HH:MM'")
     rating: Optional[float] = Field(None, description="별점 (MongoDB 라이브, 없으면 null)")
+    photos: List[str] = Field(default_factory=list, description="사진 URL 목록 (MongoDB 라이브, 없으면 빈 배열)")
 
 
 class PlanDetailResponse(BaseModel):

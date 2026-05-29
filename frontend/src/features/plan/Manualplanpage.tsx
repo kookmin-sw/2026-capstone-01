@@ -19,7 +19,7 @@ import {
   type PlanDetailResponse,
 } from "../../api/aiPlanShared";
 
-type ShareTarget = "kakao" | "link" | "mail" | "message";
+type ShareTarget = "link" | "mail" | "message";
 
 interface ManualPlanPageProps {
   onBack?: () => void;
@@ -47,19 +47,6 @@ interface PlannedStop extends TourPlace {
 }
 
 type ManualStep = 1 | 2 | 3 | 4 | 5;
-
-declare global {
-  interface Window {
-    Kakao?: {
-      isInitialized?: () => boolean;
-      init: (key: string) => void;
-      Share?: {
-        sendDefault: (options: unknown) => void;
-      };
-    };
-  }
-}
-
 
 const MANUAL_PLAN_DATE_METADATA_KEY = "krip-manual-plan-date-metadata";
 
@@ -97,6 +84,12 @@ function parseDateOnly(value: string): Date | null {
 function readPlanId(): string | null {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get("planId");
+}
+
+function shouldOpenRoutePreview(): boolean {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("preview") === "route";
 }
 
 function formatDateLabel(value: string): string {
@@ -456,35 +449,6 @@ async function updateExistingBackendPlan(
   return { saved, dayNumberByDate };
 }
 
-async function loadKakaoSdk(): Promise<typeof window.Kakao | null> {
-  if (typeof window === "undefined") return null;
-  if (window.Kakao) return window.Kakao;
-
-  await new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(
-      'script[data-kakao-sdk="true"]'
-    );
-
-    if (existing) {
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error("SDK load failed")), {
-        once: true,
-      });
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = "https://developers.kakao.com/sdk/js/kakao.min.js";
-    script.async = true;
-    script.dataset.kakaoSdk = "true";
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("SDK load failed"));
-    document.head.appendChild(script);
-  });
-
-  return window.Kakao || null;
-}
-
 function createShareLink(): string {
   if (typeof window === "undefined") {
     return "https://example.com/trip/manual";
@@ -496,46 +460,6 @@ function ShareSheet({ onClose }: { onClose: () => void }) {
   const shareLink = createShareLink();
 
   const handleShare = async (target: ShareTarget) => {
-    if (target === "kakao") {
-      const kakao = await loadKakaoSdk().catch(() => null);
-      const kakaoKey = import.meta.env.VITE_KAKAO_JS_KEY;
-
-      if (!kakao || !kakaoKey) {
-        window.alert("Add VITE_KAKAO_JS_KEY to enable KakaoTalk sharing.");
-        onClose();
-        return;
-      }
-
-      if (!kakao.isInitialized?.()) {
-        kakao.init(kakaoKey);
-      }
-
-      kakao.Share?.sendDefault({
-        objectType: "feed",
-        content: {
-          title: "Trip plan invite",
-          description: "Join my trip plan and edit it together.",
-          imageUrl:
-            "https://developers.kakao.com/tool/resource/static/img/button/kakaolink_btn_small.png",
-          link: {
-            mobileWebUrl: shareLink,
-            webUrl: shareLink,
-          },
-        },
-        buttons: [
-          {
-            title: "Open Plan",
-            link: {
-              mobileWebUrl: shareLink,
-              webUrl: shareLink,
-            },
-          },
-        ],
-      });
-      onClose();
-      return;
-    }
-
     if (target === "link") {
       try {
         await navigator.clipboard.writeText(shareLink);
@@ -564,7 +488,6 @@ function ShareSheet({ onClose }: { onClose: () => void }) {
     subtitle: string;
     color: string;
   }> = [
-    { id: "kakao", title: "KakaoTalk", subtitle: "SDK share", color: "#fee500" },
     { id: "link", title: "Copy Link", subtitle: "Share URL", color: "#dffafa" },
     { id: "mail", title: "Email", subtitle: "Send invite", color: "#eef3ff" },
     { id: "message", title: "Message", subtitle: "Open SMS", color: "#f3fff0" },
@@ -579,7 +502,6 @@ function ShareSheet({ onClose }: { onClose: () => void }) {
         aria-label="Close share sheet"
       />
       <div style={styles.sheet}>
-        <div style={styles.sheetHandle} />
         <h2 style={styles.sheetTitle}>Invite friends</h2>
         <p style={styles.sheetCopy}>
           Share this planning link so your friends can join and work on the itinerary together.
@@ -856,7 +778,9 @@ export default function ManualPlanPage({
   onHome,
   onMyPage,
 }: ManualPlanPageProps) {
-  const [step, setStep] = useState<ManualStep>(1);
+  const [step, setStep] = useState<ManualStep>(() =>
+    shouldOpenRoutePreview() ? 4 : 1
+  );
   const [tripTitle, setTripTitle] = useState("Manual Trip Plan");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -881,6 +805,7 @@ export default function ManualPlanPage({
   const [isComplete, setIsComplete] = useState(false);
 
   const planId = useMemo(() => readPlanId(), []);
+  const openRoutePreview = useMemo(() => shouldOpenRoutePreview(), []);
   const tripDates = useMemo(
     () => enumerateTripDates(startDate, endDate),
     [startDate, endDate]
@@ -921,7 +846,7 @@ export default function ManualPlanPage({
     return () => {
       cancelled = true;
     };
-  }, [planId]);
+  }, [openRoutePreview, planId]);
 
   useEffect(() => {
     if (!tripDates.includes(activeDate) && tripDates.length > 0) {
@@ -1046,6 +971,11 @@ export default function ManualPlanPage({
   };
 
   const goBack = () => {
+    if (openRoutePreview) {
+      onMyPage?.();
+      return;
+    }
+
     if (isComplete) {
       onBack?.();
       return;
@@ -1665,7 +1595,7 @@ export default function ManualPlanPage({
         </div>
       ) : null}
 
-      {!isComplete && step < 5 ? (
+      {!isComplete && !openRoutePreview && step < 5 ? (
         <div style={styles.actionBar}>
           <button
             type="button"

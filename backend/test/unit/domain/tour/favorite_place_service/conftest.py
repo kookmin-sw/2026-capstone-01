@@ -4,10 +4,6 @@ PlaceRepository / FavoritePlaceRepository mock 은 place_service 의 mock_factor
 FavoritePlace 클래스도 service 가 직접 인스턴스화하므로 stub 으로 치환 (Phase 1 의 signup
 패턴과 동일).
 """
-import pytest
-
-from app.domain.tour.service.favorite_place import FavoritePlaceService
-
 from test.unit.domain.tour.place_service.mock_factory import (
     FakeUnitOfWork,
     FavoritePlaceRepositoryMockFactory,
@@ -15,6 +11,9 @@ from test.unit.domain.tour.place_service.mock_factory import (
     make_mock_session,
 )
 from test.unit.domain.tour.favorite_place_service.model_factory import FavoritePlaceFactory
+import pytest
+
+from app.domain.tour.service.favorite_place import FavoritePlaceService
 
 
 class _FavoritePlaceStub:
