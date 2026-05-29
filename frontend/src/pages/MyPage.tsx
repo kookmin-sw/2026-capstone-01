@@ -43,6 +43,7 @@ import {
 } from "../api/feed";
 import { setGlobalNotificationMuted } from "../api/notification";
 import { showAppToast } from "../utils/appToast";
+import { useBodyScrollLock } from "../utils/useBodyScrollLock";
 
 const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
 
@@ -246,6 +247,14 @@ export default function MyPage() {
   const [planMessage, setPlanMessage] = useState("");
   const [shareInfo, setShareInfo] = useState<SharePlanResponse | null>(null);
   const [shareLink, setShareLink] = useState("");
+  const isPopupOpen =
+    isSettingsOpen ||
+    Boolean(feedPreviewUrl) ||
+    Boolean(pendingAccountAction) ||
+    Boolean(selectedFeedPost) ||
+    Boolean(feedConfirm);
+
+  useBodyScrollLock(isPopupOpen);
 
   useEffect(() => {
     getMyProfile()
