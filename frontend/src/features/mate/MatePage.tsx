@@ -42,6 +42,7 @@ import {
   type RecommendedTraveler,
 } from "../../utils/mateRecommendation";
 import { showAppToast } from "../../utils/appToast";
+import { useBodyScrollLock } from "../../utils/useBodyScrollLock";
 import ChatPage from "../friend-chat/ChatPage";
 
 const COMPANION_FILTERS = ["all", "sole", "friend", "couple", "family"] as const;
@@ -159,6 +160,13 @@ export default function MatePage() {
   const [imageUploading, setImageUploading] = useState(false);
   const [fixedHeaderHeight, setFixedHeaderHeight] = useState(0);
   const [headerVisible, setHeaderVisible] = useState(true);
+  const isPopupOpen =
+    Boolean(selectedPost) ||
+    Boolean(selectedRecommendedTraveler) ||
+    Boolean(pendingDeletePost) ||
+    Boolean(expandedImage);
+
+  useBodyScrollLock(isPopupOpen);
 
   useEffect(() => {
     draftFormRef.current = form;
