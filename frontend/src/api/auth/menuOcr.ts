@@ -1,4 +1,5 @@
 import axios from "axios";
+import type { AxiosRequestConfig } from "axios";
 
 import client from "../client";
 
@@ -37,6 +38,8 @@ export interface MenuOcrPageResult {
   menus: OcrMenuItem[];
 }
 
+export type MenuOcrRequestOptions = Pick<AxiosRequestConfig, "signal" | "timeout">;
+
 export const MENU_OCR_MAX_FILE_COUNT = 5;
 export const MENU_OCR_MAX_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -69,7 +72,10 @@ export function validateMenuOcrFiles(files: File[]): void {
   }
 }
 
-export async function ocrMenuSingle(file: File): Promise<MenuOcrSingleResponse> {
+export async function ocrMenuSingle(
+  file: File,
+  options: MenuOcrRequestOptions = {}
+): Promise<MenuOcrSingleResponse> {
   validateMenuOcrFiles([file]);
 
   const formData = new FormData();
@@ -77,7 +83,8 @@ export async function ocrMenuSingle(file: File): Promise<MenuOcrSingleResponse> 
 
   try {
     const { data } = await client.post<MenuOcrSingleResponse>("/api/menu-ai/ocr", formData, {
-      timeout: 30000,
+      timeout: options.timeout ?? 30000,
+      signal: options.signal,
     });
 
     return {
@@ -89,11 +96,14 @@ export async function ocrMenuSingle(file: File): Promise<MenuOcrSingleResponse> 
   }
 }
 
-export async function requestMenuOcr(files: File[]): Promise<MenuOcrPageResult[]> {
+export async function requestMenuOcr(
+  files: File[],
+  options: MenuOcrRequestOptions = {}
+): Promise<MenuOcrPageResult[]> {
   validateMenuOcrFiles(files);
 
   if (files.length === 1) {
-    const data = await ocrMenuSingle(files[0]);
+    const data = await ocrMenuSingle(files[0], options);
 
     return [
       {
@@ -104,7 +114,7 @@ export async function requestMenuOcr(files: File[]): Promise<MenuOcrPageResult[]
     ];
   }
 
-  const data = await requestBatchMenuOcr(files);
+  const data = await requestBatchMenuOcr(files, options);
 
   return data.results.map((result, index) => ({
     fileName: files[index]?.name || `menu-${index + 1}`,
@@ -113,7 +123,10 @@ export async function requestMenuOcr(files: File[]): Promise<MenuOcrPageResult[]
   }));
 }
 
-async function requestBatchMenuOcr(files: File[]): Promise<MenuOcrBatchResponse> {
+async function requestBatchMenuOcr(
+  files: File[],
+  options: MenuOcrRequestOptions = {}
+): Promise<MenuOcrBatchResponse> {
   const formData = new FormData();
   files.forEach((file) => {
     formData.append("files", file);
@@ -121,7 +134,8 @@ async function requestBatchMenuOcr(files: File[]): Promise<MenuOcrBatchResponse>
 
   try {
     const { data } = await client.post<MenuOcrBatchResponse>("/api/menu-ai/ocr/batch", formData, {
-      timeout: 30000,
+      timeout: options.timeout ?? 30000,
+      signal: options.signal,
     });
 
     return {

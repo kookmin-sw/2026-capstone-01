@@ -23,6 +23,10 @@ interface MenuItem {
 
 type Step = "upload" | "preview" | "loading" | "select" | "order" | "error";
 
+const MENU_IMAGE_MAX_DIMENSION = 1600;
+const MENU_IMAGE_JPEG_QUALITY = 0.78;
+const MENU_OCR_REQUEST_TIMEOUT_MS = 120000;
+
 const TEMP_KOREAN: Record<string, string> = {
   HOT:  "뜨거운",
   WARM: "따뜻한",
@@ -75,6 +79,7 @@ export default function MenuPage() {
   const [partySize, setPartySize] = useState(1);
   const [showServingWarning, setShowServingWarning] = useState(false);
   const [warningFading, setWarningFading] = useState(false);
+  const [isPreparingImage, setIsPreparingImage] = useState(false);
 
   const [activeOrderSlide, setActiveOrderSlide] = useState(0);
 
@@ -205,18 +210,33 @@ export default function MenuPage() {
 
   const handleOpenPicker = () => fileRef.current?.click();
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     if (!files.length) return;
 
-    const mergedFiles = [...selectedFiles, ...files].slice(0, 5);
-    previewUrls.forEach((url) => URL.revokeObjectURL(url));
+    setIsPreparingImage(true);
+    try {
+      const preparedFiles: File[] = [];
+      for (const file of files) {
+        preparedFiles.push(await prepareMenuImageFile(file));
+      }
 
-    setSelectedFiles(mergedFiles);
-    setPreviewUrls(mergedFiles.map((file) => URL.createObjectURL(file)));
-    setActivePreviewIndex(0);
-    setErrorDetail("");
-    setStep("preview");
+      const mergedFiles = [...selectedFiles, ...preparedFiles].slice(0, 5);
+      previewUrls.forEach((url) => URL.revokeObjectURL(url));
+
+      setSelectedFiles(mergedFiles);
+      setPreviewUrls(mergedFiles.map((file) => URL.createObjectURL(file)));
+      setActivePreviewIndex(0);
+      setErrorDetail("");
+      setStep("preview");
+    } catch (error) {
+      setErrorDetail(
+        error instanceof Error ? error.message : "Could not prepare this menu image."
+      );
+      setStep("error");
+    } finally {
+      setIsPreparingImage(false);
+    }
 
     if (fileRef.current) fileRef.current.value = "";
   };
@@ -247,13 +267,19 @@ export default function MenuPage() {
     setActiveFileIndex(0);
     setActivePreviewIndex(0);
     setOcrProgress({ completed: 0, total: selectedFiles.length });
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), MENU_OCR_REQUEST_TIMEOUT_MS);
+    const requestOptions = {
+      signal: controller.signal,
+      timeout: MENU_OCR_REQUEST_TIMEOUT_MS,
+    };
 
     try {
       if (selectedFiles.length > 1) {
         const settled = await Promise.all(
           selectedFiles.map(async (file) => {
             try {
-              const data = await ocrMenuSingle(file);
+              const data = await ocrMenuSingle(file, requestOptions);
               if (ocrRunIdRef.current !== runId) return true;
 
               const pageResult: MenuOcrPageResult = {
@@ -293,7 +319,7 @@ export default function MenuPage() {
         return;
       }
 
-      const response = await requestMenuOcr(selectedFiles);
+      const response = await requestMenuOcr(selectedFiles, requestOptions);
       const nextMenuItems = mapResultsToMenuItems(response);
 
       setRestaurantName(response[0]?.restaurant_name || "");
@@ -312,7 +338,7 @@ export default function MenuPage() {
       const status = err.response?.status;
       const message = err.response?.data?.message || err.response?.data?.detail || err.message || "";
 
-      if (err.code === "ECONNABORTED") {
+      if (err.code === "ECONNABORTED" || err.code === "ERR_CANCELED") {
         setErrorDetail("The request timed out. Please try again.");
       } else if (status === 401) {
         setErrorDetail("Authorization failed (401).");
@@ -326,6 +352,7 @@ export default function MenuPage() {
 
       setStep("error");
     } finally {
+      window.clearTimeout(timeoutId);
       if (ocrRunIdRef.current === runId) {
         ocrRequestRef.current = false;
       }
@@ -561,11 +588,18 @@ export default function MenuPage() {
             <p style={styles.uploadSubtitle}>
               We'll translate the menu and prepare your order so you can show it at the restaurant.
             </p>
-            <button type="button" onClick={handleOpenPicker} style={styles.uploadBox}>
+            <button
+              type="button"
+              onClick={handleOpenPicker}
+              style={styles.uploadBox}
+              disabled={isPreparingImage}
+            >
               <div style={styles.plusButton}>
                 <img src="/icon-plus.svg" alt="Add" style={{ width: 28, height: 28, display: "block", filter: "brightness(0) invert(1)" }} />
               </div>
-              <p style={styles.uploadCopy}>Add Menu Photo</p>
+              <p style={styles.uploadCopy}>
+                {isPreparingImage ? "Preparing photo..." : "Add Menu Photo"}
+              </p>
             </button>
             <button type="button" disabled style={styles.translateButtonDisabled}>
               Start Ordering
@@ -1105,6 +1139,100 @@ function normalizePrice(raw: number): number {
 
 function getNextMenuItemId(items: MenuItem[]): number {
   return items.reduce((maxId, item) => Math.max(maxId, item.id), 0) + 1;
+}
+
+async function prepareMenuImageFile(file: File): Promise<File> {
+  if (!isMenuImageFile(file)) return file;
+  if (isPassthroughImageFile(file)) return file;
+
+  const decoded = await decodeMenuImageFile(file);
+  if (!decoded) return file;
+
+  const scale = Math.min(
+    1,
+    MENU_IMAGE_MAX_DIMENSION / Math.max(decoded.width, decoded.height)
+  );
+  const width = Math.max(1, Math.round(decoded.width * scale));
+  const height = Math.max(1, Math.round(decoded.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    decoded.close();
+    return file;
+  }
+
+  context.drawImage(decoded.source, 0, 0, width, height);
+  decoded.close();
+
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/jpeg", MENU_IMAGE_JPEG_QUALITY);
+  });
+
+  if (!blob) return file;
+
+  return new File([blob], toJpegFileName(file.name), {
+    type: "image/jpeg",
+    lastModified: file.lastModified,
+  });
+}
+
+function toJpegFileName(fileName: string): string {
+  const baseName = fileName.replace(/\.[^.]+$/, "");
+  return `${baseName || "menu-photo"}.jpg`;
+}
+
+function isMenuImageFile(file: File): boolean {
+  return (
+    file.type.startsWith("image/") ||
+    /\.(jpe?g|png|webp|bmp|heic|heif)$/i.test(file.name)
+  );
+}
+
+function isPassthroughImageFile(file: File): boolean {
+  return file.type === "image/gif" || file.type === "image/tiff" || /\.(gif|tiff?)$/i.test(file.name);
+}
+
+async function decodeMenuImageFile(file: File): Promise<{
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  close: () => void;
+} | null> {
+  if (typeof createImageBitmap === "function") {
+    const bitmap = await createImageBitmap(file).catch(() => null);
+    if (bitmap) {
+      return {
+        source: bitmap,
+        width: bitmap.width,
+        height: bitmap.height,
+        close: () => bitmap.close(),
+      };
+    }
+  }
+
+  return new Promise((resolve) => {
+    const imageUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      resolve({
+        source: image,
+        width: image.naturalWidth || image.width,
+        height: image.naturalHeight || image.height,
+        close: () => URL.revokeObjectURL(imageUrl),
+      });
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(imageUrl);
+      resolve(null);
+    };
+
+    image.src = imageUrl;
+  });
 }
 
 function mapResultsToMenuItems(
