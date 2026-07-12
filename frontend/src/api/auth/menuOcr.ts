@@ -167,7 +167,7 @@ function normalizeMenus(value: unknown): OcrMenuItem[] {
   });
 }
 
-async function ocrMenuSingleWithRetry(
+async function _ocrMenuSingleWithRetry(
   file: File,
   options: MenuOcrRequestOptions
 ): Promise<MenuOcrSingleResponse> {

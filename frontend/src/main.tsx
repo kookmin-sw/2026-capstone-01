@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
-import App from "./App";
+import App from "./app/App";
 
 const iconLink =
   document.querySelector<HTMLLinkElement>("link[rel='icon']") ??

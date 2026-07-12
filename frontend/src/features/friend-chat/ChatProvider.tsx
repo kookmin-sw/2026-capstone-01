@@ -14,9 +14,8 @@ import { Capacitor } from "@capacitor/core";
 import { getMyProfile } from "../../api/auth";
 import { getFriendDetail } from "../../api/friend";
 import { readAccessToken } from "../../api/client";
-import { notifyUnauthorized } from "../../utils/tokens";
+import { notifyUnauthorized } from "../../shared/lib/tokens";
 import {
-  createDirectChatRoom,
   getChatMessages,
   getChatRoom,
   getChatRooms,
@@ -26,7 +25,7 @@ import {
   type LastMessageContent,
   type SystemContent,
 } from "../../api/chat";
-import { reportChatNetworkError } from "../../utils/chatDiagnostics";
+import { reportChatNetworkError } from "../../shared/lib/chatDiagnostics";
 
 type ConnectionState = "connecting" | "ready" | "reconnecting" | "closed";
 

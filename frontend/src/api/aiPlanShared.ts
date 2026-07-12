@@ -4,7 +4,7 @@ import {
 } from "./auth/config";
 import { Capacitor } from "@capacitor/core";
 
-import { readToken } from "../utils/tokens";
+import { readToken } from "../shared/lib/tokens";
 
 export const BRAND = "#58C9D4";
 export const ACCENT = "#FFB765";

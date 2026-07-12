@@ -1,5 +1,5 @@
 import client from "./client";
-import type { RecommendationCandidate } from "../utils/mateRecommendation";
+import type { RecommendationCandidate } from "../shared/lib/mateRecommendation";
 
 export interface RecommendationCandidatesResponse {
   items: RecommendationCandidate[];
@@ -95,7 +95,7 @@ function toStringArray(value: unknown): string[] {
   }
   if (typeof value === "string") {
     return value
-      .split(/[,\|/]/)
+      .split(/[,|/]/)
       .map((item) => item.trim())
       .filter(Boolean);
   }

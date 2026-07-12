@@ -7,7 +7,7 @@ import {
   AUTHORIZATION_BEARER,
   getRequiredAuthorizationBearer,
 } from "./auth/config";
-import { notifyForbidden, notifyUnauthorized, readToken, removeToken } from "../utils/tokens";
+import { notifyForbidden, notifyUnauthorized, readToken, removeToken } from "../shared/lib/tokens";
 
 const DEBUG_AUTH_LOG = import.meta.env.DEV && import.meta.env.VITE_DEBUG_AUTH_LOG === "true";
 

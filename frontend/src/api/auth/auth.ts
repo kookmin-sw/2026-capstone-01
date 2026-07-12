@@ -1,6 +1,6 @@
 import { Capacitor } from "@capacitor/core";
-import { notifyForbidden, notifyUnauthorized, readToken, removeToken } from "../../utils/tokens";
-import { unregisterFcmToken } from "../../lib/fcm";
+import { notifyForbidden, notifyUnauthorized, readToken, removeToken } from "../../shared/lib/tokens";
+import { unregisterFcmToken } from "../../lib/firebase/messaging";
 import { getUserAuthorizationBearer } from "../client";
 import {
   API_BASE_URL,
