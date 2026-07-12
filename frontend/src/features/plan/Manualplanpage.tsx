@@ -1224,14 +1224,14 @@ export default function ManualPlanPage({
       <div style={styles.phoneFrame}>
         <div style={styles.topBar}>
           <button type="button" onClick={goBack} style={styles.iconButton}>
-            <img src="/icon-back.svg" alt="Back" style={styles.backIcon} />
+            <img src="/icon_back.svg" alt="Back" style={styles.backIcon} />
           </button>
           <h1 style={styles.headerLogo}>
             Manual Plan
           </h1>
           {!isComplete ? (
             <button type="button" onClick={() => setShowShare(true)} style={styles.shareButton}>
-              <img src="/UserAddIcon.svg" alt="UserAdd" style={styles.userAddButton}></img>
+              <img src="/icon_user_add.svg" alt="UserAdd" style={styles.userAddButton}></img>
             </button>
           ) : (
             <span style={styles.headerSpacer} />
@@ -1242,7 +1242,7 @@ export default function ManualPlanPage({
 
         {isComplete ? (
           <section style={{ ...styles.card, ...styles.completeCard }}>
-            <img src="/map_success.svg" alt="" style={styles.completeImage} />
+            <img src="/components_map_success.svg" alt="" style={styles.completeImage} />
             <h1 style={styles.sectionTitleEnd}>All set!</h1>
             <p style={styles.sectionCopy}>
               {saveMessage || `Saved to My Page (${buildPlanTitle("manual", tripTitle)})`}
@@ -1500,10 +1500,10 @@ export default function ManualPlanPage({
                               style={styles.editButton}
                             >
                               {editingStopId === stop.plannedId ? (
-                                <img width="16" height="16" src="/CheckIcon.svg">
+                                <img width="16" height="16" src="/icon_check.svg">
                                 </img>
                               ) : (
-                                <img width="16" height="16" src="/PostIcon.svg">
+                                <img width="16" height="16" src="/icon_post.svg">
                                 </img>
                               )}
                             </button>
@@ -1516,7 +1516,7 @@ export default function ManualPlanPage({
                               }}
                               disabled={!canDeleteStop}
                             >
-                                <img width="16" height="16" src="/icon-close.svg">
+                                <img width="16" height="16" src="/icon_close.svg">
                                 </img>
                             </button>
                           </div>
@@ -1659,7 +1659,7 @@ export default function ManualPlanPage({
                   style={styles.searchButton}
                   disabled={isLoading}
                 >
-                  <img src="/SearchIcon.svg" alt="search" style={styles.searchIcon}></img>
+                  <img src="/icon_search.svg" alt="search" style={styles.searchIcon}></img>
                 </button>
               </div>
             </label>

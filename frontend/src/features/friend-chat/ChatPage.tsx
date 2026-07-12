@@ -36,7 +36,7 @@ type FriendManagerTab = "friend" | "request";
 type LoadingKey = "received" | "sent" | "friends" | "blocks";
 type GroupSheetMode = "collapsed" | "expanded";
 
-const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
+const DEFAULT_PROFILE_IMAGE_URL = "/components_default_profile.png";
 
 export default function ChatPage({
   embedded = false,
@@ -554,7 +554,7 @@ export default function ChatPage({
                 style={styles.backButton}
                 onClick={() => navigateBackOrFallback(navigate, "/home")}
               >
-                <img src="/icon-back.svg" alt="" style={styles.headerIcon} />
+                <img src="/icon_back.svg" alt="" style={styles.headerIcon} />
               </button>
             )}
             {embedded ? null : <h1 style={styles.title}>Chat</h1>}
@@ -565,7 +565,7 @@ export default function ChatPage({
                 onClick={() => setIsGroupCreateOpen(true)}
                 aria-label="Create group chat"
               >
-                <img src="/icon-plus.svg" alt="" style={styles.friendManagerIcon} />
+                <img src="/icon_plus.svg" alt="" style={styles.friendManagerIcon} />
               </button>
               <button
                 type="button"
@@ -576,7 +576,7 @@ export default function ChatPage({
                 }}
                 aria-label="Manage friends"
               >
-                <img src="/chatFriendIcon.svg" alt="" style={styles.friendManagerIcon} />
+                <img src="/icon_chat_friend.svg" alt="" style={styles.friendManagerIcon} />
                 {pendingCount > 0 ? <span style={styles.addButtonDot} /> : null}
               </button>
             </div>
@@ -592,7 +592,7 @@ export default function ChatPage({
               placeholder="Search"
               style={styles.searchInput}
             />
-            <img src="/icon-search.svg" alt="" style={styles.searchIconImage} />
+            <img src="/icon_search.svg" alt="" style={styles.searchIconImage} />
           </label>
         )}
 
@@ -644,7 +644,7 @@ export default function ChatPage({
                     style={styles.managerCloseButton}
                     onClick={() => setIsFriendManagerOpen(false)}
                   >
-                    <img src="/icon-close.svg" alt="" style={styles.closeIcon} />
+                    <img src="/icon_close.svg" alt="" style={styles.closeIcon} />
                   </button>
                 </div>
 

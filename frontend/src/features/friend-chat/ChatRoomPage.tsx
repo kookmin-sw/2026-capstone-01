@@ -18,7 +18,7 @@ import ConfirmToast from "../../components/ConfirmToast";
 import { useChat } from "./ChatProvider";
 
 const BOTTOM_THRESHOLD_PX = 160;
-const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
+const DEFAULT_PROFILE_IMAGE_URL = "/components_default_profile.png";
 
 export default function ChatRoomPage() {
   const { id } = useParams();
@@ -641,7 +641,7 @@ export default function ChatRoomPage() {
             onClick={() => setInfoOpen(true)}
             aria-label="Open chat info"
           >
-            <img src="/icon-menu.svg" alt="" style={styles.infoIcon} />
+            <img src="/icon_hamburger.svg" alt="" style={styles.infoIcon} />
           </button>
         </span>
       </header>

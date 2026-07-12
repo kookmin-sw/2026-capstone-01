@@ -596,7 +596,7 @@ export default function MenuPage() {
               disabled={isPreparingImage}
             >
               <div style={styles.plusButton}>
-                <img src="/icon-plus.svg" alt="Add" style={{ width: 28, height: 28, display: "block", filter: "brightness(0) invert(1)" }} />
+                <img src="/icon_plus.svg" alt="Add" style={{ width: 28, height: 28, display: "block", filter: "brightness(0) invert(1)" }} />
               </div>
               <p style={styles.uploadCopy}>
                 {isPreparingImage ? "Preparing photo..." : "Add Menu Photo"}

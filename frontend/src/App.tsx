@@ -251,7 +251,7 @@ function ChatMessageToast() {
       >
         <span style={chatToastStyles.icon}>
           <img
-            src={toast.imageUrl || "/default-profile.png"}
+            src={toast.imageUrl || "/components_default_profile.png"}
             alt=""
             style={chatToastStyles.iconImage}
           />

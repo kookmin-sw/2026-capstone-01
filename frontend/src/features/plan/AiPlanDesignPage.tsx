@@ -428,7 +428,7 @@ export default function AiPlanDesignPage({
       <div style={styles.phoneFrame}>
         <div style={styles.headerRow}>
           <button type="button" onClick={goBack} style={styles.iconButton}>
-            <img src="/icon-back.svg" alt="Back" style={styles.backIcon} />
+            <img src="/icon_back.svg" alt="Back" style={styles.backIcon} />
           </button>
           <h1 style={styles.headerLogo}>
             AI Plan

@@ -383,7 +383,7 @@ export default function AiPlanResultPage({
         <div style={styles.phoneFrame}>
           <div style={styles.headerRow}>
             <button type="button" onClick={onBack} style={styles.iconButton}>
-            <img src="/icon-back.svg" alt="Back" style={styles.backIcon} />
+            <img src="/icon_back.svg" alt="Back" style={styles.backIcon} />
             </button>
             <h1 style={styles.headerLogo}>
               AI Plan
@@ -421,7 +421,7 @@ export default function AiPlanResultPage({
       <div style={styles.phoneFrame}>
         <div style={styles.headerRow}>
           <button type="button" onClick={onBack} style={styles.iconButton}>
-            <img src="/icon-back.svg" alt="Back" style={styles.backIcon} />
+            <img src="/icon_back.svg" alt="Back" style={styles.backIcon} />
             </button>
             <h1 style={styles.headerLogo}>
               AI Plan

@@ -77,7 +77,7 @@ export default function AppShell() {
               </span>
               {active && (
                 <img
-                  src="/CurrentNavBar.svg"
+                  src="/components_current_nav_bar.svg"
                   alt=""
                   aria-hidden="true"
                   style={styles.navActiveBar}
@@ -158,11 +158,11 @@ function getNavIconAsset(
   name: (typeof TAB_ITEMS)[number]["icon"],
   active: boolean
 ): string | null {
-  if (name === "home") return active ? "/HomeIcon_active.svg" : "/HomeIcon.svg";
-  if (name === "plan") return active ? "/PlanIcon_active.svg" : "/PlanIcon.svg";
-  if (name === "menu") return active ? "/MenuIcon_active.svg" : "/MenuIcon.svg";
-  if (name === "mate") return active ? "/MateChatIcon_active.svg" : "/MateChatIcon.svg";
-  if (name === "my") return active ? "/MyPageIcon_active.svg" : "/MyPageIcon.svg";
+  if (name === "home") return active ? "/icon_home_active.svg" : "/icon_home.svg";
+  if (name === "plan") return active ? "/icon_plan_active.svg" : "/icon_plan.svg";
+  if (name === "menu") return active ? "/icon_menu_active.svg" : "/icon_menu.svg";
+  if (name === "mate") return active ? "/icon_mate_chat_active.svg" : "/icon_mate_chat.svg";
+  if (name === "my") return active ? "/icon_my_page_active.svg" : "/icon_my_page.svg";
   return null;
 }
 

@@ -63,7 +63,7 @@ const GENDER_LABELS: Record<PreferredGender, string> = {
   female: "Female",
 };
 
-const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
+const DEFAULT_PROFILE_IMAGE_URL = "/components_default_profile.png";
 
 const EMPTY_FORM = {
   title: "",
@@ -932,7 +932,7 @@ export default function MatePage() {
           onMouseDown={() => handleSearch(searchInput)}
           aria-label="Search"
         >
-          <img src="/SearchIcon.svg" alt="" aria-hidden="true" width="18" height="18" />
+          <img src="/icon_search.svg" alt="" aria-hidden="true" width="18" height="18" />
         </button>
       </div>
 
@@ -1018,7 +1018,7 @@ export default function MatePage() {
           />
         </span>
         <span style={styles.searchAction} aria-hidden="true">
-          <img src="/SearchIcon.svg" alt="" aria-hidden="true" width="18" height="18" />
+          <img src="/icon_search.svg" alt="" aria-hidden="true" width="18" height="18" />
         </span>
       </label>
     </section>
@@ -1028,7 +1028,7 @@ export default function MatePage() {
     <>
       <header style={styles.header}>
         <div style={styles.headerLogoRow}>
-          <img src="/kripInAppLogo.svg" alt="KRIP" style={styles.headerLogo} />
+          <img src="/components_krip_in_app_logo.svg" alt="KRIP" style={styles.headerLogo} />
         </div>
         <div style={styles.headerActions}>
           {mainTab === "mate" ? (
@@ -1038,7 +1038,7 @@ export default function MatePage() {
               onClick={() => handleTabChange(tab === "list" ? "write" : "list")}
             >
               {tab === "list" ? (
-                <img src="/PostIcon.svg" alt="Post" style={{ width: 28, height: 28, objectFit: "contain", display: "block" }} />
+                <img src="/icon_post.svg" alt="Post" style={{ width: 28, height: 28, objectFit: "contain", display: "block" }} />
               ) : "Cancel"}
             </button>
           ) : (
@@ -1049,7 +1049,7 @@ export default function MatePage() {
                 onClick={openChatGroupCreate}
                 aria-label="Create group chat"
               >
-                <img src="/icon-plus.svg" alt="" style={{ ...styles.headerIcon, ...styles.headerPlusIcon }} />
+                <img src="/icon_plus.svg" alt="" style={{ ...styles.headerIcon, ...styles.headerPlusIcon }} />
               </button>
               <button
                 type="button"
@@ -1057,7 +1057,7 @@ export default function MatePage() {
                 onClick={openChatFriendManager}
                 aria-label="Manage friends"
               >
-                <img src="/chatFriendIcon.svg" alt="" style={styles.headerIcon} />
+                <img src="/icon_chat_friend.svg" alt="" style={styles.headerIcon} />
               </button>
             </>
           )}

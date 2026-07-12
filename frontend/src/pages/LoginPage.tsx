@@ -116,7 +116,7 @@ export default function LoginPage() {
     <div style={styles.wrapper}>
       <div style={styles.center}>
         <div style={styles.heroFrame}>
-          <img src="/krip_icon.svg" alt="Krip login" style={styles.heroImage} />
+          <img src="/components_krip_logo.svg" alt="Krip login" style={styles.heroImage} />
           <div style={styles.bottom}>
             <button style={styles.googleBtn} onClick={handleGoogleLogin} disabled={isBusy}>
               <GoogleIcon />

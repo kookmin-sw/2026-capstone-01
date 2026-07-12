@@ -25,7 +25,7 @@ import {
 } from "../api/friend";
 import ConfirmToast from "../components/ConfirmToast";
 
-const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
+const DEFAULT_PROFILE_IMAGE_URL = "/components_default_profile.png";
 
 export default function UserFeedPage() {
   const { id } = useParams();

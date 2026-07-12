@@ -11,7 +11,7 @@ import {
 } from "../api/feed";
 import { getFriendDetail, sendFriendRequest, type FriendshipStatus } from "../api/friend";
 
-const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
+const DEFAULT_PROFILE_IMAGE_URL = "/components_default_profile.png";
 
 export default function FeedPopup({
   userId,

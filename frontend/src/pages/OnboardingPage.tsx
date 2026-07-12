@@ -15,8 +15,8 @@ const GRAY5 = "#4d4d4d";
 const GRAY6 = "#222";
 const GRAY_AAA = "#aaa";
 
-const imgPlane = "/krip_register_plane.png";
-const imgLogo = "/krip_register_logo.png";
+const imgPlane = "/components_krip_register_plane.png";
+const imgLogo = "/components_krip_register_logo.png";
 
 // LoginPage sends { email, name } — RegisterPage (legacy) sent { registerForm }
 type RegisterLocationState = {

@@ -1706,7 +1706,7 @@ function animateClosePlaceDetail(): void {
                         onClick={() => void removeRecentSearch(keyword)}
                         aria-label={`Delete ${keyword}`}
                       >
-                        <img src="/icon-close.svg" alt="" style={styles.recentDeleteIcon} />
+                        <img src="/icon_close.svg" alt="" style={styles.recentDeleteIcon} />
                       </button>
                     </div>
                   ))}
@@ -1751,7 +1751,7 @@ function isDuplicatePlaceDescription(place: Place): boolean {
 function SearchIcon() {
   return (
     <img
-      src="/SearchIcon.svg"
+      src="/icon_search.svg"
       alt="search"
       width={20}
       height={20}
@@ -1785,7 +1785,7 @@ function HomeHeader({
       <div style={styles.header}>
         <div style={styles.headerLogoWrap}>
           <img
-            src="/kripInAppLogo.svg"
+            src="/components_krip_in_app_logo.svg"
             alt="KRIP"
             style={styles.headerLogo}
           />
@@ -1846,7 +1846,7 @@ function InfoIcon() {
 function BookmarkIcon({ filled }: { filled: boolean }) {
   return (
     <img
-      src={filled ? "/FavoriteIcon_active.svg" : "/FavoriteIcon.svg"}
+      src={filled ? "/icon_favorite_active.svg" : "/icon_favorite.svg"}
       alt=""
       aria-hidden="true"
       width={24}

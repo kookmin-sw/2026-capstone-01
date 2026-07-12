@@ -232,7 +232,7 @@ export default function NotificationBell({
                   }}
                 >
                   <img
-                    src={request.peer.profile_image_url || "/default-profile.png"}
+                    src={request.peer.profile_image_url || "/components_default_profile.png"}
                     alt=""
                     style={styles.notificationAvatar}
                   />
@@ -335,7 +335,7 @@ function NotificationItem({
     >
       <button type="button" style={styles.notificationMain} onClick={onOpen}>
         <img
-          src={item.actor_profile_image_url || "/default-profile.png"}
+          src={item.actor_profile_image_url || "/components_default_profile.png"}
           alt=""
           style={styles.notificationAvatar}
         />
@@ -379,7 +379,7 @@ function NotificationItem({
 function BellIcon() {
   return (
     <img
-      src="/NotificationBellIcon.svg"
+      src="/icon_notification_bell.svg"
       alt=""
       aria-hidden="true"
       width={24}

@@ -45,7 +45,7 @@ import { setGlobalNotificationMuted } from "../api/notification";
 import { showAppToast } from "../utils/appToast";
 import { useBodyScrollLock } from "../utils/useBodyScrollLock";
 
-const DEFAULT_PROFILE_IMAGE_URL = "/default-profile.png";
+const DEFAULT_PROFILE_IMAGE_URL = "/components_default_profile.png";
 
 type PreferenceOption = {
   key: string;
@@ -1269,7 +1269,7 @@ export default function MyPage() {
           style={styles.profileActionButton}
           onClick={() => setIsSettingsOpen(true)}
         >
-          <img src="/SettingsIcon.svg" alt="" style={styles.profileActionIcon} />
+          <img src="/icon_settings.svg" alt="" style={styles.profileActionIcon} />
           <span>settings</span>
         </button>
         <span style={styles.profileActionDivider} />
@@ -1289,7 +1289,7 @@ export default function MyPage() {
           }}
           disabled={isFeedUploading}
         >
-          <img src="/PostIcon.svg" alt="" style={styles.profileActionIcon} />
+          <img src="/icon_post.svg" alt="" style={styles.profileActionIcon} />
           <span>new post</span>
         </button>
       </section>
